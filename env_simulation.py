@@ -4,7 +4,7 @@ import re
 import ast
 import sys
 
-from env import _REQUEST_SCREENSHOT_
+from env import _REQUEST_SCREENSHOT_, _PROPER_HAND_POSITIONING_
 from actions import actions_ref
 
 INFERECE_API = "http://localhost:8005/predict"
@@ -14,6 +14,8 @@ MAIN_TASK = sys.argv[1]
 ON_PLAY = True
 
 at_init_state = True
+
+_PROPER_HAND_POSITIONING_()
 
 while ON_PLAY:
     imagebytes = _REQUEST_SCREENSHOT_()['image']

@@ -124,3 +124,5 @@ _RESET_ = lambda: Reset()
 _REQUEST_SCREENSHOT_ = lambda: RequestScreenshot()
 _REQUEST_ANNOTATION_ = lambda: RequestAnnotation()
 _REQUEST_JSON_ = lambda: RequestJson()
+
+_PROPER_HAND_POSITIONING_ = lambda: TransformHands((-0.065, 0, 0.350), (0, 0, 0), (0.065, 0, 0.350), (0, 0, 0))

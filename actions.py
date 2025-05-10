@@ -7,6 +7,12 @@ from env import (
     _PAN_RIGHT_,
     _TILT_UP_,
     _TILT_DOWN_,
+    _XTNFWD_LEFT_,
+    _PLLBCK_LEFT_,
+    _XTNFWD_RIGHT_,
+    _PLLBCK_RIGHT_,
+    _GRIP_LEFT_,
+    _GRIP_RIGHT_,
 )
 
 actions_ref = {
@@ -18,4 +24,10 @@ actions_ref = {
     'PAN_RIGHT': _PAN_RIGHT_,
     'TILT_UP': _TILT_UP_,
     'TILT_DOWN': _TILT_DOWN_,
+    'EXTEND_LEFT': _XTNFWD_LEFT_,
+    'PULL_LEFT': _PLLBCK_LEFT_,
+    'EXTEND_RIGHT': _XTNFWD_RIGHT_,
+    'PULL_RIGHT': _PLLBCK_RIGHT_,
+    'GRIP_LEFT': _GRIP_LEFT_,
+    'GRIP_RIGHT': _GRIP_RIGHT_,
 }
