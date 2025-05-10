@@ -111,6 +111,7 @@ class GeminiPro:
         if timestep == 1:
             main_task = request['task']
 
+        state = str(request['state'])
         screenshot = str(request['image']).encode('utf-8')
         screenshot = base64.b64decode(screenshot)
         imagebytes = BytesIO(screenshot)
@@ -124,7 +125,8 @@ class GeminiPro:
         if timestep == 1:
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
-                        f"## SEMANTIC MEMORY: {self.base_semantic_memory}\n")
+                        f"## SEMANTIC MEMORY: {self.base_semantic_memory}\n"
+                        f"{state}")
             
             contents = [curr_obs_header, screenshot, user_msg]
             
@@ -148,7 +150,8 @@ class GeminiPro:
 
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
-                        f"## RECALL FROM SEMANTIC MEMORY: {recall}\n")
+                        f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
+                        f"{state}")
     
             contents = [curr_obs_header, screenshot, user_msg]
 
@@ -220,7 +223,8 @@ class GeminiPro:
         else:
             # use updated semantic memory
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"## SEMANTIC MEMORY: {self.base_semantic_memory}\n")
+                        f"## SEMANTIC MEMORY: {self.base_semantic_memory}\n"
+                        f"{state}")
             contents = [curr_obs_header, screenshot, user_msg]
 
             semantic_learner_response = self.chat.send_message(
@@ -243,7 +247,8 @@ class GeminiPro:
 
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
-                        f"## EPISODIC MEMORY: {self.episodic_memory}\n")
+                        f"## EPISODIC MEMORY: {self.episodic_memory}\n"
+                        f"{state}")
             contents = [curr_obs_header, screenshot, user_msg]
 
             response = self.chat.send_message(

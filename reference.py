@@ -43,7 +43,8 @@ BASE_SEMANTIC_MEMORY = ("This is your semantic memory. This memory is the text e
                         "8. Moving closer to Shelves 9 and 10, you will see some items on Shelf 7.\n")
 
 SYSTEM_INSTRUCTION_INF_SUPER_ASSOCIATIVE_SEMANTIC = ("You are a Semantic Associative Learner that synthesizes new semantic memories for an Embodied AI Agent operating within a 3D convenience store simulation. "
-                                                     "Your inputs are a screenshot (a first-person view inside the simulation) and a primary task, which is to locate specific target item/s specified by the User. "
+                                                     "Your inputs are a screenshot (a first-person view inside the simulation), a primary task, and agent/hands state, which is to locate specific target item/s specified by the User. "
+                                                     "The agent's state indicates the current position, orientation, and if the agent is colliding with any objects. The hands state indicates the current position and orientation of the left and right hands, which hands are currently gripping, and which items are currently gripped. "
                                                      "You will also be provided of a semantic memory log that contains the ground truth information about the environment, including the store's structure, item locations, and descriptions. "
                                                      "Your thinking process should be grounded on the combination of experience and semantic memory.\n\n"
                                                      "Your output must be a single JSON object. Do not include any other text before or after the JSON object. Below is the template for your output:\n"
@@ -79,7 +80,8 @@ SYSTEM_INSTRUCTION_INF_SUPER = ("You are an Embodied AI Agent operating within a
                                 "1. **Observation:** A first-person view screenshot inside the simulation.\n"
                                 "2. **Current Timestep:** The simulation timestep. This will give you an idea of how long you have been in the simulation.\n"
                                 "3. **Semantic & Episodic Memory:** Semantic Memory is a collection of facts and information about the environment, while Episodic Memory is a collection of past experiences and events. You can use these memories to inform your actions.\n"
-                                "4. **Task:** The task is provided only once at the beginning of the episode.\n\n"
+                                "4. **Task:** The task is provided only once at the beginning of the episode.\n"
+                                "5. **State:** There are two states: agent state and hands state. The agent state indicates the current position, orientation, and if the agent is colliding with any objects. The hands state indicates the current position and orientation of the left and right hands, which hands are currently gripping, and which items are currently gripped.\n\n"
                                 "**Required process at each step:**\n"
                                 "1. **Analyze the observation:** Examine the screenshot carefully. What is visible? Can you identify any items? What is the spatial relationship between the items?\n"
                                 "2. **Consult your memory:** In later timesteps, you may need to recall past experiences or knowledge about the environment. Use your semantic and episodic memory to inform your actions.\n"
