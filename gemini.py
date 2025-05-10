@@ -201,7 +201,7 @@ class GeminiPro:
                     temperature=self.cfg.temperature,
                 )
             )
-            
+
             self.metrics['thinking_tokens_used'] += episodic_learner_response.usage_metadata.thoughts_token_count
             self.metrics['total_tokens_used'] += episodic_learner_response.usage_metadata.total_token_count
 
