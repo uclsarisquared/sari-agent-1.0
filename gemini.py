@@ -82,6 +82,7 @@ class GeminiPro:
         if timestep == 1:
             main_task = request['task']
 
+        state = str(request['state'])
         screenshot = str(request['image']).encode('utf-8')
         screenshot = base64.b64decode(screenshot)
         imagebytes = BytesIO(screenshot)
@@ -90,20 +91,18 @@ class GeminiPro:
         curr_obs_header = "## CURRENT OBSERVATION:\n"
         if timestep == 1:
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"## MAIN TASK: {main_task}\n")
+                        f"## MAIN TASK: {main_task}\n"
+                        f"{state}")
         else:
-            user_msg = (f"## CURRENT TIMESTEP: {timestep}\n")
+            user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
+                        f"{state}")
 
         contents = [curr_obs_header, screenshot, user_msg]
 
         response = self.chat.send_message(message=contents)
-        self.metrics['thinking_tokens_used'] += response.usage_metadata.thoughts_token_count
-        self.metrics['total_tokens_used'] += response.usage_metadata.total_token_count
 
-        print('*' * 50)
-        print(f"Cumulative tokens used: {self.metrics['total_tokens_used']}")
-        print(f"Cumulative thoughts tokens used: {self.metrics['thinking_tokens_used']}")
-        print('*' * 50)
+        print(f"[RESPONSE]: {response.text}")
+        print("-" * 50)
         
         return response.text
 
@@ -139,9 +138,6 @@ class GeminiPro:
                 )
             )
             
-            self.metrics['thinking_tokens_used'] += semantic_learner_response.usage_metadata.thoughts_token_count
-            self.metrics['total_tokens_used'] += semantic_learner_response.usage_metadata.total_token_count
-            
             semantic_learner_response_json = re.search(self.extractable_json_structured_output, semantic_learner_response.text)[1]
             semantic_learner_response_json = ast.literal_eval(semantic_learner_response_json)
             new_semantic_memory = semantic_learner_response_json['new_semantic_memory']
@@ -162,32 +158,30 @@ class GeminiPro:
                     temperature=self.cfg.temperature,
                 )
             )
-            
-            self.metrics['thinking_tokens_used'] += response.usage_metadata.thoughts_token_count
-            self.metrics['total_tokens_used'] += response.usage_metadata.total_token_count
+
             
             # check if 'STOP' in response.text
             response_json = re.search(self.extractable_json_structured_output, response.text)[1]
             response_json = ast.literal_eval(response_json)
             action = response_json['actions']
-            
+
             for act in action:
                 if act == "STOP":
                     print("STOP action detected. Exiting...")
-                    print("*" * 50)
-                    print(f"Cumulative tokens used: {self.metrics['total_tokens_used']}")
-                    print(f"Cumulative thoughts tokens used: {self.metrics['thinking_tokens_used']}")
-                    print("*" * 50)
                     
+                    print(">" * 50)
                     print(f"New Semantic Memory: {new_semantic_memory}")
+                    print('*' * 50)
                     print(f"Recall: {recall}")
+                    print('*' * 50)
                     print(f"Episodic Memory: {self.episodic_memory}")
+                    print('<' * 50)
 
                     return response.text
 
             # get conversation history
             history = ""
-            for message in self.chat.get_history()[-8:]:    # get the last 8 exchanges
+            for message in self.chat.get_history()[-2:]:    # get the last two messages
                 role = message.role
                 content = message.parts[0].text
                 history += f"{role}: {content}\n"
@@ -197,13 +191,11 @@ class GeminiPro:
             episodic_learner_response = self.chat.send_message(
                 message=[history],
                 config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),    # no thinking budget
                     system_instruction=SYSTEM_INSTRUCTIONS_REF[self.cfg.mode]['episodic'],
                     temperature=self.cfg.temperature,
                 )
             )
-
-            self.metrics['thinking_tokens_used'] += episodic_learner_response.usage_metadata.thoughts_token_count
-            self.metrics['total_tokens_used'] += episodic_learner_response.usage_metadata.total_token_count
 
             episodic_learner_response_json = re.search(self.extractable_json_structured_output, episodic_learner_response.text)[1]
             episodic_learner_response_json = ast.literal_eval(episodic_learner_response_json)
@@ -234,9 +226,6 @@ class GeminiPro:
                     temperature=self.cfg.temperature,
                 )
             )
-
-            self.metrics['thinking_tokens_used'] += semantic_learner_response.usage_metadata.thoughts_token_count
-            self.metrics['total_tokens_used'] += semantic_learner_response.usage_metadata.total_token_count
             
             # semantic memory synthesis
             semantic_learner_response_json = re.search(self.extractable_json_structured_output, semantic_learner_response.text)[1]
@@ -259,14 +248,6 @@ class GeminiPro:
                 )
             )
 
-            try:
-                self.metrics['thinking_tokens_used'] += response.usage_metadata.thoughts_token_count
-                self.metrics['total_tokens_used'] += response.usage_metadata.total_token_count
-            except Exception as e:
-                print(f"Error in response metadata: {e}")
-                self.metrics['thinking_tokens_used'] += 0
-                self.metrics['total_tokens_used'] += 0
-
             # check if 'STOP' in response.text
             response_json = re.search(self.extractable_json_structured_output, response.text)[1]
             response_json = ast.literal_eval(response_json)
@@ -274,20 +255,20 @@ class GeminiPro:
             for act in action:
                 if act == "STOP":
                     print("STOP action detected. Exiting...")
-                    print("*" * 50)
-                    print(f"Cumulative tokens used: {self.metrics['total_tokens_used']}")
-                    print(f"Cumulative thoughts tokens used: {self.metrics['thinking_tokens_used']}")
-                    print("*" * 50)
                     
+                    print(">" * 50)
                     print(f"New Semantic Memory: {new_semantic_memory}")
+                    print('*' * 50)
                     print(f"Recall: {recall}")
+                    print('*' * 50)
                     print(f"Episodic Memory: {self.episodic_memory}")
+                    print('<' * 50)
                     
                     return response.text
 
             # get conversation history
             history = ""
-            for message in self.chat.get_history()[-8:]:
+            for message in self.chat.get_history()[-2:]:
                 role = message.role
                 content = message.parts[0].text
                 history += f"{role}: {content}\n"
@@ -297,13 +278,11 @@ class GeminiPro:
             episodic_learner_response = self.chat.send_message(
                 message=[history],
                 config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),    # no thinking budget
                     system_instruction=SYSTEM_INSTRUCTIONS_REF[self.cfg.mode]['episodic'],
                     temperature=self.cfg.temperature,
                 )
             )
-
-            self.metrics['thinking_tokens_used'] += episodic_learner_response.usage_metadata.thoughts_token_count
-            self.metrics['total_tokens_used'] += episodic_learner_response.usage_metadata.total_token_count
 
             episodic_learner_response_json = re.search(self.extractable_json_structured_output, episodic_learner_response.text)[1]
             episodic_learner_response_json = ast.literal_eval(episodic_learner_response_json)
@@ -320,15 +299,14 @@ class GeminiPro:
                                f"## WHAT TO AVOID: {what_to_avoid}\n")
             
             self.episodic_memory = episodic_memory
-
-        print('*' * 50)
-        print(f"Cumulative tokens used: {self.metrics['total_tokens_used']}")
-        print(f"Cumulative thoughts tokens used: {self.metrics['thinking_tokens_used']}")
-        print('*' * 50)
         
+        print('>' * 50)
         print(f"New Semantic Memory: {new_semantic_memory}")
+        print('*' * 50)
         print(f"Recall: {recall}")
+        print('*' * 50)
         print(f"Episodic Memory: {self.episodic_memory}")
+        print('<' * 50)
 
         ## write base semantic memory to file
         with open('base_semantic_memory.txt', 'w') as f:
