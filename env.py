@@ -3,11 +3,44 @@ import asyncio
 import websockets
 import json
 import re
+from datetime import datetime
+
 from typing import (
     Tuple,
     Dict,
     Any
 )
+from loguru import logger
+
+
+def init_logger(run_name: str = None, directory: str = "logs"):
+    """
+    Call this once, before you send any commands.
+    - run_name: if None, defaults to timestamp “run_YYYYmmdd_HHMMSS”
+    - directory: folder to store your log files
+    Configures the global loguru logger.
+    """
+    if not run_name:
+        run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{run_name}.log")
+
+    # Remove default handlers (so we don't duplicate logs)
+    logger.remove()
+    # Add file sink with desired format
+    logger.add(
+        path,   
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm:ss} {level: <8} {message}",
+        rotation=None,
+        retention=None
+    )
+    # TODO: Optionally, also log to stdout (will decide later):
+    # logger.add(sys.stdout, level="INFO", format="{time} {level} {message}")
+
+    logger.info(f"=== Starting new run: {run_name} ===")
+    return logger
+
 
 async def SendCommand(command: Dict[str, Any], uri: str):
     async with websockets.connect(uri, max_size=None) as websocket:
