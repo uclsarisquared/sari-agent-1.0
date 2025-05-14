@@ -8,8 +8,10 @@ from datetime import datetime
 
 from env import _REQUEST_SCREENSHOT_, _PROPER_HAND_POSITIONING_
 from actions import actions_ref
+from env import init_logger
+from loguru import logger
 
-INFERECE_API = "http://localhost:8005/predict"
+INFERENCE_API = "http://localhost:8005/predict"
 EXTRACT_JSON_PATTERN = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
 MAIN_TASK = sys.argv[1]
@@ -19,6 +21,10 @@ ON_PLAY = True
 at_init_state = True
 
 _PROPER_HAND_POSITIONING_()
+time_step = 1
+timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
+run_name = "agent-state-" + (RUN_ENTRY or "") + timestamp if RUN_ENTRY else timestamp 
+init_logger(run_name=run_name)
 
 while ON_PLAY:
     if RUN_ENTRY:
@@ -57,9 +63,10 @@ while ON_PLAY:
             'image': imageb64,
             'state': "",
         }
+    logger.info(f"Time step: {time_step}")
 
     response = requests.post(
-        INFERECE_API,
+        INFERENCE_API,
         data=post,
     )
 
@@ -85,6 +92,9 @@ while ON_PLAY:
     print('-' * 50)
     print(f'Object of Interest ([ymin, xmin, ymax, xmax]): {box2d}')
     print('-' * 50)
+    logger.info(f'Reasoning: {reasoning}')
+    logger.info(f'Notes: {notes}')
+    logger.info(f'Object of Interest ([ymin, xmin, ymax, xmax]): {box2d}')
 
     for action, time in actions_times:
         action_name = action
@@ -94,14 +104,18 @@ while ON_PLAY:
         try:
             if not ON_PLAY:
                 print(f"'STOP' action detected. Stopping the loop...")
+                logger.info(f"'STOP' action detected. Stopping the loop...")
                 break
             action = actions_ref[action]
             for cnt, t in enumerate(range(int(time))):
-                action()
+                state = action()
         except KeyError:
             raise KeyError(f"Action '{action_name}' not found in `actions_ref`.")
         finally:
             if ON_PLAY:
                 print(f"ACTION: {action_name} executed for {time} times.")
+                logger.info(f"ACTION: {action_name} executed for {time} times.")
 
     print('#' * 50)
+    time_step += 1
+    timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
