@@ -194,4 +194,4 @@ _REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=F
 _REQUEST_ANNOTATION_ = lambda: RequestAnnotation()
 _REQUEST_JSON_ = lambda: RequestJson()
 
-_PROPER_HAND_POSITIONING_ = lambda: TransformHands((-0.065, 0, 0.350), (0, 0, 0), (0.065, 0, 0.350), (0, 0, 0))
+_PROPER_HAND_POSITIONING_ = lambda: TransformHands((-0.050, 0, 0.350), (0, 0, 0), (0.050, 0, 0.350), (0, 0, 0))
