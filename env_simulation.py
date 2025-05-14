@@ -4,9 +4,10 @@ import base64
 import re
 import ast
 import sys
+import json
 from datetime import datetime
 
-from env import _REQUEST_SCREENSHOT_, _PROPER_HAND_POSITIONING_
+from env import _REQUEST_SCREENSHOT_, _PROPER_HAND_POSITIONING_, TransformAgent, TransformHands
 from actions import actions_ref
 from env import init_logger
 from loguru import logger
@@ -25,6 +26,26 @@ time_step = 1
 timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
 run_name = "agent-state-" + (RUN_ENTRY or "") + timestamp if RUN_ENTRY else timestamp 
 init_logger(run_name=run_name)
+CURRENT_AGENT_STATE = {
+    "translation": (0,0,0),
+    "rotation": (0,0,0),
+    "isColliding": False,
+    "leftTranslation": (0,0,0),
+    "leftRotation": (0,0,0),   
+    "rightTranslation": (0,0,0),
+    "rightRotation": (0,0,0),
+    "leftHoveredObject": "None",
+    "leftGrippedState": False,
+    "rightHoveredObject": "None",
+    "rightGrippedState": False,
+}
+initial_agent_position = TransformAgent((0,0,0),(0,0,0))
+initial_hands_position = TransformHands((0,0,0),(0,0,0),(0,0,0),(0,0,0))
+
+initial_state = {**initial_agent_position, **initial_hands_position}
+for k, v in initial_state.items():
+    CURRENT_AGENT_STATE[k] = v
+print("Initial State: ", CURRENT_AGENT_STATE)
 
 while ON_PLAY:
     if RUN_ENTRY:
@@ -55,13 +76,13 @@ while ON_PLAY:
         post = {
             'task': MAIN_TASK,
             'image': imageb64,
-            'state': "",
+            'state': CURRENT_AGENT_STATE,
         }
         at_init_state = False
     else:
         post = {
             'image': imageb64,
-            'state': "",
+            'state': CURRENT_AGENT_STATE,
         }
     logger.info(f"Time step: {time_step}")
 
@@ -106,9 +127,18 @@ while ON_PLAY:
                 print(f"'STOP' action detected. Stopping the loop...")
                 logger.info(f"'STOP' action detected. Stopping the loop...")
                 break
-            action = actions_ref[action]
+            action_func = actions_ref[action]
             for cnt, t in enumerate(range(int(time))):
-                state = action()
+                current_state_log = f"State @ timestep {time_step}\n"
+                state_vars = action_func()
+                for k,v in state_vars.items():
+                    CURRENT_AGENT_STATE[k] = v
+                for k,v in CURRENT_AGENT_STATE.items():
+                    current_state_log += f"{k}: {v}\n"
+                current_state_log += "\n"
+                with open(f"agent_states_{run_name}.txt", "w") as f:
+                    f.write(current_state_log)
+                    
         except KeyError:
             raise KeyError(f"Action '{action_name}' not found in `actions_ref`.")
         finally:

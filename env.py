@@ -79,10 +79,12 @@ def TransformAgent(translation: Tuple[float],
     }, uri))
 
     extracted_state = re.findall(r'\((.*?)\)', result, re.DOTALL)
+    is_colliding = True if result.split("\n")[2].split(": ")[-1] == "True" else False
     assert len(extracted_state) == 2, "Expected 2 Tuple[float], got " + str(len(extracted_state))
     agent_state = {
         'translation': tuple(map(float, extracted_state[0].split(', '))),
-        'rotation': tuple(map(float, extracted_state[1].split(', ')))
+        'rotation': tuple(map(float, extracted_state[1].split(', '))),
+        'isColliding': is_colliding
     }
     return agent_state
 
@@ -100,12 +102,21 @@ def TransformHands(leftTranslation: Tuple[float],
     }, uri))
     
     extracted_state = re.findall(r'\((.*?)\)', result, re.DOTALL)
+    lines = result.split("\n")
+    object_hovered_over_left = lines[2].split(": ")[-1]
+    is_gripped_state_left = True if lines[3].split(": ")[-1] == "True" else False
+    object_hovered_over_right = lines[7].split(": ")[-1]
+    is_gripped_state_right = True if lines[8].split(": ")[-1] == "True" else False
     assert len(extracted_state) == 4, "Expected 4 Tuple[float], got " + str(len(extracted_state))
     current_state = {
         'leftTranslation': tuple(map(float, extracted_state[0].split(', '))),
         'leftRotation': tuple(map(float, extracted_state[1].split(', '))),
         'rightTranslation': tuple(map(float, extracted_state[2].split(', '))),
-        'rightRotation': tuple(map(float, extracted_state[3].split(', ')))
+        'rightRotation': tuple(map(float, extracted_state[3].split(', '))),
+        'leftHoveredObject': object_hovered_over_left,
+        'leftGrippedState': is_gripped_state_left,
+        'rightHoveredObject': object_hovered_over_right,
+        'rightGrippedState': is_gripped_state_right, 
     }
     return current_state
 
@@ -114,16 +125,16 @@ def ToggleLeftGrip(uri: str="ws://localhost:8080/commands"):
         "command": "ToggleLeftGrip"
     }, uri))
 
-    if "True" in result:    return True
-    return False
+    if "True" in result:    return {"gripped": True}
+    return {"gripped": False}
 
 def ToggleRightGrip(uri: str="ws://localhost:8080/commands"):
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "ToggleRightGrip"
     }, uri))
-
-    if "True" in result:    return True
-    return False
+    
+    if "True" in result:    return {"gripped": True}
+    return {"gripped": False}
 
 def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screenshots", save_image=False, uri: str="ws://localhost:8080/commands"):
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
