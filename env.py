@@ -14,6 +14,23 @@ async def SendCommand(command: Dict[str, Any], uri: str):
         await websocket.send(json.dumps(command))
         if command["command"] == "RequestScreenshot" or command["command"] == "RequestAnnotation":
             image_bytes = await websocket.recv()
+            save_image = command["save_image"]
+
+            if save_image:
+                folder_name = os.path.join(command["folder_name"])
+                prefix = str(command["prefix"]) + "-" if str(command["prefix"]) else ""
+                suffix = "-" + str(command["suffix"]) if str(command["suffix"]) else ""
+                file_name = f"{prefix}ClientScreenshot{suffix}.png"
+
+                if folder_name:
+                    os.makedirs(folder_name, exist_ok=True)  # Creates the folder if it doesn't exist
+
+                # Save the image file in the specified folder
+                file_path = os.path.join(folder_name, file_name) if folder_name else file_name
+
+                with open(file_path, "wb") as file:
+                    file.write(image_bytes)
+
             return {'image': image_bytes}
         else:
             response = await websocket.recv()
@@ -67,7 +84,7 @@ def ToggleLeftGrip(uri: str="ws://localhost:8080/commands"):
     if "True" in result:    return True
     return False
 
-def ToggleRightGrip(uri="ws://localhost:8080/commands"):
+def ToggleRightGrip(uri: str="ws://localhost:8080/commands"):
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "ToggleRightGrip"
     }, uri))
@@ -75,9 +92,13 @@ def ToggleRightGrip(uri="ws://localhost:8080/commands"):
     if "True" in result:    return True
     return False
 
-def RequestScreenshot(uri: str="ws://localhost:8080/commands"):
+def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screenshots", save_image=False, uri: str="ws://localhost:8080/commands"):
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "RequestScreenshot",
+        "prefix": prefix,
+        "suffix": suffix,
+        "folder_name": folder_name,
+        "save_image": save_image,
     }, uri))
     return result
 
@@ -125,7 +146,7 @@ _ROT_LEFT_CTRCLOCK_ = lambda: TransformHands((0, 0, 0), (0, -15, 0), (0, 0, 0), 
 _ROT_RIGHT_CLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 15, 0))
 _ROT_RIGHT_CTRCLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, -15, 0))
 _RESET_ = lambda: Reset()
-_REQUEST_SCREENSHOT_ = lambda: RequestScreenshot()
+_REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=False: RequestScreenshot(prefix, suffix, folder_name, save_image)
 _REQUEST_ANNOTATION_ = lambda: RequestAnnotation()
 _REQUEST_JSON_ = lambda: RequestJson()
 
