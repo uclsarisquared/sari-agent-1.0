@@ -104,7 +104,11 @@ class GeminiPro:
         print(f"[RESPONSE]: {response.text}")
         print("-" * 50)
         
-        return response.text
+        payload = {
+            'text': response.text,
+            'history': self.chat.get_history()[-2:] 
+        }
+        return payload
 
     def _generate_inf_super(self, request, timestep):
         if timestep == 1:
@@ -140,6 +144,7 @@ class GeminiPro:
             
             semantic_learner_response_json = re.search(self.extractable_json_structured_output, semantic_learner_response.text)[1]
             semantic_learner_response_json = ast.literal_eval(semantic_learner_response_json)
+            # TODO: Add logger here for both new_semantic_memory and recall
             new_semantic_memory = semantic_learner_response_json['new_semantic_memory']
             recall = semantic_learner_response_json['recall']
             self.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
@@ -312,4 +317,8 @@ class GeminiPro:
         with open('base_semantic_memory.txt', 'w') as f:
             f.write(self.base_semantic_memory)
 
-        return response.text
+        payload = {
+            'text': response.text,
+            'history': self.chat.get_history()[-2:]
+        }
+        return payload
