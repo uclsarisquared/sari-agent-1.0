@@ -7,12 +7,17 @@ import sys
 import json
 from datetime import datetime
 
-from env import _REQUEST_SCREENSHOT_, _PROPER_HAND_POSITIONING_, TransformAgent, TransformHands
-from actions import actions_ref
+from perception import center_item_on_screen
+from hand_reset import reset_hands_in_front
+
+from env import _REQUEST_SCREENSHOT_, TransformAgent, TransformHands
+from actions import (navigation_actions_ref, perception_actions_ref, manipulation_actions_ref, actions_ref)
 from env import init_logger
 from loguru import logger
 
 INFERENCE_API = "http://localhost:8005/predict"
+MODE_API = "http://202.92.159.242:8000/seek-mode"
+ACTIONS_API = "http://202.92.159.242:8000/decide_action"
 EXTRACT_JSON_PATTERN = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
 MAIN_TASK = sys.argv[1]
@@ -21,10 +26,10 @@ ON_PLAY = True
 
 at_init_state = True
 
-_PROPER_HAND_POSITIONING_()
+reset_hands_in_front()
 time_step = 1
 timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
-run_name = "agent-state-" + (RUN_ENTRY or "") + timestamp if RUN_ENTRY else timestamp 
+run_name = "agent-state-" + (RUN_ENTRY or "") + "-" + timestamp if RUN_ENTRY else timestamp 
 init_logger(run_name=run_name)
 CURRENT_AGENT_STATE = {
     "translation": (0,0,0),
@@ -38,6 +43,7 @@ CURRENT_AGENT_STATE = {
     "leftGrippedState": False,
     "rightHoveredObject": "None",
     "rightGrippedState": False,
+    "mode": "perception"
 }
 initial_agent_position = TransformAgent((0,0,0),(0,0,0))
 initial_hands_position = TransformHands((0,0,0),(0,0,0),(0,0,0),(0,0,0))
@@ -47,7 +53,13 @@ for k, v in initial_state.items():
     CURRENT_AGENT_STATE[k] = v
 print("Initial State: ", CURRENT_AGENT_STATE)
 
+ACTIONS_HISTORY = []
+mode = "INITIAL"
+
 while ON_PLAY:
+    # Prepare for state logging
+    current_state_log = f"State @ timestep {time_step}\n"
+
     if RUN_ENTRY:
         # 1) Dynamic folder name: SIM_RUNS + RUN_ENTRY
         folder_name = os.path.join("screenshots", "SIM_RUNS/" + RUN_ENTRY)
@@ -77,12 +89,14 @@ while ON_PLAY:
             'task': MAIN_TASK,
             'image': imageb64,
             'state': CURRENT_AGENT_STATE,
+            'actions': ACTIONS_HISTORY
         }
         at_init_state = False
     else:
         post = {
             'image': imageb64,
             'state': CURRENT_AGENT_STATE,
+            'actions': ACTIONS_HISTORY
         }
     logger.info(f"Time step: {time_step}")
 
@@ -90,61 +104,109 @@ while ON_PLAY:
         INFERENCE_API,
         data=post,
     )
-
     if response.status_code != 200:
         break
-
     response = response.json()['response']
-    extracted = re.search(EXTRACT_JSON_PATTERN, response)[1]
+    text = response['text']
+    history = response['history']
+    extracted = re.search(EXTRACT_JSON_PATTERN, text)[1]
     extracted = ast.literal_eval(extracted)
-
     reasoning = extracted.get('reasoning', 'No Reasoning.')
     actions = extracted.get('actions', 'No Actions.')
     times = extracted.get('times', 'No Times.')
     notes = extracted.get('notes', 'No Notes.')
     box2d = extracted.get('box2d', 'No Box 2D data.')
 
-    actions_times = zip(actions, times)
+    mode_payload = {
+        "timestep": f"Time step: {time_step}",
+        "current_state_log": current_state_log,
+        "plan": reasoning,
+        "previous_mode": mode
+    }
+    mode_response = requests.post(
+        MODE_API,
+        data=mode_payload
+    )
+    print("Mode Response: ", mode_response.content)
+    mode = json.loads(mode_response.json()["response"])["mode"]
+    CURRENT_AGENT_STATE["mode"] = mode
 
+    actions_payload = {
+        "timestep": f"Time step: {time_step}",
+        "current_state_log": current_state_log,
+        "plan": reasoning,
+        "mode": mode
+    }
+    response_json = json.loads(
+        requests.post(ACTIONS_API, data=actions_payload).content
+    )
+    actions_list = response_json.get("response", [])
+
+    # Logging reasoning and notes
     print('#' * 50)
     print(f'Reasoning: {reasoning}')
     print('-' * 50)
     print(f'Notes: {notes}')
     print('-' * 50)
     print(f'Object of Interest ([ymin, xmin, ymax, xmax]): {box2d}')
-    print('-' * 50)
+    print('#' * 50)
+
     logger.info(f'Reasoning: {reasoning}')
     logger.info(f'Notes: {notes}')
     logger.info(f'Object of Interest ([ymin, xmin, ymax, xmax]): {box2d}')
+    print("GPT Actions: ", actions_list)
 
-    for action, time in actions_times:
-        action_name = action
-        if action == 'STOP':
+    # Dispatch map
+    mode_ref_map = {
+        "perception": perception_actions_ref,
+        "navigation": navigation_actions_ref,
+        "manipulation": manipulation_actions_ref
+    }
+    ref = mode_ref_map.get(mode, actions_ref)
+
+    # Iterate over actions
+    for action_item in actions_list:
+        func_info = action_item.get("function", {})
+        action_name = func_info.get("name")
+        arguments = json.loads(func_info.get("arguments", "{}"))
+
+        # Handle special actions
+        if action_name == "STOP" or action_name == "stop":
             ON_PLAY = False
+            print(f"'STOP' action detected. Stopping the loop...")
+            logger.info(f"'STOP' action detected. Stopping the loop...")
+            break
+        elif action_name == "CENTER":
+            center_item_on_screen(MAIN_TASK)
+            continue
+
+        # Determine number of executions (if any)
+        exec_count = int(arguments.get("units", 1))
 
         try:
-            if not ON_PLAY:
-                print(f"'STOP' action detected. Stopping the loop...")
-                logger.info(f"'STOP' action detected. Stopping the loop...")
-                break
-            action_func = actions_ref[action]
-            for cnt, t in enumerate(range(int(time))):
-                current_state_log = f"State @ timestep {time_step}\n"
-                state_vars = action_func()
-                for k,v in state_vars.items():
-                    CURRENT_AGENT_STATE[k] = v
-                for k,v in CURRENT_AGENT_STATE.items():
-                    current_state_log += f"{k}: {v}\n"
-                current_state_log += "\n"
-                with open(f"agent_states_{run_name}.txt", "w") as f:
-                    f.write(current_state_log)
-                    
+            action_func = ref[action_name]
         except KeyError:
             raise KeyError(f"Action '{action_name}' not found in `actions_ref`.")
-        finally:
-            if ON_PLAY:
-                print(f"ACTION: {action_name} executed for {time} times.")
-                logger.info(f"ACTION: {action_name} executed for {time} times.")
+
+        current_state_log += f"Executing action: {action_name} for {exec_count} times\n"
+        print("Arguments", arguments)
+
+        # Execute function with full arguments if no "units"
+        state_vars = action_func(**{k: v for k, v in arguments.items()}) or {}
+        for k, v in state_vars.items():
+            CURRENT_AGENT_STATE[k] = v
+        for k, v in CURRENT_AGENT_STATE.items():
+            current_state_log += f"{k}: {v}\n"
+        current_state_log += "\n"
+
+        if ON_PLAY:
+            print(f"ACTION: {action_name} executed for {exec_count} times.")
+            logger.info(f"ACTION: {action_name} executed for {exec_count} times.")
+
+    # Write state log to file
+    os.makedirs("agent_states", exist_ok=True)
+    with open(f"agent_states/{run_name}.txt", "a") as f:
+        f.write(current_state_log)
 
     print('#' * 50)
     time_step += 1
