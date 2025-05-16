@@ -25,8 +25,8 @@ def detect_object(target_name, threshold=10):
         return roi[:threshold]
 
 
-def center_item_on_screen(item, annotate=False):
-    item = detect_object(item)[0]
+def center_item_on_screen(target_name, annotate=False):
+    item = detect_object(target_name)[0]
     box = item["box"]
     x_center_before = (box["xmin"] + box["xmax"]) / 2
     y_center_before = (box["ymin"] + box["ymin"]) / 2

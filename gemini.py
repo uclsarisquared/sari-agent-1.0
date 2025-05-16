@@ -84,6 +84,7 @@ class GeminiPro:
 
         state = str(request['state'])
         screenshot = str(request['image']).encode('utf-8')
+        actions_history = str(request['actions'])
         screenshot = base64.b64decode(screenshot)
         imagebytes = BytesIO(screenshot)
         screenshot = Image.open(imagebytes).convert("RGB")
@@ -92,11 +93,14 @@ class GeminiPro:
         if timestep == 1:
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
-                        f"{state}")
+                        f"## STATE: {state}"
+                        f"## ACTIONS HISTORY: {actions_history}\n"
+                        )
         else:
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"{state}")
-
+                        f"## STATE: {state}"
+                        f"## ACTIONS HISTORY: {actions_history}\n"
+                        )
         contents = [curr_obs_header, screenshot, user_msg]
 
         response = self.chat.send_message(message=contents)

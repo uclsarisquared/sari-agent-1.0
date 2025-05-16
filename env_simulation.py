@@ -26,7 +26,7 @@ ON_PLAY = True
 
 at_init_state = True
 
-reset_hands_in_front()
+reset_hands_in_front(extra_elevation=-0.1)
 time_step = 1
 timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
 run_name = "agent-state-" + (RUN_ENTRY or "") + "-" + timestamp if RUN_ENTRY else timestamp 
@@ -58,6 +58,7 @@ mode = "INITIAL"
 
 while ON_PLAY:
     # Prepare for state logging
+    CURRENT_TIMESTEP_ACTIONS = []
     current_state_log = f"State @ timestep {time_step}\n"
 
     if RUN_ENTRY:
@@ -82,6 +83,12 @@ while ON_PLAY:
     else:
         imagebytes = _REQUEST_SCREENSHOT_()['image']
 
+    if time_step > 1:
+        actions_log = actions_log + f"Actions @ Time Step {time_step - 1}\n" + "\n".join([a["action"] for a in ACTIONS_HISTORY[time_step-2]])
+        print("Actions Log:\n", actions_log)
+    else:
+        actions_log = "START of Execution\n"
+
     imageb64 = base64.b64encode(imagebytes).decode('utf-8')
 
     if at_init_state:
@@ -89,14 +96,14 @@ while ON_PLAY:
             'task': MAIN_TASK,
             'image': imageb64,
             'state': CURRENT_AGENT_STATE,
-            'actions': ACTIONS_HISTORY
+            'actions': actions_log
         }
         at_init_state = False
     else:
         post = {
             'image': imageb64,
             'state': CURRENT_AGENT_STATE,
-            'actions': ACTIONS_HISTORY
+            'actions': str(ACTIONS_HISTORY)
         }
     logger.info(f"Time step: {time_step}")
 
@@ -112,23 +119,23 @@ while ON_PLAY:
     extracted = re.search(EXTRACT_JSON_PATTERN, text)[1]
     extracted = ast.literal_eval(extracted)
     reasoning = extracted.get('reasoning', 'No Reasoning.')
-    actions = extracted.get('actions', 'No Actions.')
-    times = extracted.get('times', 'No Times.')
     notes = extracted.get('notes', 'No Notes.')
-    box2d = extracted.get('box2d', 'No Box 2D data.')
-
     mode_payload = {
         "timestep": f"Time step: {time_step}",
         "current_state_log": current_state_log,
         "plan": reasoning,
         "previous_mode": mode
     }
+    # TODO: Add exponential backoff 
     mode_response = requests.post(
         MODE_API,
         data=mode_payload
     )
     print("Mode Response: ", mode_response.content)
-    mode = json.loads(mode_response.json()["response"])["mode"]
+    try:
+        mode = json.loads(mode_response.json()["response"])["mode"]
+    except json.decoder.JSONDecodeError as e:
+        mode = "perception"
     CURRENT_AGENT_STATE["mode"] = mode
 
     actions_payload = {
@@ -147,13 +154,10 @@ while ON_PLAY:
     print(f'Reasoning: {reasoning}')
     print('-' * 50)
     print(f'Notes: {notes}')
-    print('-' * 50)
-    print(f'Object of Interest ([ymin, xmin, ymax, xmax]): {box2d}')
     print('#' * 50)
 
     logger.info(f'Reasoning: {reasoning}')
     logger.info(f'Notes: {notes}')
-    logger.info(f'Object of Interest ([ymin, xmin, ymax, xmax]): {box2d}')
     print("GPT Actions: ", actions_list)
 
     # Dispatch map
@@ -190,6 +194,10 @@ while ON_PLAY:
 
         current_state_log += f"Executing action: {action_name} for {exec_count} times\n"
         print("Arguments", arguments)
+        CURRENT_TIMESTEP_ACTIONS.append({
+            "action": f"Executing action: {action_name} for {exec_count} times\n",
+            "arguments": str(arguments)
+        })
 
         # Execute function with full arguments if no "units"
         state_vars = action_func(**{k: v for k, v in arguments.items()}) or {}
@@ -203,6 +211,7 @@ while ON_PLAY:
             print(f"ACTION: {action_name} executed for {exec_count} times.")
             logger.info(f"ACTION: {action_name} executed for {exec_count} times.")
 
+    ACTIONS_HISTORY.append(CURRENT_TIMESTEP_ACTIONS)
     # Write state log to file
     os.makedirs("agent_states", exist_ok=True)
     with open(f"agent_states/{run_name}.txt", "a") as f:
