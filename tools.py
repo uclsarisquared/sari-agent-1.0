@@ -3,7 +3,7 @@ import os
 from PIL import ImageDraw, Image
 from env import TransformAgent, RequestScreenshot
 
-def annotate_located_object(image: Image.Image or str, bbox: dict, color="red", radius=20):
+def annotate_located_object(image: Image.Image | str, bbox: dict, color="red", radius=20):
     """
     Draws a circle at the best patch center location based on CLIP locate result.
 
