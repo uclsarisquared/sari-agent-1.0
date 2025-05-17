@@ -51,7 +51,7 @@ def detect_object(target_name, threshold=10):
 
 
 def center_item_on_screen(target_name, annotate=False):
-    item = detect_object(target_name)[0]
+    item = detect_object_via_gemini(target_name)[0]
     box = item["box"]
     x_center_before = (box["xmin"] + box["xmax"]) / 2
     y_center_before = (box["ymin"] + box["ymin"]) / 2
@@ -186,11 +186,14 @@ def detect_object_in_frame_gemini(target_name):
     match = re.search(json_pattern, annotated_bbox, re.DOTALL)
     if match:
         json_str = match.group(1)
-        box_2d = ast.literal_eval(json_str)
-        ymin = box_2d['box_2d'][0] / 1000 * original_height
-        xmin = box_2d['box_2d'][1] / 1000 * original_width
-        ymax = box_2d['box_2d'][2] / 1000 * original_height
-        xmax = box_2d['box_2d'][3] / 1000 * original_width
+        box_2d = ast.literal_eval(json_str)[0]
+        box_2d = box_2d['box_2d']
+        print("Box 2D: ", box_2d)
+        print("Type of box_2d: ", type(box_2d))
+        ymin = box_2d[0] / 1000 * original_height
+        xmin = box_2d[1] / 1000 * original_width
+        ymax = box_2d[2] / 1000 * original_height
+        xmax = box_2d[3] / 1000 * original_width
 
         annotate_target(ymin, xmin, ymax, xmax)
 
@@ -216,7 +219,6 @@ def annotate_target(ymin, xmin, ymax, xmax, file_path="screenshots/ClientScreens
     draw.rectangle([xmin, ymin, xmax, ymax], outline="red", width=2)
     draw.text((xmin, ymin), "Detected", fill="red")
     image.save("annotations/annotated_image.png")
-    
 
 
 def center_bbox_on_screen(bbox):
@@ -282,3 +284,9 @@ def find_most_similar_ocr_bbox(paddle_result, goal):
     )
 
     return {"response": response.choices[0].message.content}
+
+
+# if __name__ == "__main__":
+#     # Example usage
+#     target_name = "Pillows snack"
+#     detect_object_in_frame_gemini(target_name)
