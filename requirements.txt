@@ -7,3 +7,6 @@ loguru==0.7.3
 requests==2.32.3
 dotenv==0.9.9
 websockets==15.0
+paddleocr==2.10.0
+paddlepaddle==3.0.0rc1
+openai==1.79.0

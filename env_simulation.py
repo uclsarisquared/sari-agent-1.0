@@ -7,7 +7,6 @@ import sys
 import json
 from datetime import datetime
 
-from perception import center_item_on_screen
 from hand_reset import reset_hands_in_front
 
 from env import _REQUEST_SCREENSHOT_, TransformAgent, TransformHands
@@ -55,6 +54,12 @@ print("Initial State: ", CURRENT_AGENT_STATE)
 
 ACTIONS_HISTORY = []
 mode = "INITIAL"
+CURRENT_BOUNDING_BOX = {
+    "xmin": 0,
+    "xmax": 0,
+    "ymin": 0,
+    "ymax": 0
+}
 
 while ON_PLAY:
     # Prepare for state logging
@@ -124,7 +129,9 @@ while ON_PLAY:
         "timestep": f"Time step: {time_step}",
         "current_state_log": current_state_log,
         "plan": reasoning,
-        "previous_mode": mode
+        "previous_mode": mode,
+        "bounding_box": CURRENT_BOUNDING_BOX,
+        "bounding_box_area": (CURRENT_BOUNDING_BOX['xmax']-CURRENT_BOUNDING_BOX['xmin']) * (CURRENT_BOUNDING_BOX['ymax']-CURRENT_BOUNDING_BOX['ymin'])
     }
     # TODO: Add exponential backoff 
     mode_response = requests.post(
@@ -142,7 +149,9 @@ while ON_PLAY:
         "timestep": f"Time step: {time_step}",
         "current_state_log": current_state_log,
         "plan": reasoning,
-        "mode": mode
+        "mode": mode,
+        "bounding_box": CURRENT_BOUNDING_BOX,
+        "bounding_box_area": (CURRENT_BOUNDING_BOX['xmax']-CURRENT_BOUNDING_BOX['xmin']) * (CURRENT_BOUNDING_BOX['ymax']-CURRENT_BOUNDING_BOX['ymin'])
     }
     response_json = json.loads(
         requests.post(ACTIONS_API, data=actions_payload).content
@@ -180,9 +189,6 @@ while ON_PLAY:
             print(f"'STOP' action detected. Stopping the loop...")
             logger.info(f"'STOP' action detected. Stopping the loop...")
             break
-        elif action_name == "CENTER":
-            center_item_on_screen(MAIN_TASK)
-            continue
 
         # Determine number of executions (if any)
         exec_count = int(arguments.get("units", 1))
@@ -201,6 +207,10 @@ while ON_PLAY:
 
         # Execute function with full arguments if no "units"
         state_vars = action_func(**{k: v for k, v in arguments.items()}) or {}
+        if action_name == "center_object_on_screen":
+            CURRENT_BOUNDING_BOX = state_vars[1]
+            state_vars = state_vars[0]
+
         for k, v in state_vars.items():
             CURRENT_AGENT_STATE[k] = v
         for k, v in CURRENT_AGENT_STATE.items():

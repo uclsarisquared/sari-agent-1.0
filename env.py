@@ -322,3 +322,27 @@ def lower_right_hand(units):
     for _ in range(min(units, 10)):
        state = _LWR_RIGHT_()
     return state
+
+def rotate_left_clockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_LEFT_CLOCK_()
+    return state
+
+def rotate_left_counterclockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_LEFT_CTRCLOCK_()
+    return state
+
+def rotate_right_clockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_RIGHT_CLOCK_()
+    return state
+
+def rotate_right_counterclockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_RIGHT_CTRCLOCK_()
+    return state

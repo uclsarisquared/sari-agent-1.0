@@ -40,7 +40,8 @@ BASE_SEMANTIC_MEMORY = ("This is your semantic memory. This memory is the text e
                         "5. If you are close to Shelves 13-16 and you pan left, you will see Shelf 4, some parts of Shelf 8, 11, and 12.\n"
                         "6. If you are between Shelves 4 and 8, you will see Shelves 2 and 5 and their items.\n"
                         "7. If you move closely to Shelves 11 and 12 and pan left, you will see some parts of Shelves 6, 9, and 10.\n"
-                        "8. Moving closer to Shelves 9 and 10, you will see some items on Shelf 7.\n")
+                        "8. Moving closer to Shelves 9 and 10, you will see some items on Shelf 7.\n"
+                        )
 
 SYSTEM_INSTRUCTION_INF_SUPER_ASSOCIATIVE_SEMANTIC = ("You are a Semantic Associative Learner that synthesizes new semantic memories for an Embodied AI Agent operating within a 3D convenience store simulation. "
                                                      "Your inputs are a screenshot (a first-person view inside the simulation), a primary task, and agent/hands state, which is to locate specific target item/s specified by the User. "
