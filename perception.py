@@ -22,10 +22,13 @@ def read_text(image_path="screenshots/ClientScreenshot.png"):
 
 def extract_text_from_image(image_path):
     result = ocr.ocr(image_path, cls=True)
-    print("Result: ", result)
     if len(result) == 0:
         return "", []
-    return "\n".join([line[1][0] for line in result[0]]) if result else "", result  
+    try:
+        final_result = "\n".join([line[1][0] for line in result[0]]) if result else ""
+    except Exception as e:
+        final_result = ""
+    return final_result, result  
 
 
 def detect_object(target_name, threshold=10):
@@ -51,7 +54,7 @@ def detect_object(target_name, threshold=10):
 
 
 def center_item_on_screen(target_name, annotate=False):
-    item = detect_object_via_gemini(target_name)[0]
+    item = detect_object_via_gemini(target_name)
     box = item["box"]
     x_center_before = (box["xmin"] + box["xmax"]) / 2
     y_center_before = (box["ymin"] + box["ymin"]) / 2
@@ -137,10 +140,15 @@ def detect_object_via_gemini(target_name):
     if match:
         json_str = match.group(1)
         box_2d = ast.literal_eval(json_str)
+        if type(box_2d) == list:
+            box_2d = box_2d[0]
         ymin = box_2d['box_2d'][0] / 1000 * original_height
         xmin = box_2d['box_2d'][1] / 1000 * original_width
         ymax = box_2d['box_2d'][2] / 1000 * original_height
         xmax = box_2d['box_2d'][3] / 1000 * original_width
+    else:
+        return None
+    annotate_target(ymin, xmin, ymax, xmax)
     return {'box': {'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax}}
 
 def detect_object_in_frame_gemini(target_name):
@@ -205,7 +213,31 @@ def detect_object_in_frame_gemini(target_name):
         print("X Center of bbox: ", x_center_before)
         print("Movement Y: ", y_cam_movement)
         print("Movement X: ", x_cam_movement)
-        return TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
+        state = TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
+        # seeking
+        seek_steps = random.randint(3,5)
+        state = move_forward(units=seek_steps)
+        RequestScreenshot()
+        image_path = "screenshots/ClientScreenshot.png"
+        _, paddle_result = extract_text_from_image(image_path)
+        bboxes = transform_paddle_result_to_coco_label_format(paddle_result)
+        try:
+            most_similar_bbox = ast.literal_eval(find_most_similar_ocr_bbox(bboxes, goal="box of cereal")['response'])
+        except Exception:
+            most_similar_bbox = bboxes[0]
+        bbox = {
+            "xmin": float(most_similar_bbox[0]),
+            "ymin": float(most_similar_bbox[1]),
+            "xmax": float(most_similar_bbox[2]),
+            "ymax": float(most_similar_bbox[3])
+        }
+        center_bbox_on_screen(bbox)
+        # closing
+        close_steps = random.randint(5,10)
+        state = move_forward(units=close_steps)
+        print("Things read:")
+        print(grab_and_read_item(text_read_fn=read_text))
+        return state, bbox
 
 def annotate_target(ymin, xmin, ymax, xmax, file_path="screenshots/ClientScreenshot.png"):
     from PIL import ImageDraw

@@ -33,7 +33,8 @@ from env import (
     lower_right_hand,
 )
 from perception import (
-    center_item_on_screen
+    center_item_on_screen,
+    detect_object_in_frame_gemini
 )
 
 navigation_actions_ref = {
@@ -47,7 +48,7 @@ navigation_actions_ref = {
     "pan_down": pan_down,
 }
 perception_actions_ref = {
-    'center_object_on_screen': center_item_on_screen,
+    'center_object_on_screen': detect_object_in_frame_gemini,
 }
 manipulation_actions_ref = {
     'extend_left_hand_forward': extend_left_hand_forward,
