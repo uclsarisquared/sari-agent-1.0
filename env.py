@@ -194,7 +194,6 @@ _REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=F
 _REQUEST_ANNOTATION_ = lambda: RequestAnnotation()
 _REQUEST_JSON_ = lambda: RequestJson()
 
-
 def move_forward(units):
     state = None
     if units > 10:
