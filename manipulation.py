@@ -49,7 +49,7 @@ def rotate_and_read(hand="left", max_frames=10, retract_steps=5, text_read_fn=No
     for i in range(4):  # Full 360° sweep
         _REQUEST_SCREENSHOT_()
         if text_read_fn:
-            texts.append(text_read_fn()[0])
+            texts.append(text_read_fn())
         rotate_fn(units=6)
     return texts
 
