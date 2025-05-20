@@ -84,6 +84,7 @@ class GeminiPro:
 
         state = str(request['state'])
         screenshot = str(request['image']).encode('utf-8')
+        actions_history = str(request['actions'])
         screenshot = base64.b64decode(screenshot)
         imagebytes = BytesIO(screenshot)
         screenshot = Image.open(imagebytes).convert("RGB")
@@ -92,11 +93,14 @@ class GeminiPro:
         if timestep == 1:
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
-                        f"{state}")
+                        f"## STATE: {state}"
+                        f"## ACTIONS HISTORY: {actions_history}\n"
+                        )
         else:
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"{state}")
-
+                        f"## STATE: {state}"
+                        f"## ACTIONS HISTORY: {actions_history}\n"
+                        )
         contents = [curr_obs_header, screenshot, user_msg]
 
         response = self.chat.send_message(message=contents)
@@ -104,7 +108,11 @@ class GeminiPro:
         print(f"[RESPONSE]: {response.text}")
         print("-" * 50)
         
-        return response.text
+        payload = {
+            'text': response.text,
+            'history': self.chat.get_history()[-2:] 
+        }
+        return payload
 
     def _generate_inf_super(self, request, timestep):
         if timestep == 1:
@@ -140,6 +148,7 @@ class GeminiPro:
             
             semantic_learner_response_json = re.search(self.extractable_json_structured_output, semantic_learner_response.text)[1]
             semantic_learner_response_json = ast.literal_eval(semantic_learner_response_json)
+            # TODO: Add logger here for both new_semantic_memory and recall
             new_semantic_memory = semantic_learner_response_json['new_semantic_memory']
             recall = semantic_learner_response_json['recall']
             self.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
@@ -312,4 +321,8 @@ class GeminiPro:
         with open('base_semantic_memory.txt', 'w') as f:
             f.write(self.base_semantic_memory)
 
-        return response.text
+        payload = {
+            'text': response.text,
+            'history': self.chat.get_history()[-2:]
+        }
+        return payload

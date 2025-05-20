@@ -5,3 +5,9 @@ base_semantic_memory.txt
 venv
 screenshots/
 logs/
+agent_states/
+bin/
+GUI_RUNS
+v3/
+annotations/
+v0.4

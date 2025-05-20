@@ -194,4 +194,154 @@ _REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=F
 _REQUEST_ANNOTATION_ = lambda: RequestAnnotation()
 _REQUEST_JSON_ = lambda: RequestJson()
 
-_PROPER_HAND_POSITIONING_ = lambda: TransformHands((-0.050, 0, 0.350), (0, 0, 0), (0.050, 0, 0.350), (0, 0, 0))
+def move_forward(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _MOVE_FWD_()
+    return state
+
+def move_backward(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _MOVE_BCK_()
+    return state
+
+def move_left(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _MOVE_LEFT_()
+    return state
+
+def move_right(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _MOVE_RIGHT_()
+    return state
+
+def pan_left(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _PAN_LEFT_()
+    return state
+
+def pan_right(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _PAN_RIGHT_()
+    return state
+
+def pan_up(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _TILT_UP_()
+    return state
+
+def pan_down(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _TILT_DOWN_()
+    return state
+
+def extend_left_hand_forward(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _XTNFWD_LEFT_()
+    return state
+
+def extend_right_hand_forward(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _XTNFWD_RIGHT_()
+    return state
+
+def pull_left_hand_backward(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _PLLBCK_LEFT_()
+    return state
+
+def pull_right_hand_backward(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _PLLBCK_RIGHT_()
+    return state
+
+def raise_left_hand(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _RSE_LEFT_()
+    return state
+
+def raise_right_hand(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _RSE_RIGHT_()
+    return state
+
+def lower_left_hand(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+        state = _LWR_LEFT_()
+    return state
+
+def lower_right_hand(units):
+    state = None
+    if units > 10:
+        print("Units greater than allowance. Setting units to 10.")
+    for _ in range(min(units, 10)):
+       state = _LWR_RIGHT_()
+    return state
+
+def rotate_left_clockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_LEFT_CLOCK_()
+    return state
+
+def rotate_left_counterclockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_LEFT_CTRCLOCK_()
+    return state
+
+def rotate_right_clockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_RIGHT_CLOCK_()
+    return state
+
+def rotate_right_counterclockwise(units):
+    state = None
+    for _ in range(units):
+        state = _ROT_RIGHT_CTRCLOCK_()
+    return state
