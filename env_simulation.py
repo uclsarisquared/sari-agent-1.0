@@ -13,9 +13,9 @@ from env import _REQUEST_SCREENSHOT_, TransformAgent, TransformHands
 from actions import (navigation_actions_ref, perception_actions_ref, manipulation_actions_ref, actions_ref)
 from env import init_logger
 from loguru import logger
+from comprehension import determine_mode
 
 INFERENCE_API = "http://localhost:8005/predict"
-MODE_API = "http://202.92.159.242:8000/seek-mode"
 ACTIONS_API = "http://202.92.159.242:8000/decide_action"
 EXTRACT_JSON_PATTERN = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
@@ -125,22 +125,9 @@ while ON_PLAY:
     extracted = ast.literal_eval(extracted)
     reasoning = extracted.get('reasoning', 'No Reasoning.')
     notes = extracted.get('notes', 'No Notes.')
-    mode_payload = {
-        "timestep": f"Time step: {time_step}",
-        "current_state_log": current_state_log,
-        "plan": reasoning,
-        "previous_mode": mode,
-        "bounding_box": CURRENT_BOUNDING_BOX,
-        "bounding_box_area": (CURRENT_BOUNDING_BOX['xmax']-CURRENT_BOUNDING_BOX['xmin']) * (CURRENT_BOUNDING_BOX['ymax']-CURRENT_BOUNDING_BOX['ymin'])
-    }
     # TODO: Add exponential backoff 
-    mode_response = requests.post(
-        MODE_API,
-        data=mode_payload
-    )
-    print("Mode Response: ", mode_response.content)
     try:
-        mode = json.loads(mode_response.json()["response"])["mode"]
+        mode = json.loads(determine_mode(time_step, current_state_log, reasoning, mode))["mode"]
     except json.decoder.JSONDecodeError as e:
         mode = "perception"
     CURRENT_AGENT_STATE["mode"] = mode
