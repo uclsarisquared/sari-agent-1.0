@@ -1,59 +1,307 @@
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Union, Literal
-from dataclasses import dataclass, field
 import os
-from dotenv import load_dotenv
-from google import genai
-from google.genai import types
+import asyncio
+import websockets
+import json
+import re
+from datetime import datetime
 
-load_dotenv('api.env')
+from typing import (
+    Dict,
+    Tuple,
+    Any,
+)
 
-from reference import BASE_SEMANTIC_MEMORY
-
-@dataclass
-class GeminiConfig:
-    model_id: Literal['gemini-2.5-flash-preview-04-17', 'gemini-2.5-pro-preview-05-06'] = 'gemini-2.5-flash-preview-04-17'
-    max_thinking_tokens: int = 3072
-    temperature: float = 0.5
-    mode: Literal['base', 'super'] = 'base'
-    api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
-
-class BaseAgent(ABC):
-    """Base class for all agents."""
-    @abstractmethod
-    def __init__(self, config: Optional[Union[Dict[str, Any], GeminiConfig]] = None) -> None:
-        self.config = config or {}
-
-    @abstractmethod
-    def generate_config(self):
-        """Configuration of text generation."""
-        pass
-
-    @abstractmethod
-    def execute(self, *args, **kwargs) -> Any:
-        """Main execution method for the agent."""
-        pass
+from loguru import logger
 
 
-class SemanticEpisodicAssociativeLearner(BaseAgent):
+def init_logger(run_name: str, directory: str = "logs"):
     """
-    A semantic-episodic associative learner that utilizes semantic and episodic memory
-    to learn and recall information. It will suggest candidate actions based on the current context
-    to be passed to the VLM. 
+    Call this once before you send any commands.
+    - `run_name`: if None, defaults to timestamp "run_YYYYmmdd_HHMMSS".
+    - `directory`: where to store your log files
+    Configures the global loguru (logger).
     """
-    def __init__(self, config: Optional[Union[Dict[str, Any], GeminiConfig]] = None) -> None:
-        super().__init__(config)
+    if not run_name:
+        run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{run_name}.log")
 
-        self.client = genai.Client(api_key=self.config.api_key)
+    logger.remove()
+    logger.add(
+        path,
+        level='INFO',
+        format='{time:YYYY-MM-DD HH:mm:ss} {level: <8} {message}',
+        rotation=None,
+        retention=None
+    )
+    logger.info(f"=== STARTING NEW RUN: {run_name} ===")
+    return logger
 
-    def execute(self, *args, **kwargs) -> Any:
-        """Main execution method for the agent."""
-        pass
+async def SendCommand(command: Dict[str, Any], uri: str):
+    async with websockets.connect(uri, max_size=None) as websocket:
+        await websocket.send(json.dumps(command))
+        if command["command"] == "RequestScreenshot" or command["command"] == "RequestAnnotation":
+            image_bytes = await websocket.recv()
+            save_image = command["save_image"]
 
-    def generate_config(self):
-        if self.config.mode == 'base':
-            return types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=self.config.max_thinking_tokens),
-                system_instruction=...,
-                temperature=self.config.temperature,
-            )
+            if save_image:
+                folder_name = os.path.join(command["folder_name"])
+                prefix = str(command["prefix"]) + "-" if str(command["prefix"]) else ""
+                suffix = "-" + str(command["suffix"]) if str(command["suffix"]) else ""
+                file_name = f"{prefix}ClientScreenshot{suffix}.png"
+
+                if folder_name:
+                    os.makedirs(folder_name, exist_ok=True)  # Creates the folder if it doesn't exist
+
+                # Save the image file in the specified folder
+                file_path = os.path.join(folder_name, file_name) if folder_name else file_name
+
+                with open(file_path, "wb") as file:
+                    file.write(image_bytes)
+
+            return {'image': image_bytes}
+        else:
+            response = await websocket.recv()
+            return response
+
+def TransformAgent(translation: Tuple[float],
+                   rotation: Tuple[float],
+                   uri: str = "ws://localhost:8080/commands") -> Dict[str, Tuple[float]]:
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "TransformAgent",
+        "translation": translation,
+        "rotation": rotation
+    }, uri))
+
+    extracted_state = re.findall(r'\((.*?)\)', result, re.DOTALL)
+    is_colliding = True if result.split("\n")[2].split(": ")[-1] == "True" else False
+    assert len(extracted_state) == 2, "Expected 2 Tuple[float], got " + str(len(extracted_state))
+    agent_state = {
+        'translation': tuple(map(float, extracted_state[0].split(', '))),
+        'rotation': tuple(map(float, extracted_state[1].split(', '))),
+        'isColliding': is_colliding
+    }
+    return agent_state
+
+def TransformHands(leftTranslation: Tuple[float],
+                   leftRotation: Tuple[float],
+                   rightTranslation: Tuple[float],
+                   rightRotation: Tuple[float],
+                   uri: str = "ws://localhost:8080/commands"):
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "TransformHands",
+        "leftTranslation": leftTranslation,
+        "leftRotation": leftRotation,
+        "rightTranslation": rightTranslation,
+        "rightRotation": rightRotation
+    }, uri))
+    
+    extracted_state = re.findall(r'\((.*?)\)', result, re.DOTALL)
+    lines = result.split("\n")
+    object_hovered_over_left = lines[2].split(": ")[-1]
+    is_gripped_state_left = True if lines[3].split(": ")[-1] == "True" else False
+    object_hovered_over_right = lines[7].split(": ")[-1]
+    is_gripped_state_right = True if lines[8].split(": ")[-1] == "True" else False
+    assert len(extracted_state) == 4, "Expected 4 Tuple[float], got " + str(len(extracted_state))
+    current_state = {
+        'leftTranslation': tuple(map(float, extracted_state[0].split(', '))),
+        'leftRotation': tuple(map(float, extracted_state[1].split(', '))),
+        'rightTranslation': tuple(map(float, extracted_state[2].split(', '))),
+        'rightRotation': tuple(map(float, extracted_state[3].split(', '))),
+        'leftHoveredObject': object_hovered_over_left,
+        'leftGrippedState': is_gripped_state_left,
+        'rightHoveredObject': object_hovered_over_right,
+        'rightGrippedState': is_gripped_state_right, 
+    }
+    return current_state
+
+def ToggleLeftGrip(uri: str="ws://localhost:8080/commands"):
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "ToggleLeftGrip"
+    }, uri))
+
+    if "True" in result:    return {"gripped": True}
+    return {"gripped": False}
+
+def ToggleRightGrip(uri: str="ws://localhost:8080/commands"):
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "ToggleRightGrip"
+    }, uri))
+    
+    if "True" in result:    return {"gripped": True}
+    return {"gripped": False}
+
+def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screenshots", save_image=False, uri: str="ws://localhost:8080/commands"):
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "RequestScreenshot",
+        "prefix": prefix,
+        "suffix": suffix,
+        "folder_name": folder_name,
+        "save_image": save_image,
+    }, uri))
+    return result
+
+def Reset(uri: str="ws://localhost:8080/commands"):
+    asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "ResetEnvironment"
+    }, uri))
+
+def RequestAnnotation(uri: str="ws://localhost:8080/commands"):
+    result = asyncio.get_event_loop().run_until_complete(SendCommand(
+        {
+        "command": "RequestAnnotation"
+    }, uri))
+    return result
+
+def RequestJson(uri: str="ws://localhost:8080/commands"):
+    result = asyncio.get_event_loop().run_until_complete(SendCommand(
+        {
+        "command": "RequestJson"
+    }, uri))
+    return result
+
+
+# main controls
+_MOVE_FWD_ = lambda: TransformAgent((0, 0, 0.1), (0, 0, 0))
+_MOVE_BCK_ = lambda: TransformAgent((0, 0, -0.1), (0, 0, 0))
+_MOVE_LEFT_ = lambda: TransformAgent((-0.1, 0, 0), (0, 0, 0))
+_MOVE_RIGHT_ = lambda: TransformAgent((0.1, 0, 0), (0, 0, 0))
+_PAN_LEFT_ = lambda: TransformAgent((0, 0, 0), (0, -2.5, 0))
+_PAN_RIGHT_ = lambda: TransformAgent((0, 0, 0), (0, 2.5, 0))
+_TILT_UP_ = lambda: TransformAgent((0, 0, 0), (-2.5, 0, 0))
+_TILT_DOWN_ = lambda: TransformAgent((0, 0, 0), (2.5, 0, 0))
+_GRIP_LEFT_ = lambda: ToggleLeftGrip()
+_GRIP_RIGHT_ = lambda: ToggleRightGrip()
+_XTNFWD_LEFT_ = lambda: TransformHands((0, 0, 0.025), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+_PLLBCK_LEFT_ = lambda: TransformHands((0, 0, -0.025), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+_XTNFWD_RIGHT_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0.025), (0, 0, 0))
+_PLLBCK_RIGHT_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, -0.025), (0, 0, 0))
+_RSE_LEFT_ = lambda: TransformHands((0, 0.025, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+_LWR_LEFT_ = lambda: TransformHands((0, -0.025, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+_RSE_RIGHT_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0.025, 0), (0, 0, 0))
+_LWR_RIGHT_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, -0.025, 0), (0, 0, 0))
+_ROT_LEFT_CLOCK_ = lambda: TransformHands((0, 0, 0), (0, 15, 0), (0, 0, 0), (0, 0, 0))
+_ROT_LEFT_CTRCLOCK_ = lambda: TransformHands((0, 0, 0), (0, -15, 0), (0, 0, 0), (0, 0, 0))
+_ROT_RIGHT_CLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 15, 0))
+_ROT_RIGHT_CTRCLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, -15, 0))
+_REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=False: RequestScreenshot(prefix, suffix, folder_name, save_image)
+
+def move_forward(units):
+    if units > 10:
+        print("Warning: Moving forward more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _MOVE_FWD_()
+
+def move_backward(units):
+    if units > 10:
+        print("Warning: Moving backward more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _MOVE_BCK_()
+
+def move_left(units):
+    if units > 10:
+        print("Warning: Moving left more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _MOVE_LEFT_()
+
+def move_right(units):
+    if units > 10:
+        print("Warning: Moving right more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _MOVE_RIGHT_()
+
+def pan_left(units):
+    if units > 10:
+        print("Warning: Panning left more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _PAN_LEFT_()
+
+def pan_right(units):
+    if units > 10:
+        print("Warning: Panning right more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _PAN_RIGHT_()
+
+def tilt_up(units):
+    if units > 10:
+        print("Warning: Tilting up more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _TILT_UP_()
+
+def tilt_down(units):
+    if units > 10:
+        print("Warning: Tilting down more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _TILT_DOWN_()
+
+def extend_left_hand_forward(units):
+    if units > 10:
+        print("Warning: Extending left hand forward more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _XTNFWD_LEFT_()
+
+def extend_right_hand_forward(units):
+    if units > 10:
+        print("Warning: Extending right hand forward more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _XTNFWD_RIGHT_()
+
+def pull_left_hand_backward(units):
+    if units > 10:
+        print("Warning: Pulling left hand backward more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _PLLBCK_LEFT_()
+
+def pull_right_hand_backward(units):
+    if units > 10:
+        print("Warning: Pulling right hand backward more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _PLLBCK_RIGHT_()
+
+def raise_left_hand(units):
+    if units > 10:
+        print("Warning: Raising left hand more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _RSE_LEFT_()
+
+def lower_left_hand(units):
+    if units > 10:
+        print("Warning: Lowering left hand more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _LWR_LEFT_()
+
+def raise_right_hand(units):
+    if units > 10:
+        print("Warning: Raising right hand more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _RSE_RIGHT_()
+
+def lower_right_hand(units):
+    if units > 10:
+        print("Warning: Lowering right hand more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _LWR_RIGHT_()
+
+def rotate_left_clockwise(units):
+    if units > 10:
+        print("Warning: Rotating left hand clockwise more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _ROT_LEFT_CLOCK_()
+
+def rotate_left_counterclockwise(units):
+    if units > 10:
+        print("Warning: Rotating left hand counterclockwise more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _ROT_LEFT_CTRCLOCK_()
+
+def rotate_right_clockwise(units):
+    if units > 10:
+        print("Warning: Rotating right hand clockwise more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _ROT_RIGHT_CLOCK_()
+
+def rotate_right_counterclockwise(units):
+    if units > 10:
+        print("Warning: Rotating right hand counterclockwise more than 10 units at once may cause instability. Setting to 10 units.")
+    for _ in range(min(units, 10)):
+        _ROT_RIGHT_CTRCLOCK_()

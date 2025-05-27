@@ -1,7 +1,5 @@
-# contains all the templates and references used in the code
-
 BASE_SEMANTIC_MEMORY = ("This semantic memory outlines the store's environment, detailing its layout, item locations, and general product descriptions.\n\n"
-                        "**Layout of the Store:**\n"
+                        "**Layout of the Store**:\n"
                         "1. Counter: Situated near Shelf 1, this area includes a cash register.\n"
                         "2. Shelf 1: Features a variety of snacks and junk food, including Pringles, potato chips, cheese rings, Tostitos, Clover Chips, corn chips, Prawn Crackers, Kang-Kong Chips, and Pik-Nik Shoestring Potatoes.\n"
                         "3. Shelf 2: Features an assortment of biscuits, cookies, and breakfast items, such as Butter cookies, cookie sandwich, Choco Mallows, House of Polvoron (polvoron and soft cookies), Pepero, Ritz crackers, Ube-filled crackers, Hansel Crackers, Fita Crackers, cereals (Koko Krunch, Gold Corn Flakes, Honey Stars, Choco Crunchies), and Mamon.\n"
@@ -16,7 +14,7 @@ BASE_SEMANTIC_MEMORY = ("This semantic memory outlines the store's environment, 
                         "12. Shelf 11: Features instant meals like cup noodles, instant noodles, instant ramen, chocolate rice porridge mix, and instant soup.\n"
                         "13. Shelf 12: Features instant meals like cup noodles, instant noodles, instant ramen, chocolate rice porridge mix, and instant soup (similar to Shelf 11).\n"
                         "14. Shelves 13-16: Feature a wide array of beverages, including bottled water, fruit juices, energy drinks, tonic drinks, and other soft drinks.\n\n"
-                        "**Top-down View of the Store:**\n"
+                        "**Top-down View of the Store**:\n"
                         "1. From the starting point, Shelf 1, Shelves 13-16, and the counter are immediately visible.\n"
                         "2. From the starting point: Panning left or moving slightly forward reveals Shelf 1 and its contents. Panning right shows the counter with the cash register.\n"
                         "3. Moving directly forward from the starting point brings Shelves 13-16 and their products into view. From this position, a side view of Shelf 4 is also visible.\n"
@@ -24,30 +22,7 @@ BASE_SEMANTIC_MEMORY = ("This semantic memory outlines the store's environment, 
                         "5. When near Shelves 13-16, panning left allows viewing of Shelf 4, along with portions of Shelves 8, 11, and 12.\n"
                         "6. Positioned between Shelves 4 and 8, both Shelf 2 and Shelf 5, along with their items, are visible.\n"
                         "7. Approaching Shelves 11 and 12 and panning left will reveal parts of Shelves 6, 9, and 10.\n"
-                        "8. As you move closer to Shelves 9 and 10, items on Shelf 7 become visible.\n")
-
-SYSTEM_INSTRUCTION_SUPER_ASSOCIATIVE_SEMANTIC = ("You are a Semantic Associative Learner that synthesizes new semantic memories for an Embodied AI Agent operating within a 3D convenience store simulation. "
-                                                 "Your inputs are a screenshot (a first-person view inside the store), a primary task, and the agent's current state. "
-                                                 "The primary task is to locate and pick up a specific item from the store. The target item is provided by the User. "
-                                                 "The agent's current state includes its position, orientation, and other relevant information. "
-                                                 "You will also be provided with a base semantic memory log that contains the ground truth information about the environment, including the store's layout, item locations, and general product descriptions. "
-                                                 "Use the base semantic memory log as a reference. "
-                                                 "Your output must be a JSON object that contains the following components:\n\n"
-                                                 "```json\n"
-                                                 "{\n"
-                                                 "  'new_semantic_memory': (string) A new semantic memory (maximum of 3 sentences or 512 characters) that contains the updated information about the environment.,\n"
-                                                 "  'recall': (string) From your updated semantic memory, recall the information that is relevant to the current observation and task. This is critical because you will use this information to inform the Embodied AI Agent's actions.),\n"
-                                                 "}\n"
-                                                 "```\n\n"
-                                                 "Do not rewrite the whole base semantic memory log. `new_semantic_memory` should only  contain the new information that you think is relevant to the current observation and task.\n\n")
-
-SYSTEM_INSTRUCTION_SUPER_ASSOCIATIVE_EPISODIC = ("You are an Episodic Associative Learner that focuses on generating episodic reflections for an Embodied AI Agent operating within a 3D convenience store simulation. "
-                                                 "Your task is to carefully analyze a provided transcript of the Embodied AI agent's actions and observations, and then generate a detailed reflection on the agent's performance. "
-                                                 "Based only on the content of the transcript, you must synthesize a structured episodic reflection that includes the following components in a JSON format:\n\n"
-                                                 "```json\n"
-                                                 "{\n"
-                                                 "  'dense_summary': (string) A concise summary of the agent's actions and observations, capturing the key events and interactions.,\n"
-                                                 "  'what_worked': (string) A reflection on the effectiveness of the agent's actions, highlighting what strategies or approaches were successful.,\n"
-                                                 "  'what_to_avoid': (string) A reflection on ineffective actions or strategies, identifying what the agent should avoid in future interactions.,\n"
-                                                 "}\n"
-                                                 "```\n\n")
+                        "8. As you move closer to Shelves 9 and 10, items on Shelf 7 become visible.\n"
+                        "9. Shelf 2 is behind (or at the back) of Shelf 1, while Shelves 3 and 4 are both adjacent to Shelves 1 and 2.\n\n"
+                        "**Fast Tracking** (use this to guide you quickly to the target object):\n"
+                        "- Shelves 13 & 14 have the same target position of translation: (6.28, 1.36, 8.0), rotation: (0, 359.46, 0)\n")
