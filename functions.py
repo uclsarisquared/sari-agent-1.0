@@ -2,6 +2,7 @@ import os
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from operator import itemgetter
 
 
 # Define the function declaration for the model
@@ -329,11 +330,13 @@ NAVIGATION_FUNCTIONS = navigation_functions = [
 ]
 
 
-def call_agent_action(mode):
+def call_agent_action(mode, payload):
     """
     Call the agent action based on the mode.
     :param mode: The mode to call (perception, manipulation, navigation).
     """
+    timestep, current_state_log, plan, mode = itemgetter('timestep', 'current_state_log', 'plan', 'mode')(payload)
+
     if mode == "perception":
         tools = PERCEPTION_FUNCTIONS
     elif mode == "manipulation":
@@ -342,6 +345,9 @@ def call_agent_action(mode):
         tools = NAVIGATION_FUNCTIONS
     else:
         raise ValueError("Invalid mode specified.")
+    
+    model_name = "gemini-2.0-flash"
+
     # Configure the client and tools
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     tools = types.Tool(function_declarations=PERCEPTION_FUNCTIONS)
@@ -349,10 +355,22 @@ def call_agent_action(mode):
 
     # Send request with function declarations
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents="Schedule a meeting with Bob and Alice for 03/14/2025 at 10:00 AM about the Q3 planning.",
+        model=model_name,
+        contents=(
+            "You are an AI agent in a virtual grocery store environment that "
+            "executes one action at a time based on a provided plan. You will "
+            "given the current plan, previous actions, and the current state of the "
+            "environment. Your task is to decide the next best action to take from "
+            "the available tools. You can use the tools to navigate, manipulate objects, "
+            "or perceive the environment.\n\n"
+            f"Time Step:\n{timestep}\n\n"
+            f"Current State Log:\n{current_state_log}\n\n"
+            f"Plan:\n{plan}\n\n"
+            f"Mode:\n{mode}\n\n"
+            "What is the next best action?"),
         config=config,
     )
+    print("CALL AGENT ACTION RESPONSE:", response)
 
     # Check for a function call
     if response.candidates[0].content.parts[0].function_call:
