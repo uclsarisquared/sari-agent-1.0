@@ -34,7 +34,8 @@ from env import (
 )
 from perception import (
     center_item_on_screen,
-    detect_object_in_frame_gemini
+    detect_object_in_frame_gemini,
+    approach_cardinal
 )
 
 navigation_actions_ref = {
@@ -48,19 +49,20 @@ navigation_actions_ref = {
     "pan_down": pan_down,
 }
 perception_actions_ref = {
-    'center_object_on_screen': detect_object_in_frame_gemini,
+    'center_object_on_screen': center_item_on_screen,
+    'grab_and_read_item': approach_cardinal,
 }
 manipulation_actions_ref = {
-    'extend_left_hand_forward': extend_left_hand_forward,
-    'pull_left_hand_backward': pull_left_hand_backward,
-    'extend_right_hand_forward': extend_right_hand_forward,
-    'pull_right_hand_backward': pull_right_hand_backward,
-    'raise_left_hand': raise_left_hand,
-    'raise_right_hand': raise_right_hand,
-    'lower_left_hand': lower_left_hand,
-    'lower_right_hand': lower_right_hand,
-    'toggle_left_grip': _GRIP_LEFT_,
-    'toggle_right_grip': _GRIP_RIGHT_,
+    'grab_and_read_item': approach_cardinal,
+    # 'pull_left_hand_backward': pull_left_hand_backward,
+    # 'extend_right_hand_forward': extend_right_hand_forward,
+    # 'pull_right_hand_backward': pull_right_hand_backward,
+    # 'raise_left_hand': raise_left_hand,
+    # 'raise_right_hand': raise_right_hand,
+    # 'lower_left_hand': lower_left_hand,
+    # 'lower_right_hand': lower_right_hand,
+    # 'toggle_left_grip': _GRIP_LEFT_,
+    # 'toggle_right_grip': _GRIP_RIGHT_,
 }
 actions_ref = {
     'MOVE_FWD': _MOVE_FWD_,

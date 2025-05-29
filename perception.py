@@ -69,13 +69,14 @@ def approach_cardinal(target_name, cardinal_deg=270, annotate=False):
 
     # Step 3: Take new image & re-detect object
     item = detect_object_via_gemini(target_name)
-    box = item["box"]
-    if annotate:
-        from annotation_tools import annotate_boxes
-        annotate_boxes(item)
+    if item:
+        box = item["box"]
+        if annotate:
+            from annotation_tools import annotate_boxes
+            annotate_boxes(item)
 
-    # Step 4: Strafe left/right until object is centered
-    strafe_to_center(box)
+        # Step 4: Strafe left/right until object is centered
+        strafe_to_center(box)
 
     # Step 5: Take fresh RGBD image & estimate new approach steps
     item = detect_object_via_gemini(target_name)
@@ -99,7 +100,7 @@ def approach_cardinal(target_name, cardinal_deg=270, annotate=False):
 
     # Step 7: Grab and read
     print("Final readout:", grab_and_read_item(text_read_fn=read_text))
-    return state, box
+    return state
 
 
 
@@ -208,32 +209,8 @@ def center_item_on_screen(target_name, annotate=False):
 
     print("Movement Y: ", y_cam_movement)
     print("Movement X: ", x_cam_movement)
-    TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
-
-    # seeking
-    seek_steps = random.randint(3,5)
-    state = move_forward(units=seek_steps)
-    RequestScreenshot()
-    image_path = "screenshots/ClientScreenshot.png"
-    _, paddle_result = extract_text_from_image(image_path)
-    bboxes = transform_paddle_result_to_coco_label_format(paddle_result)
-    try:
-        most_similar_bbox = ast.literal_eval(find_most_similar_ocr_bbox(bboxes, goal="box of cereal")['response'])
-    except Exception:
-        most_similar_bbox = bboxes[0]
-    bbox = {
-        "xmin": float(most_similar_bbox[0]),
-        "ymin": float(most_similar_bbox[1]),
-        "xmax": float(most_similar_bbox[2]),
-        "ymax": float(most_similar_bbox[3])
-    }
-    center_bbox_on_screen(bbox)
-    # closing
-    close_steps = random.randint(5,10)
-    state = move_forward(units=close_steps)
-    print("Things read:")
-    print(grab_and_read_item(text_read_fn=read_text))
-    return state, bbox
+    state = TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
+    return state, box
 
 
 def detect_object_via_gemini(target_name):
