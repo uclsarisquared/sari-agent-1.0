@@ -62,13 +62,13 @@ from agent import EmbodiedAgent, GeminiConfig
 vlm_config = GeminiConfig(
     model_id='gemini-2.5-pro-preview-05-06',
     max_thinking_tokens=3072,
-    temperature=0,
+    temperature=0.5,
     mode='lean'
 )
 associative_config = GeminiConfig(
     model_id='gemini-2.5-pro-preview-05-06',
-    max_thinking_tokens=1024,
-    temperature=0.35,
+    max_thinking_tokens=3072,
+    temperature=0.3,
     mode='lean'
 )
 
@@ -132,10 +132,6 @@ while ON_PLAY:
         key_info = notes['key_info']
         status = notes['status']
         checklist = notes['checklist']
-
-        print("=" * 100)
-        print(f"Current Agent State @ Timestep {time_step}:\n{CURRENT_AGENT_STATE}")
-        print("=" * 100)
 
         time_step += 1
 

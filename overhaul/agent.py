@@ -25,6 +25,8 @@ from actions_str import (
     PERCEPTION_ACTIONS,
 )
 
+from depth import estimate_depth
+
 
 @dataclass
 class GeminiConfig:
@@ -133,8 +135,11 @@ class EmbodiedAgent:
         screenshot = base64.b64decode(screenshot)
         imagebytes = BytesIO(screenshot)
         screenshot = Image.open(imagebytes).convert('RGB')
+        
+        depth_map = estimate_depth(imagebytes)
 
         curr_obs_header = "## CURRENT OBSERVATION\n"
+        curr_depth_map_header = "## CURRENT DEPTH MAP\n"
 
         new_semantic_memory = ""
         recall = ""
@@ -144,8 +149,8 @@ class EmbodiedAgent:
                         f"## MAIN TASK: {main_task}\n"
                         f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
                         f"## STATE: {state}\n")
-            
-            contents = [curr_obs_header, screenshot, user_msg]
+
+            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
 
             semantic_response = self.associative_learner.client.models.generate_content(
                 model=self.associative_learner.config.model_id,
@@ -184,7 +189,7 @@ class EmbodiedAgent:
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}")
 
-            contents = [curr_obs_header, screenshot, user_msg]
+            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
 
             response = self.vlm_agent.chat.send_message(
                 message=contents,
@@ -198,17 +203,16 @@ class EmbodiedAgent:
                 response.text
             )[1]
             response_json = ast.literal_eval(response_json)
-            action = response_json['actions']
 
             history = ""
-            for message in self.vlm_agent.chat.get_history()[-2:]:
+            for message in self.vlm_agent.chat.get_history()[-8:]:
                 role = message.role
                 content = message.parts[0].text
                 history += f"{role.upper()}: {content}\n"
             history = history.strip()
 
             episodic_response = self.associative_learner.client.models.generate_content(
-                model=self.associative_learner.config.model_id,
+                model='gemini-2.5-flash-preview-05-20',
                 config=self.episodic_gen_config,
                 contents=[history]
             )
@@ -235,7 +239,7 @@ class EmbodiedAgent:
                         f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
                         f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
                         f"## STATE: {state}\n")
-            contents = [curr_obs_header, screenshot, user_msg]
+            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
 
             semantic_response = self.associative_learner.client.models.generate_content(
                 model=self.associative_learner.config.model_id,
@@ -273,7 +277,7 @@ class EmbodiedAgent:
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}")
 
-            contents = [curr_obs_header, screenshot, user_msg]
+            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
             response = self.vlm_agent.chat.send_message(
                 message=contents,
                 config=self.vlm_agent.generate_config()
@@ -284,17 +288,16 @@ class EmbodiedAgent:
                 response.text
             )[1]
             response_json = ast.literal_eval(response_json)
-            action = response_json['actions']
 
             history = ""
-            for message in self.vlm_agent.chat.get_history()[-2:]:
+            for message in self.vlm_agent.chat.get_history()[-8:]:
                 role = message.role
                 content = message.parts[0].text
                 history += f"{role.upper()}: {content}\n"
             history = history.strip()
 
             episodic_response = self.associative_learner.client.models.generate_content(
-                model=self.associative_learner.config.model_id,
+                model='gemini-2.5-flash-preview-05-20',
                 config=self.episodic_gen_config,
                 contents=[history]
             )
