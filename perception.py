@@ -2,18 +2,159 @@ import ast
 import random
 import os
 import requests
+from io import BytesIO
 from env import RequestScreenshot, TransformAgent
 from openai import OpenAI
 from paddleocr import PaddleOCR
 from env import *
+from annotation_tools import annotate_boxes
 
 from dotenv import load_dotenv
 from manipulation import grab_and_read_item
+from PIL import Image
+
 
 load_dotenv("api.env")
 
+def face_cardinal_direction(angle_deg):
+    """
+    Set camera to one of the cardinal angles: 0 (north/+z), 90 (east/+x), etc.
+    """
+    # Only affects rotation (pitch, yaw, roll)
+    current_angle = TransformAgent((0, 0, 0), (0, 0, 0))['rotation'][1]
+    TransformAgent((0,0,0), (0,angle_deg-current_angle, 0))
+    print(f"[ROTATE] Facing {angle_deg} degrees")
+
+
+def strafe_to_center(bbox, image_width=1920):
+    """
+    Move sideways until the object is horizontally centered.
+    """
+    center_x = (bbox["xmin"] + bbox["xmax"]) / 2
+    offset_px = center_x - (image_width / 2)
+    offset_units = 0.1 * (offset_px / 19.2)  # same scaling as before
+
+    print(f"[STRAFE] Object offset: {offset_px} px -> {offset_units:.2f} units")
+
+    # Move sideways: +Z is right, -Z is left
+    # TransformAgent((offset_units, 0, 0), (0, 0, 0))
+    # Or do it gradually
+    movement_count = int(offset_units // 1)
+    for _ in range(movement_count):
+        move_right(units=1)
+
+
+def request_rgbd_image():
+    RequestScreenshot(save_image=True)
+    DEPTH_API = "http://202.92.159.242:8000/estimate-depth"
+
+    with open("screenshots/ClientScreenshot.png", "rb") as file:
+        response = requests.post(DEPTH_API, files={"file": file})
+
+    # Ensure request succeeded
+    response.raise_for_status()
+
+    # Read image from response directly
+    depth_img = Image.open(BytesIO(response.content))
+    depth_img.save("depth_image.png")  # Save for inspection
+    return depth_img
+
+
+def approach_cardinal(target_name, cardinal_deg=270, annotate=False):
+    # Step 1: Use rough approach
+    state, box = approach_target(target_name, annotate=annotate)
+
+    # Step 2: Lock camera to face cardinal direction
+    face_cardinal_direction(cardinal_deg)
+
+    # Step 3: Take new image & re-detect object
+    item = detect_object_via_gemini(target_name)
+    if item:
+        box = item["box"]
+        if annotate:
+            from annotation_tools import annotate_boxes
+            annotate_boxes(item)
+
+        # Step 4: Strafe left/right until object is centered
+        strafe_to_center(box)
+
+    # Step 5: Take fresh RGBD image & estimate new approach steps
+    item = detect_object_via_gemini(target_name)
+    box = item["box"]
+    x_center_before = (box["xmin"] + box["xmax"]) / 2
+    y_center_before = (box["ymin"] + box["ymin"]) / 2
+    if annotate:
+        from annotation_tools import annotate_boxes
+        annotate_boxes(item)
+    print("Y Center of bbox: ", y_center_before)
+    print("X Center of bbox: ", x_center_before)
+    y_cam_movement = -1 * (y_center_before - 540) / 19.2
+    x_cam_movement = -1 * (x_center_before - 960) / 19.2
+
+    print("Movement Y: ", y_cam_movement)
+    print("Movement X: ", x_cam_movement)
+    TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
+
+    # Step 6: Move forward to final position
+    # state = move_forward(units=steps)
+
+    # Step 7: Grab and read
+    print("Final readout:", grab_and_read_item(text_read_fn=read_text))
+    return state
+
+
+
 ocr = PaddleOCR(use_angle_cls=True, lang='en')
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def estimate_steps_from_depth(bbox, depth_img):
+    """
+    Given a PIL grayscale depth image and bbox, compute how many 0.1-unit steps to move.
+    """
+    pixels = depth_img.convert("L").load()
+    cx = int((bbox["xmin"] + bbox["xmax"]) / 2)
+    cy = int((bbox["ymin"] + bbox["ymax"]) / 2)
+    intensity = pixels[cx, cy]  # 0 = far, 255 = near
+
+    # Normalize: 1.0 = max visible range assumed, scaled by (1 - intensity/255)
+    est_distance = (8.0) * (1 - intensity / 255.0)
+    est_steps = round(est_distance / 0.1)  # each step = 0.1 units
+    print(f"[DEPTH] center intensity={intensity}, est_dist={est_distance:.2f}, steps={est_steps}")
+    return est_steps
+
+def approach_target(target_name, annotate=False):
+    # 1) Detect object and set bounding box
+    item = detect_object_via_gemini(target_name)
+    box = item["box"]
+
+    # 2) grab depth image and estimate steps
+    depth_img = request_rgbd_image()
+    steps = estimate_steps_from_depth(box, depth_img)
+
+    # 3) Pan camera on object
+    x_center_before = (box["xmin"] + box["xmax"]) / 2
+    y_center_before = (box["ymin"] + box["ymin"]) / 2
+    if annotate:
+        from annotation_tools import annotate_boxes
+        annotate_boxes(item)
+    print("Y Center of bbox: ", y_center_before)
+    print("X Center of bbox: ", x_center_before)
+    y_cam_movement = -1 * (y_center_before - 540) / 19.2
+    x_cam_movement = -1 * (x_center_before - 960) / 19.2
+
+    print("Movement Y: ", y_cam_movement)
+    print("Movement X: ", x_cam_movement)
+    TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
+
+    # 4) estimate steps & move once
+    state = move_forward(units=steps)
+
+    # 5) read/grab if desired
+    # print("Final readout:", grab_and_read_item(text_read_fn=read_text))
+    return state, box
+
+
 
 def read_text(image_path="screenshots/ClientScreenshot.png"):
     result = ocr.ocr(image_path)
@@ -59,7 +200,7 @@ def center_item_on_screen(target_name, annotate=False):
     x_center_before = (box["xmin"] + box["xmax"]) / 2
     y_center_before = (box["ymin"] + box["ymin"]) / 2
     if annotate:
-        from tools import annotate_boxes
+        from annotation_tools import annotate_boxes
         annotate_boxes(item)
     print("Y Center of bbox: ", y_center_before)
     print("X Center of bbox: ", x_center_before)
@@ -68,32 +209,8 @@ def center_item_on_screen(target_name, annotate=False):
 
     print("Movement Y: ", y_cam_movement)
     print("Movement X: ", x_cam_movement)
-    TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
-
-    # seeking
-    seek_steps = random.randint(3,5)
-    state = move_forward(units=seek_steps)
-    RequestScreenshot()
-    image_path = "screenshots/ClientScreenshot.png"
-    _, paddle_result = extract_text_from_image(image_path)
-    bboxes = transform_paddle_result_to_coco_label_format(paddle_result)
-    try:
-        most_similar_bbox = ast.literal_eval(find_most_similar_ocr_bbox(bboxes, goal="box of cereal")['response'])
-    except Exception:
-        most_similar_bbox = bboxes[0]
-    bbox = {
-        "xmin": float(most_similar_bbox[0]),
-        "ymin": float(most_similar_bbox[1]),
-        "xmax": float(most_similar_bbox[2]),
-        "ymax": float(most_similar_bbox[3])
-    }
-    center_bbox_on_screen(bbox)
-    # closing
-    close_steps = random.randint(5,10)
-    state = move_forward(units=close_steps)
-    print("Things read:")
-    print(grab_and_read_item(text_read_fn=read_text))
-    return state, bbox
+    state = TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
+    return state, box
 
 
 def detect_object_via_gemini(target_name):

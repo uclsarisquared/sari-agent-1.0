@@ -1,4 +1,3 @@
-import requests
 import os
 from PIL import ImageDraw, Image
 from env import TransformAgent, RequestScreenshot
