@@ -22,7 +22,7 @@ def face_cardinal_direction(angle_deg):
     """
     # Only affects rotation (pitch, yaw, roll)
     current_angle = TransformAgent((0, 0, 0), (0, 0, 0))['rotation'][1]
-    TransformAgent((0,0,0), (0,angle_deg-current_angle, 0))
+    TransformAgent((0,0,0), (0, angle_deg-current_angle, 0))
     print(f"[ROTATE] Facing {angle_deg} degrees")
 
 

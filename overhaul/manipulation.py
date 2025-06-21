@@ -8,9 +8,16 @@ from env import (
     _RSE_LEFT_,
     _RSE_RIGHT_,
     _REQUEST_SCREENSHOT_,
+    TransformAgent,
     rotate_right_clockwise,
-    rotate_left_clockwise
+    rotate_left_clockwise,
+    move_backward
 )
+from hand_reset import reset_hands_in_front2, reset_hands_in_front
+
+def reset_agent_cam_to_forward():
+    pitch = TransformAgent((0,0,0), (0,0,0))['rotation'][0]
+    return TransformAgent((0,0,0), (0-pitch,0,0))
 
 def reach_and_grasp(hand='left', max_attempts=20):
     grasped = False
@@ -64,9 +71,13 @@ def raise_hand_to_eye_level(hand="left", raise_steps=5):
 
 
 def grab_and_read_item(hand="left", max_attempts=30, text_read_fn=None):
+    print('[REACH AND GRAB]')
     accessed, attempts = reach_and_grasp(hand=hand, max_attempts=max_attempts)
+    
     if accessed:
-        pull_back(hand=hand, max_frames=attempts//2)
+        move_backward(units=5)
+        reset_agent_cam_to_forward()
+        reset_hands_in_front2(extra_elevation=-0.1, hand="left")
         raise_hand_to_eye_level(hand=hand)
         return rotate_and_read(hand="left", text_read_fn=text_read_fn)
     return ["No object grabbed"]

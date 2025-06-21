@@ -25,7 +25,10 @@ from env import (
     _GRIP_RIGHT_,
 )
 
-from perception import detect_object_in_frame
+from perception import (
+    center_object_on_screen,
+    retrieve_item
+)
 
 
 NAVIGATION_ACTIONS_REF = {
@@ -40,5 +43,6 @@ NAVIGATION_ACTIONS_REF = {
 }
 
 PERCEPTION_ACTIONS_REF = {
-    "center_object_on_screen": detect_object_in_frame,
+    'center_object_on_screen': retrieve_item,
+    'approach_object': retrieve_item,
 }

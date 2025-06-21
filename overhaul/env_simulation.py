@@ -7,9 +7,9 @@ import sys
 import json
 from datetime import datetime
 
-from hand_reset import reset_hands
+from hand_reset import reset_hands_in_front2
 
-reset_hands()
+reset_hands_in_front2(extra_elevation=-0.1, hand="left")
 
 from env import _REQUEST_SCREENSHOT_
 from env import *

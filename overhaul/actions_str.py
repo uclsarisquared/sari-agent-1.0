@@ -24,6 +24,9 @@ NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 units. This will move in t
                       "tilt_up: Tilt up 2.5 degrees.\n"
                       "tilt_down: Tilt down 2.5 degrees.\n")
 
-PERCEPTION_ACTIONS = ("center_object_on_screen: Center the agent's body on the target object in the frame.\n")
+PERCEPTION_ACTIONS = (
+    "center_object_on_screen: Center the agent's body on the target object in the frame.\n"
+    "retrieve_item: Approach the target object, grab it with the agent's hand, and read it.\n"
+)
 
 ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS
