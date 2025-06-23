@@ -33,9 +33,6 @@ from perception import (
 
 NAVIGATION_ACTIONS_REF = {
     "move_forward": move_forward,
-    "move_backward": move_backward,
-    "move_left": move_left,
-    "move_right": move_right,
     "pan_left": pan_left,
     "pan_right": pan_right,
     "tilt_up": tilt_up,
