@@ -7,7 +7,8 @@ import sys
 import json
 from datetime import datetime
 
-from hand_reset import reset_hands_in_front
+from hand_reset import reset_hands_in_front2
+from functions import call_agent_action
 
 from env import _REQUEST_SCREENSHOT_, TransformAgent, TransformHands
 from actions import (navigation_actions_ref, perception_actions_ref, manipulation_actions_ref, actions_ref)
@@ -16,6 +17,7 @@ from loguru import logger
 from comprehension import determine_mode
 
 INFERENCE_API = "http://localhost:8005/predict"
+MODE_API = "http://202.92.159.242:8000/seek-mode"
 ACTIONS_API = "http://202.92.159.242:8000/decide_action"
 EXTRACT_JSON_PATTERN = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
@@ -25,7 +27,7 @@ ON_PLAY = True
 
 at_init_state = True
 
-reset_hands_in_front(extra_elevation=-0.1)
+reset_hands_in_front2(extra_elevation=-0.1, hand="left")
 time_step = 1
 timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
 run_name = "agent-state-" + (RUN_ENTRY or "") + "-" + timestamp if RUN_ENTRY else timestamp 
@@ -125,12 +127,26 @@ while ON_PLAY:
     extracted = ast.literal_eval(extracted)
     reasoning = extracted.get('reasoning', 'No Reasoning.')
     notes = extracted.get('notes', 'No Notes.')
+    mode_payload = {
+        "timestep": f"Time step: {time_step}",
+        "current_state_log": current_state_log,
+        "plan": reasoning,
+        "previous_mode": mode,
+        "bounding_box": CURRENT_BOUNDING_BOX,
+        "bounding_box_area": (CURRENT_BOUNDING_BOX['xmax']-CURRENT_BOUNDING_BOX['xmin']) * (CURRENT_BOUNDING_BOX['ymax']-CURRENT_BOUNDING_BOX['ymin'])
+    }
     # TODO: Add exponential backoff 
+    mode_response = requests.post(
+        MODE_API,
+        data=mode_payload
+    )
+    print("Mode Response: ", mode_response.content)
     try:
-        mode = json.loads(determine_mode(time_step, current_state_log, reasoning, mode))["mode"]
+        mode = json.loads(mode_response.json()["response"])["mode"]
     except json.decoder.JSONDecodeError as e:
         mode = "perception"
     CURRENT_AGENT_STATE["mode"] = mode
+    print("Current Mode: ", mode)
 
     actions_payload = {
         "timestep": f"Time step: {time_step}",
@@ -203,6 +219,12 @@ while ON_PLAY:
         for k, v in CURRENT_AGENT_STATE.items():
             current_state_log += f"{k}: {v}\n"
         current_state_log += "\n"
+
+        if action_name == "grab_and_read_item":
+            ON_PLAY = False
+            print(f"'STOP' action detected. Stopping the loop...")
+            logger.info(f"'STOP' action detected. Stopping the loop...")
+            break
 
         if ON_PLAY:
             print(f"ACTION: {action_name} executed for {exec_count} times.")
