@@ -16,9 +16,6 @@
 
 
 NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 units. This will move in the Z-axis\n"
-                      "move_backward: Move backward 0.1 units. This will move in the Z-axis\n"
-                      "move_left: Move left 0.1 units. This will move in the X-axis\n"
-                      "move_right: Move right 0.1 units. This will move in the X-axis\n"
                       "pan_left: Pan left 2.5 degrees.\n"
                       "pan_right: Pan right 2.5 degrees.\n"
                       "tilt_up: Tilt up 2.5 degrees.\n"
