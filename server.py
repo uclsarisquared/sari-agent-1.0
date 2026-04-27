@@ -1,7 +1,8 @@
 import litserve as ls
 import sys
 
-from gemini import GeminiPro, GeminiProCfg
+#from gemini import GeminiPro, GeminiProCfg
+from openrouter import OpenRouterAgent as GeminiPro, OpenRouterCfg as GeminiProCfg
 
 
 timestep = 0
@@ -9,9 +10,11 @@ timestep = 0
 mode = sys.argv[1]
 
 if mode == "inf_base":
-    cfg = GeminiProCfg(max_thinking_tokens=3072, temperature=0.5, mode="inf_base")
+    #cfg = GeminiProCfg(max_thinking_tokens=3072, temperature=0.5, mode="inf_base")
+    cfg = GeminiProCfg(temperature=0.5, mode="inf_base")
 elif mode == "inf_super":
-    cfg = GeminiProCfg(max_thinking_tokens=3072, temperature=0.5, mode="inf_super")
+    #cfg = GeminiProCfg(max_thinking_tokens=3072, temperature=0.5, mode="inf_super")
+    cfg = GeminiProCfg(temperature=0.5, mode="inf_super")
 
 
 class SariSariInferenceAPI(ls.LitAPI):

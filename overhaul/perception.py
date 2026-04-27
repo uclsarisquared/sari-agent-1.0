@@ -240,7 +240,20 @@ def approach_target(target_name, annotate=False):
     box = item["box"]
 
     # 2) grab depth image and estimate steps
-    depth_img = request_rgbd_image()
+    try:
+        depth_img = request_rgbd_image()
+    except Exception as e:
+        from depth import estimate_depth
+        from env import _REQUEST_SCREENSHOT_
+        from io import BytesIO
+        import base64
+        
+        imagebytes = _REQUEST_SCREENSHOT_()['image']
+        imageb64 = base64.b64encode(imagebytes).decode('utf-8')
+        imageb64 = imageb64.encode('utf-8')
+        screenshot = base64.b64decode(imageb64)
+        screenshot = BytesIO(screenshot)
+        depth_img = estimate_depth(screenshot)
     steps = estimate_steps_from_depth(box, depth_img)
 
     # 3) Pan camera on object

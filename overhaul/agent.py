@@ -12,7 +12,7 @@ from PIL import Image
 from loguru import logger
 import ast
 
-load_dotenv('../api.env')
+load_dotenv('/c/Users/EMMANUEL/Desktop/capstone/pantrypal/api.env')
 
 from sys_inst import (
     SYS_INST_ASSOCIATIVE_SEMANTIC,

@@ -1,0 +1,14 @@
+# Core AI and LLM Orchestration
+openai>=2.20.0,<3.0.0
+langchain-openai>=1.1.10
+litellm>=1.81.14
+openai-agents>=0.9.3
+
+# Connection and Communication
+websockets>=15.0.1
+fastmcp>=2.14.5
+
+# Vision and Imaging
+# Reverting to 10.4.x to satisfy moondream 1.1.0
+pillow>=10.4.0,<11.0.0
+moondream>=1.1.0
