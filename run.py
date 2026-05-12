@@ -2,10 +2,9 @@ import base64
 import re
 import ast
 import sys
-import time
-
+import time  # Added time module
+import winsound # Added winsound module for beep at the end
 import requests
-
 import env
 
 SERVER_URL = "http://localhost:8005/predict"
@@ -50,45 +49,57 @@ def dispatch(actions, times):
 
 def run(task):
     actions_history = []
-    while True:
-        state, image_b64 = get_state()
+    start_time = time.time()  # Start the clock
+    print("Starting at:", time.ctime(start_time))  # Print start time
+    print(f"--- Starting Task: {task} ---")
 
-        payload = {
-            "task": task,
-            "state": state,
-            "image": image_b64,
-            "actions": actions_history,
-        }
+    try:
+        while True:
+            state, image_b64 = get_state()
 
-        resp = requests.post(SERVER_URL, json=payload, timeout=180)
-        resp.raise_for_status()
+            payload = {
+                "task": task,
+                "state": state,
+                "image": image_b64,
+                "actions": actions_history,
+            }
 
-        response = resp.json()['response']
+            resp = requests.post(SERVER_URL, json=payload, timeout=180)
+            resp.raise_for_status()
 
-        # on STOP the server returns a plain string instead of a dict
-        if isinstance(response, str):
-            print("[DONE] Agent returned STOP.")
-            break
+            response = resp.json()['response']
 
-        text = response['text']
+            if isinstance(response, str):
+                print("[DONE] Agent returned STOP.")
+                break
 
-        match = re.search(EXTRACTABLE_JSON, text)
-        if not match:
-            print("[ERROR] No action JSON in response. Stopping.")
-            break
+            text = response['text']
 
-        action_json = ast.literal_eval(match.group(1))
-        actions = action_json['actions']
-        times = action_json['times']
+            match = re.search(EXTRACTABLE_JSON, text)
+            if not match:
+                print("[ERROR] No action JSON in response. Stopping.")
+                break
 
-        print(f"[STEP] {list(zip(actions, times))}")
+            action_json = ast.literal_eval(match.group(1))
+            actions = action_json['actions']
+            times = action_json['times']
 
-        stopped = dispatch(actions, times)
-        actions_history.append({'actions': actions, 'times': times})
+            print(f"[STEP] {list(zip(actions, times))}")
 
-        if stopped:
-            print("[DONE] STOP action dispatched.")
-            break
+            stopped = dispatch(actions, times)
+            actions_history.append({'actions': actions, 'times': times})
+
+            if stopped:
+                print("[DONE] STOP action dispatched.")
+                break
+    finally:
+        # End the clock and calculate duration
+        end_time = time.time()
+        duration = end_time - start_time
+        print("-" * 30)
+        print(f"Runtime: {duration:.2f} seconds")
+        print("-" * 30)
+        winsound.Beep(392, 1000)
 
 
 if __name__ == "__main__":
