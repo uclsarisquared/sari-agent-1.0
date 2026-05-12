@@ -2,6 +2,7 @@ import os
 import re
 import ast
 import base64
+import math
 from io import BytesIO
 from dataclasses import dataclass, field
 from typing import Literal, List, Dict, Any
@@ -19,6 +20,8 @@ load_dotenv('api.env')
 @dataclass
 class OpenRouterCfg:
     model: str = "google/gemini-3.1-pro-preview"
+    #model: str = "google/gemini-3-flash-preview"
+    #model: str = "Qwen/Qwen3.6-27B"
     temperature: float = 0.5
     mode: Literal["inf_base", "inf_super"] = "inf_base"
 
@@ -32,6 +35,9 @@ class OpenRouterAgent:
         )
         self.metrics = {'total_tokens_used': 0}
         self.main_history: List[Dict[str, Any]] = []
+
+        self.position: List[float] = [0.0, 0.0]  # x, y coordinates
+        self.heading: float = 90.0 # degrees CCW from East, so 0 = facing right, 90 = facing up, etc.
 
         if self.cfg.mode == "inf_super":
             self.base_semantic_memory = BASE_SEMANTIC_MEMORY
@@ -86,6 +92,32 @@ class OpenRouterAgent:
             self.base_semantic_memory = BASE_SEMANTIC_MEMORY + "\n**Added Semantic Memory:**\n"
             self.episodic_memory = ""
 
+    def _update_position(self, last_step: dict) -> None:
+        """Incrementally update dead-reckoning position from one action step."""
+        if not last_step:
+            return
+        for action, n in zip(last_step.get('actions', []), last_step.get('times', [])):
+            if action == 'PAN_LEFT':
+                self.heading = (self.heading + 2.5 * n) % 360
+            elif action == 'PAN_RIGHT':
+                self.heading = (self.heading - 2.5 * n) % 360
+            elif action in ('MOVE_FWD', 'MOVE_BACK', 'MOVE_LEFT', 'MOVE_RIGHT'):
+                dist = 0.1 * n
+                theta = math.radians(self.heading)
+                if action == 'MOVE_FWD':
+                    self.position[0] += math.cos(theta) * dist
+                    self.position[1] += math.sin(theta) * dist
+                elif action == 'MOVE_BACK':
+                    self.position[0] -= math.cos(theta) * dist
+                    self.position[1] -= math.sin(theta) * dist
+                elif action == 'MOVE_LEFT':
+                    self.position[0] += math.cos(theta + math.pi / 2) * dist
+                    self.position[1] += math.sin(theta + math.pi / 2) * dist
+                elif action == 'MOVE_RIGHT':
+                    self.position[0] += math.cos(theta - math.pi / 2) * dist
+                    self.position[1] += math.sin(theta - math.pi / 2) * dist
+            # TILT_*, EXTEND_*, PULL_*, GRIP_*, STOP — no global position change
+
     def generate(self, request, timestep):
         if timestep == 1:
             self._reset_memory()
@@ -99,11 +131,14 @@ class OpenRouterAgent:
         screenshot = self._decode_screenshot(request)
         state = str(request['state'])
         actions_history = str(request['actions'])
+        self._update_position(actions_history[-1] if request['actions'] else {})
+        pos_str = f"(x={self.position[0]:.2f}, y={self.position[1]:.2f}, heading={self.heading:.1f}°)"
 
         text = f"## CURRENT TIMESTEP: {timestep}\n"
         if timestep == 1:
             text += f"## MAIN TASK: {request['task']}\n"
         text += f"## STATE: {state}\n## ACTIONS HISTORY: {actions_history}\n"
+        text += f"## ESTIMATED POSITION: {pos_str}\n"
 
         response_text = self._call(
             SYSTEM_INSTRUCTIONS_REF["inf_base"],
@@ -121,6 +156,9 @@ class OpenRouterAgent:
         return {'text': response_text, 'history': self.main_history[-2:]}
 
     def _generate_inf_super(self, request, timestep):
+        actions_history = request['actions']
+        self._update_position(actions_history[-1] if actions_history else {})
+        pos_str = f"(x={self.position[0]:.2f}, y={self.position[1]:.2f}, heading={self.heading:.1f}°)"
         screenshot = self._decode_screenshot(request)
         state = str(request['state'])
 
@@ -149,6 +187,7 @@ class OpenRouterAgent:
         if timestep > 1:
             main_text += f"## EPISODIC MEMORY: {self.episodic_memory}\n"
         main_text += state
+        main_text += f"\n## ESTIMATED POSITION: {pos_str}\n"
 
         response_text = self._call(
             SYSTEM_INSTRUCTIONS_REF["inf_super"]["general"],

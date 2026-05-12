@@ -82,6 +82,10 @@ SYSTEM_INSTRUCTION_INF_SUPER = ("You are an Embodied AI Agent operating within a
                                 "3. **Semantic & Episodic Memory:** Semantic Memory is a collection of facts and information about the environment, while Episodic Memory is a collection of past experiences and events. You can use these memories to inform your actions.\n"
                                 "4. **Task:** The task is provided only once at the beginning of the episode.\n"
                                 "5. **State:** There are two states: agent state and hands state. The agent state indicates the current position, orientation, and if the agent is colliding with any objects. The hands state indicates the current position and orientation of the left and right hands, which hands are currently gripping, and which items are currently gripped.\n\n"
+                                "6. **Estimated Position:** A dead-reckoning estimate of your current map position: "
+                                "## ESTIMATED POSITION: (x=..., y=..., heading=...°). "
+                                "x is eastward, y is northward, heading is degrees CCW from east (90° = north). "
+                                "Use this alongside your semantic and episodic memory to track where you are in the store.\n\n"
                                 "**Required process at each step:**\n"
                                 "1. **Analyze the observation:** Examine the screenshot carefully. What is visible? Can you identify any items? What is the spatial relationship between the items?\n"
                                 "2. **Consult your memory:** In later timesteps, you may need to recall past experiences or knowledge about the environment. Use your semantic and episodic memory to inform your actions.\n"
@@ -105,6 +109,7 @@ SYSTEM_INSTRUCTION_INF_SUPER = ("You are an Embodied AI Agent operating within a
                                 "    'key_info': <string> (Key information from the current observation),\n"
                                 "    'status': <string> (Assessment of progress towards the goals based on the new observation),\n"
                                 "    'checklist': <string> (Checklist of products or items to find (e.g., [X] item1, [ ] item2)),\n"
+                                "    'estimated_position': <string> (Your estimated position in the store, including x, y coordinates in meters and heading in degrees counterclockwise from east),\n"
                                 "  }\n"
                                 "}\n"
                                 "```\n\n"
@@ -147,6 +152,10 @@ SYSTEM_INSTRUCTION_INF_BASE = ("You are an embodied Virtual Agent operating with
                                "\tk. **rightGrippedState:** A boolean status on whether the right hand is gripping an product or not.\n\n"
                                "\tl. **mode:** Describes whether the agent is in 'perception', 'navigation', or 'manipulation' modes. This mode determines what kinds of actions are recommended to do at the current time step.\n\n"
                                "5. **Actions History:** A set of operations done by the agent at every time step.\n\n"
+                                "6. **Estimated Position:** A dead-reckoning estimate of your current map position: "
+                                "## ESTIMATED POSITION: (x=..., y=..., heading=...°). "
+                                "x is eastward, y is northward, heading is degrees CCW from east (90° = north). "
+                                "Use this to reason about how far you have traveled and which direction you are facing.\n\n"
                                "**Required process at each step:**\n"
                                "1. **Analyze the observation:** Examine the screenshot carefully. What is visible? Can you identify any items? What is the spatial relationship between the items?\n"
                                "2. **Reason and plan:** Based on your analysis, determine the best action to take. Consider the current timestep and how long you have been in the simulation. The following are guidelines to help you reason and plan:\n"
@@ -169,6 +178,7 @@ SYSTEM_INSTRUCTION_INF_BASE = ("You are an embodied Virtual Agent operating with
                                 "    'key_info': <string> (Key information from the current observation),\n"
                                 "    'status': <string> (Assessment of progress towards the goals based on the new observation),\n"
                                 "    'checklist': <string> (Checklist of products or items to find (e.g., [X] item1, [ ] item2)),\n"
+                                "    'estimated_position': <string> (Your estimated position in the store, including x, y coordinates in meters and heading in degrees counterclockwise from east),\n"
                                 "  }\n"
                                 "}\n"
                                 "```\n\n"
@@ -187,7 +197,7 @@ SYSTEM_INSTRUCTION_INF_BASE = ("You are an embodied Virtual Agent operating with
                                "7. **Proactive Path Checking:** Before initiating a forward movement, analyze the screenshot for potential obstacles in the near future path. Panning left and right (taking temporary screenshots to analyze) can help identify obstacles that might not be directly in your immediate forward view. If an obstacle is detected in the potential path, adjust your orientation before moving forward.\n"
                                "8. **Maneuvering in Tight Spaces:** If you find yourself very close to a shelf or wall and need to adjust your position to better view or approach the target, a short 'MOVE_BACK' action can provide necessary space for turning or other maneuvers.\n"
                                "9. **Initiating Grabbing:** When the target item is large and centered, and the item appears to occupy a substantial portion of your hand's likely grasping area in the image, you can attempt to grab it using 'EXTEND_LEFT/RIGHT' followed by 'GRIP_LEFT/RIGHT'.\n"
-                               "10. **Triggering 'STOP':** Use the 'STOP' action only when you finished the given task (i.e., when you are sure that you have approached and grabbed the target item).\n\n")
+                               "10. **Triggering 'STOP':** Before calling STOP, verify the task completion condition in the STATE data — do NOT rely on visual estimation alone, the state is ground truth. Apply the rule that matches your current task: (a) If the task is to PICK UP an item: both leftGrippedState or rightGrippedState must be True AND the corresponding leftHoveredObject or rightHoveredObject must match the target item name. (b) If the task is to DROP or PLACE an item: leftGrippedState AND rightGrippedState must both be False, confirming the item has been released. Only call STOP once the relevant condition is met.\n\n")
 
 SYSTEM_INSTRUCTIONS_REF = {
     'inf_base': SYSTEM_INSTRUCTION_INF_BASE,
