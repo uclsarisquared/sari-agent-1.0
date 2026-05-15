@@ -32,7 +32,7 @@ from env import (
     lower_left_hand,
     lower_right_hand,
 )
-from perception import (
+from Tests.perception import (
     center_item_on_screen,
     detect_object_in_frame_gemini,
     approach_cardinal

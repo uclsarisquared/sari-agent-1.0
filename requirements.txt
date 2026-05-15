@@ -12,3 +12,5 @@ paddleocr==2.10.0
 paddlepaddle==3.0.0rc1
 openai==1.79.0
 opencv-python
+replicate
+pynput

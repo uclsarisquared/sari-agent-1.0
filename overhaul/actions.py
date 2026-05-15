@@ -25,7 +25,7 @@ from env import (
     _GRIP_RIGHT_,
 )
 
-from perception import (
+from Tests.perception import (
     center_object_on_screen,
     retrieve_item
 )
