@@ -211,15 +211,15 @@ def move_right(units):
         _MOVE_RIGHT_()
 
 def pan_left(units):
-    if units > 10:
-        print("Warning: Panning left more than 10 units at once may cause instability. Setting to 10 units.")
-    for _ in range(min(units, 10)):
+    if units > 15:
+        print("Warning: Panning left more than 15 units at once may cause instability. Setting to 15 units.")
+    for _ in range(min(units, 15)):
         _PAN_LEFT_()
 
 def pan_right(units):
-    if units > 10:
-        print("Warning: Panning right more than 10 units at once may cause instability. Setting to 10 units.")
-    for _ in range(min(units, 10)):
+    if units > 15:
+        print("Warning: Panning right more than 15 units at once may cause instability. Setting to 15 units.")
+    for _ in range(min(units, 15)):
         _PAN_RIGHT_()
 
 def tilt_up(units):

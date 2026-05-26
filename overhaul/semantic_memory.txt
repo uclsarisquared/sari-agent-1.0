@@ -1,48 +1,49 @@
 This semantic memory outlines the store's environment, detailing its layout, item locations, and general product descriptions.
 
 **Layout of the Store**:
-1. Counter: Situated near Shelves 1 and 2, and beside Shelves 7-8, this area includes a cash register.
-2. Shelf 1: Features instant meals like cup noodles, instant noodles, instant ramen, chocolate rice porridge mix, and instant soup.
-3. Shelf 2: Features canned goods, including meats (meat loaf, beef loaf, corned beef), fish (tuna, sardines, fried sardines, corned tuna), pork & beans, Shiitake mushroom slices, mushroom pieces & stems, and tomato sauce.
-4. Shelf 3: Features a variety of snacks and junk food, including Pringles, potato chips, corn chips, cheese rings, pretzel twists, and etc.
-5. Shelf 4: Features a selection of nuts like Mixed nuts, toasted peanuts, cashews, and green peas.
-6. Shelf 5: Features a selection of nuts like Mixed nuts, toasted peanuts, cashews, and green peas (similar to Shelf 4).
-7. Shelf 6: Features cereals, breakfast items, and biscuits, such as Butter cookies, cookie sandwich, Choco Mallows, House of Polvoron (polvoron and soft cookies), Pepero, Ritz crackers, Ube-filled crackers, Hansel Crackers, Fita Crackers, cereals (Koko Krunch, Gold Corn Flakes, Honey Stars, Choco Crunchies), and Mamon.
-8. Shelf 7: Features bottled water only.
-9. Shelf 8: Features fruit juices only.
-10. Shelf 9: Features a variety of beverages, including energy drinks, tonic drinks, soft drinks, and dairy products such as milk, processed cheese, yoghurt, and yoghurt drinks, alongside popcorn.
+1. Counter: Situated near Shelf 1 and 9, this area includes a cash register.
+2. Shelf 1: Features a variety of snacks and junk food, including Pringles, potato chips, cheese rings, Tostitos, Clover Chips, corn chips, Prawn Crackers, Kang-Kong Chips, and Pik-Nik Shoestring Potatoes.
+3. Shelf 2: Features an assortment of biscuits, cookies, and breakfast items, such as Butter cookies, cookie sandwich, Choco Mallows, House of Polvoron (polvoron and soft cookies), Pepero, Ritz crackers, Ube-filled crackers, Hansel Crackers, Fita Crackers, cereals (Koko Krunch, Gold Corn Flakes, Honey Stars, Choco Crunchies), and Mamon.
+4. Shelf 3: Features various snacks and junk food, including Pringles, potato chips, corn chips, pretzel twists, and trail mix.
+5. Shelf 4: Features a selection of nuts and corn-based snacks like Mixed nuts, toasted peanuts, corn.
+6. Shelf 5: Features a range of canned goods, including meats (meat loaf, beef loaf, corned beef), fish (tuna, sardines, fried sardines, corned tuna), pork & beans, Shiitake mushroom slices, mushroom pieces & stems, and tomato sauce.
+7. Shelf 6: Features a range of canned goods, including meats (meat loaf, beef loaf, corned beef), fish (tuna, sardines, fried sardines, corned tuna), pork & beans, Shiitake mushroom slices, mushroom pieces & stems, and tomato sauce (similar to Shelf 5).
+8. Shelf 7: Features instant meals like cup noodles, instant noodles, instant ramen.
+9. Shelf 8: Features instant meals like cup noodles, instant noodles, instant ramen (similar to Shelf 7).
+10. Shelf 9: Features instant meals like cup noodles, instant noodles, instant ramen (similar to Shelf 7 and 8).
+11. Shelf 10: Features a mix of instant noodles, instant ramen, and junk food items.
+12. Shelf 11: Features a variety of snacks and junk food, including Pringles, potato chips, corn chips, cheese rings, pretzel twists, and etc.
+13. Shelf 12: Features bottled water only.
+14. Shelf 13: Features fruit juices only.
+15. Shelves 15-16: Feature a wide array of beverages, including energy drinks, tonic drinks, and other soft drinks.
+16. Shelf 17: Features dairy products such as milk, processed cheese, yoghurt, and yoghurt drinks, alongside popcorn.
+17. Shelf 18: Features instant meals chocolate rice porridge mix and instant soup.
 
 **Top-down View of the Store**:
-1. From the starting point, Shelves 1-2 and the counter are immediately visible.
-2. Moving several steps forward from the starting point and panning right should reveal Shelves 7-9 because they are adjacent to the counter.
-3. Moving towards Shelves 7-9 and panning right will reveal Shelf 6.
-4. Shelf 3 is behind Shelf 2 (likewise, Shelf 2 is behind Shelf 3). Shelves 4 and 5 are adjacent to Shelves 2 and 3.
-5. Shelf 5 is facing Shelf 7.
-6. Moving towards Shelf 6 and panning right will reveal Shelf 3.
-7. From the starting point, panning right will reveal Shelf 4, and a portion of Shelf 6.
-**Fast Tracking** (use this to guide you quickly to the target object):
-- Shelf 1 has the target position -> translation: (1.51, 1.36, 3.37), rotation: (0.0, 270.0, 0.0)
-- Shelf 2 has the target position -> translation: (1.52, 1.36, 3.96), rotation: (0.0, 90.0, 0.0)
-- Shelf 4 has the target position -> translation: (2.9, 1.36, 0.33), rotation: (0.0, 357.5, 0.0)
-- Shelf 3 has the target position -> translation: (4.38, 1.36, 3.88), rotation: (0.0, 270.0, 0.0)
-- Shelf 6 has the target position -> translation: (4.38, 1.36, 3.68), rotation: (0.0, 90.0, 0.0)
-- Shelf 5 has the target position -> translation: (3.01, 1.36, 7.65), rotation: (0.0, 180.0, 0.0)
-- Shelves 7-8 have the same target position -> translation: (3.4, 1.36, 7.15), rotation: (0.0, 0.0, 0.0)
-- Shelf 9 has the target position -> translation: (4.8, 1.36, 7.15), rotation: (0.0, 0.0, 0.0)
+1. From the starting point, Shelves 9-11 are visible, along with the counter. Portions of Shelves 1 and 3 are also visible.
+2. Shelf 2 is behind Shelf 1 (likewise, Shelf 1 is behind Shelf 2). Shelves 3 and 4 are adjacent to Shelves 1 and 2.
+3. Shelf 5 is along the same aisle as Shelf 2.
+4. Shelf 6 is behind Shelf 5 (likewise, Shelf 5 is behind Shelf 6). Shelves 7 and 8 are adjacent to Shelves 5 and 6.
+5. Shelves 12-16 are along the same aisle as Shelf 6, which are directly opposite to it.
+6. Shelf 17 is along the same aisle as Shelf 12-16, directly beside Shelf 16.
+7. Shelves 9-11 are literally on the same side as the counter.
+8. Going to Shelf 4 and 8 from the starting point requires you to pan right until you see the end of Shelf 1, then move forward for some distance until you see the aisle that leads to Shelf 4 and 8.
 
-@ timestep 1: The agent is currently at the store entrance. From this position, Shelf 1 is visible to the left, Shelf 2 is to the right, and the counter is situated at the end of the aisle straight ahead. The primary objective is to locate and retrieve a yellow biscuit, which is stocked on Shelf 6.
-@ timestep 2: The agent is currently positioned near the store entrance at (1.09, 1.36, 0.18), facing forward (rotation 0,0,0). From this viewpoint, Shelf 1 is on the left, Shelf 2 is to the front-right, and Shelf 4 is further to the right, with the counter visible at the aisle's end. This confirms the initial assessment of being at the start of a main aisle.
-@ timestep 3: The agent is currently at coordinates (1.09, 1.36, 0.18) with a forward-facing rotation (0.0, 0.0, 0.0). From this position, Shelf 2 is visible to the front-right and Shelf 4 is further to the right. The target, Shelf 6, which contains biscuits, is expected to be located further to the right of Shelf 4.
-@ timestep 4: Currently at (1.09, 1.36, 0.18) facing an aisle with Shelf 2 to the left and Shelf 4 to the right. Target Shelf 6 (biscuits) is expected to be found by continuing to pan right, as it's located near Shelf 4 from this starting area.
-@ timestep 5: From the current agent position (1.09, 1.36, 0.18), Shelf 2 is visible to the left and Shelf 4 is visible to the right. Based on the store layout, Shelf 6, which contains biscuits, is expected to be located further to the right of Shelf 4.
-@ timestep 6: The agent is currently at coordinates (1.09, 1.36, 0.18) with a forward-facing rotation (0.0, 0.0, 0.0). Shelf 4 is clearly visible in the current view. Based on the store layout, Shelf 6, which contains biscuits, is expected to be located further to the right of Shelf 4 from this starting position.
-@ timestep 7: At the store entrance (coordinates 1.09, 1.36, 0.18), Shelf 4 is currently in view. Semantic memory indicates that Shelf 6, which contains biscuits, is located further to the right and should become visible by continuing to pan right from this current vantage point. Visual confirmation during panning is crucial for locating Shelf 6.
-@ timestep 8: Persistent attempts to locate Shelf 6 by solely panning right from the entrance (current position 1.09, 1.36, 0.18, while viewing Shelf 4) have been unsuccessful. A new approach involves a slight forward movement into the aisle before panning right again. This change in vantage point aims to provide a clearer view of Shelf 6, which contains the target yellow biscuits.
-@ timestep 9: From the initial store entrance (approx. 1.09, 1.36, 0.18), Shelf 4 is visible. Locating Shelf 6, which is generally to the right of Shelf 4 and contains biscuits, requires moving forward into the aisle first. Simply panning right from the immediate entrance waypoint does not reliably reveal Shelf 6; a change in forward position is necessary before panning.
-@ timestep 10: After a short forward movement from the entrance (approx. 1.09, 1.36, 0.18) and panning right, encountering a wall indicates Shelf 6 is still obscured. Further forward movement into the aisle is necessary to get a clear view of Shelf 6 before attempting to pan right again.
-@ timestep 11: At the current position (1.09, 1.36, 0.18) near the entrance, a wall is visible to the right when facing forward (0,0,0), obscuring views further right. To locate Shelf 6 (biscuits), the agent must first move significantly forward into the aisle before attempting to pan right again. This strategy addresses previous failures where panning alone from the entrance was insufficient.
-@ timestep 12: The agent is currently positioned at the store entrance (1.09, 1.36, 0.18), with a forward-facing orientation (0.0, 0.0, 0.0). Previous attempts to locate Shelf 6 by panning right from this exact spot resulted in viewing a wall. The established strategy is to first move significantly forward into the aisle to get a better vantage point before attempting to pan right to find Shelf 4 and then Shelf 6.
-@ timestep 13: The agent is currently at the store entrance, position (1.09, 1.36, 0.18). The forward-facing orientation (rotation 0.0, 0.0, 0.0) provides a view with a shelf on the far left and a wall dominating the center and right. This visual input suggests that the agent's 'forward' direction is not well-aligned with the main aisle, possibly pointing too far towards the right wall or a corner.
-@ timestep 14: At timestep 14, from position (1.09, 1.36, 0.18) with rotation (0.0, 0.0, 0.0), Shelf 6 has been successfully identified and is visible to the agent's left. This shelf is known to contain biscuits, including the target yellow biscuit.
-@ timestep 15: Shelf 6 is visually confirmed in front of the agent at position (1.09, 1.36, 0.18) and is known to contain biscuits. The agent needs to approach this shelf to locate and retrieve a yellow biscuit. The direct path towards Shelf 6 appears unobstructed based on the current view.
-@ timestep 16: The agent is currently positioned directly in front of Shelf 6, which stocks various biscuits. 'House of Polvoron' biscuit boxes are clearly visible and within the agent's immediate reach, particularly for the left hand. Some of these biscuit packages or their depicted contents appear to be yellow or have yellow elements.
+**Fast Tracking** (use this to guide you quickly to the target object):
+- Shelf 1 has the target position -> translation: (5.01, 1.36, 1.42), rotation: (0.0, 358.83, 0.0)
+- Shelf 4 has the target position -> translation: (8.72, 1.36, 3.1), rotation: (0.0, 268.83, 0.0)
+- Shelf 2 has the target position -> translation: (5.01, 1.36, 4.56), rotation: (0.0, 178.83, 0.0)
+- Shelf 3 has the target position -> translation: (1.18, 1.36, 3.13), rotation: (0.0, 88.83, 0.0)
+- Shelf 5 has the target position -> translation: (4.95, 1.36, 3.9), rotation: (0.0, 358.83, 0.0)
+- Shelf 8 has the target position -> translation: (8.76, 1.36, 5.27), rotation: (0.0, 271.33, 0.0)
+- Shelf 6 has the target position -> translation: (5.0, 1.36, 6.62), rotation: (0.0, 178.83, 0.0)
+- Shelf 7 has the target position -> translation: (1.32, 1.36, 5.28), rotation: (0.0, 91.33, 0.0)
+- Shelf 9 has the target position -> translation: (1.5, 1.36, 3.29), rotation: (0.0, 268.83, 0.0)
+- Shelf 10 has the target position -> translation: (1.47, 1.36, 4.89), rotation: (0.0, 268.83, 0.0)
+- Shelf 11 has the target position -> translation: (1.54, 1.36, 6.7), rotation: (0.0, 268.83, 0.0)
+- Shelves 12-13 have the same target position -> translation: (2.46, 1.36, 6.15), rotation: (0.0, 358.83, 0.0)
+- Shelves 14-15 have the same target position -> translation: (4.26, 1.36, 6.09), rotation: (0.0, 358.83, 0.0)
+- Shelf 16 has the target position -> translation: (6.16, 1.36, 6.04), rotation: (0.0, 358.83, 0.0)
+- Shelf 17 has the target position -> translation: (7.76, 1.36, 6.08), rotation: (0.0, 358.83, 0.0)
+
+@ timestep 1: The agent is currently near the self-checkout counter, facing Shelves 9, 10, and 11. Canned goods are known to be located on Shelves 5 and 6.

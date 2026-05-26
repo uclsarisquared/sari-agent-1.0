@@ -1,18 +1,17 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Union, Literal
+from typing import List, Dict, Any, Optional, Literal
 from dataclasses import dataclass, field
 import os
-from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-import re
 import base64
 from io import BytesIO
+from dotenv import load_dotenv
+from openai import OpenAI
+import re
 from PIL import Image
 from loguru import logger
 import ast
 
-load_dotenv('/c/Users/EMMANUEL/Desktop/capstone/pantrypal/api.env')
+load_dotenv('C:\\Sari\\sari-agent-1.0\\api.env')
 
 from sys_inst import (
     SYS_INST_ASSOCIATIVE_SEMANTIC,
@@ -23,29 +22,44 @@ from memory import BASE_SEMANTIC_MEMORY
 from actions_str import (
     NAVIGATION_ACTIONS,
     PERCEPTION_ACTIONS,
+    MANIPULATION_ACTIONS,
 )
 
 from depth import estimate_depth
 
 
 @dataclass
-class GeminiConfig:
-    model_id: Literal['gemini-2.5-flash-preview-05-20', 'gemini-2.5-pro-preview-05-06'] = 'gemini-2.5-flash-preview-05-20'
-    max_thinking_tokens: int = 1024
+class OpenRouterConfig:
+    model_id: str = 'google/gemini-2.5-flash-preview-05-20'
     temperature: float = 0.5
     mode: Literal['base', 'lean'] = 'base'
-    api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
+    api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
+
+
+def _encode_image(image: Image.Image) -> dict:
+    buf = BytesIO()
+    image.save(buf, format='PNG')
+    b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+
+
+def _build_content(*parts) -> list:
+    """Build OpenRouter content list from mixed strings and PIL Images."""
+    content = []
+    for part in parts:
+        if part is None:
+            continue
+        if isinstance(part, Image.Image):
+            content.append(_encode_image(part))
+        elif isinstance(part, str):
+            content.append({"type": "text", "text": part})
+    return content
+
 
 class BaseAgent(ABC):
-    """Base class for all agents."""
     @abstractmethod
-    def __init__(self, config: Optional[Union[Dict[str, Any], GeminiConfig]] = None) -> None:
-        self.config = config or {}
-
-    @abstractmethod
-    def generate_config(self):
-        """Configuration of text generation."""
-        pass
+    def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
+        self.config = config or OpenRouterConfig()
 
     @property
     def extractable_json_structured_output(self):
@@ -53,70 +67,78 @@ class BaseAgent(ABC):
 
 
 class SemanticEpisodicAssociativeLearner(BaseAgent):
-    """A semantic-episodic associative learner that utilizes semantic and episodic memory to learn and recall information."""
-    def __init__(self, config: Optional[Union[Dict[str, Any], GeminiConfig]] = None) -> None:
+    def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
         super().__init__(config)
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=self.config.api_key,
+        )
 
-        self.client = genai.Client(api_key=self.config.api_key)
+    def generate_content(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
+        content = _build_content(image, text) if image else [{"type": "text", "text": text}]
+        resp = self.client.chat.completions.create(
+            model=self.config.model_id,
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": content},
+            ],
+            temperature=self.config.temperature,
+        )
+        return resp.choices[0].message.content
 
-    def generate_config(self):
-        if self.config.mode == 'lean':
-            semantic_gen_config = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=self.config.max_thinking_tokens),
-                system_instruction=SYS_INST_ASSOCIATIVE_SEMANTIC,
-                temperature=self.config.temperature,
-            )
-            episodic_gen_config = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-                system_instruction=SYS_INST_ASSOCIATIVE_EPISODIC,
-                temperature=self.config.temperature,
-            )
-            return semantic_gen_config, episodic_gen_config
-        elif self.config.mode == 'base':
-            raise ValueError("Base mode does not support SemanticEpisodicAssociativeLearner.")
 
 class VLMAgent(BaseAgent):
-    """
-    An agent that is embedded in the environment and can interact with it.
-    It uses semantic and episodic memory to learn and recall information.
-    """
-    def __init__(self, config: Optional[Union[Dict[str, Any], GeminiConfig]] = None) -> None:
+    def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
         super().__init__(config)
-
-        self.client = genai.Client(api_key=self.config.api_key)
-        self.init_chat_session()
-
-    def init_chat_session(self):
-        self.chat = self.client.chats.create(
-            model=self.config.model_id,
-            config=self.generate_config(),
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=self.config.api_key,
         )
-        logger.info(f"Chat session initialized with model: {self.config.model_id}")
+        self.history: List[Dict[str, Any]] = []
+        self.episodic_memory: str = ""
+        self.base_semantic_memory: str = ""
+        logger.info(f"VLMAgent initialized with model: {self.config.model_id}")
 
-    def generate_config(self):
-        if self.config.mode == 'lean':
-            main_gen_config = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=self.config.max_thinking_tokens),
-                system_instruction=SYS_INST_VLM_LEAN,
-                temperature=self.config.temperature,
-            )
-        elif self.config.mode == 'base':
-            raise ValueError("Base mode does not support VLMAgent.")
-        return main_gen_config
+    def reset_history(self):
+        self.history = []
+
+    def send_message(self, content: list) -> str:
+        self.history.append({"role": "user", "content": content})
+        resp = self.client.chat.completions.create(
+            model=self.config.model_id,
+            messages=[
+                {"role": "system", "content": SYS_INST_VLM_LEAN},
+                *self.history,
+            ],
+            temperature=self.config.temperature,
+        )
+        reply = resp.choices[0].message.content
+        self.history.append({"role": "assistant", "content": reply})
+        return reply
+
+    def get_history_text(self, n: int = 8) -> str:
+        result = ""
+        for message in self.history[-n:]:
+            role = message["role"]
+            content = message["content"]
+            if isinstance(content, list):
+                text = " ".join(p["text"] for p in content if p.get("type") == "text")
+            else:
+                text = content
+            result += f"{role.upper()}: {text}\n"
+        return result.strip()
+
 
 class EmbodiedAgent:
-    """An agent that is embodied in the environment and can interact with it."""
-    def __init__(self, vlm_config: Optional[Union[Dict[str, Any], GeminiConfig]] = None,
-                 associative_config: Optional[Union[Dict[str, Any], GeminiConfig]] = None,
-                 mode: Literal['base', 'lean']='base') -> None:
+    def __init__(self, vlm_config: Optional[OpenRouterConfig] = None,
+                 associative_config: Optional[OpenRouterConfig] = None,
+                 mode: Literal['base', 'lean'] = 'base') -> None:
 
         self.vlm_agent = VLMAgent(vlm_config)
         self.mode = mode
 
         if mode == 'lean':
             self.associative_learner = SemanticEpisodicAssociativeLearner(associative_config)
-            self.semantic_gen_config = self.associative_learner.generate_config()[0]
-            self.episodic_gen_config = self.associative_learner.generate_config()[1]
             self.set_semantic_memory()
 
     def set_semantic_memory(self) -> None:
@@ -124,9 +146,43 @@ class EmbodiedAgent:
         logger.info("Base semantic memory set for VLMAgent.")
 
     def set_episodic_memory(self, episodic_memory: str) -> None:
-        """Set the episodic memory for the agent."""
         self.vlm_agent.episodic_memory = episodic_memory
         logger.info(f"Episodic memory updated: {episodic_memory}")
+
+    def _compute_depth_hint(self, main_task: str, depth_array) -> str:
+        try:
+            from perception import detect_object_via_moondream, estimate_steps_from_depth
+            item = detect_object_via_moondream(main_task)
+            if item is None:
+                return ""
+            steps = estimate_steps_from_depth(item["box"], depth_array)
+            return f"## ESTIMATED HAND STEPS TO TARGET: {steps}\n"
+        except Exception as e:
+            logger.warning(f"Could not compute depth hint for manipulation: {e}")
+            return ""
+
+    def _call_associative(self, system_instruction: str, image: Optional[Image.Image], depth_map: Optional[Image.Image], text: str) -> str:
+        content = _build_content(image, "## CURRENT OBSERVATION\n", depth_map, "## CURRENT DEPTH MAP\n", text)
+        resp = self.associative_learner.client.chat.completions.create(
+            model=self.associative_learner.config.model_id,
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": content},
+            ],
+            temperature=self.associative_learner.config.temperature,
+        )
+        return resp.choices[0].message.content
+
+    def _call_episodic(self, history_text: str) -> str:
+        resp = self.associative_learner.client.chat.completions.create(
+            model=self.associative_learner.config.model_id,
+            messages=[
+                {"role": "system", "content": SYS_INST_ASSOCIATIVE_EPISODIC},
+                {"role": "user", "content": history_text},
+            ],
+            temperature=self.associative_learner.config.temperature,
+        )
+        return resp.choices[0].message.content
 
     def execute_lean(self, request, timestep):
         main_task = request['task']
@@ -135,11 +191,8 @@ class EmbodiedAgent:
         screenshot = base64.b64decode(screenshot)
         imagebytes = BytesIO(screenshot)
         screenshot = Image.open(imagebytes).convert('RGB')
-        
-        depth_map = estimate_depth(imagebytes)
 
-        curr_obs_header = "## CURRENT OBSERVATION\n"
-        curr_depth_map_header = "## CURRENT DEPTH MAP\n"
+        depth_image, depth_array = estimate_depth(imagebytes)
 
         new_semantic_memory = ""
         recall = ""
@@ -150,19 +203,14 @@ class EmbodiedAgent:
                         f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
                         f"## STATE: {state}\n")
 
-            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
-
-            semantic_response = self.associative_learner.client.models.generate_content(
-                model=self.associative_learner.config.model_id,
-                contents=contents,
-                config=self.semantic_gen_config
+            semantic_response_text = self._call_associative(
+                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
             )
-
-            print(f"SEMANTIC LEARNER RESPONSE: {semantic_response.text}")
+            print(f"SEMANTIC LEARNER RESPONSE: {semantic_response_text}")
 
             semantic_response = re.search(
                 self.associative_learner.extractable_json_structured_output,
-                semantic_response.text
+                semantic_response_text
             )[1]
             semantic_response = ast.literal_eval(semantic_response)
             new_semantic_memory = semantic_response['new_semantic_memory']
@@ -173,6 +221,8 @@ class EmbodiedAgent:
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"
             elif agent_mode == "navigation":
                 available_actions = f"{NAVIGATION_ACTIONS}\n\n"
+            elif agent_mode == "manipulation":
+                available_actions = f"{MANIPULATION_ACTIONS}\n\n"
             elif agent_mode == "STOP":
                 return {
                     'halt': True,
@@ -182,74 +232,51 @@ class EmbodiedAgent:
 
             self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
 
+            depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
-                        f"## AVAILABLE ACTIONS:\n{available_actions}")
+                        f"## AVAILABLE ACTIONS:\n{available_actions}"
+                        f"{depth_hint}")
 
-            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
-
-            response = self.vlm_agent.chat.send_message(
-                message=contents,
-                config=self.vlm_agent.generate_config()
-            )
-            
-            print(f"VLMAgent RESPONSE: {response.text}")
+            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
+            response_text = self.vlm_agent.send_message(vlm_content)
+            print(f"VLMAgent RESPONSE: {response_text}")
 
             response_json = re.search(
                 self.vlm_agent.extractable_json_structured_output,
-                response.text
+                response_text
             )[1]
             response_json = ast.literal_eval(response_json)
 
-            history = ""
-            for message in self.vlm_agent.chat.get_history()[-8:]:
-                role = message.role
-                content = message.parts[0].text
-                history += f"{role.upper()}: {content}\n"
-            history = history.strip()
-
-            episodic_response = self.associative_learner.client.models.generate_content(
-                model='gemini-2.5-flash-preview-05-20',
-                config=self.episodic_gen_config,
-                contents=[history]
-            )
-
+            episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
             episodic_response = re.search(
                 self.associative_learner.extractable_json_structured_output,
-                episodic_response.text
+                episodic_response_text
             )[1]
             episodic_response = ast.literal_eval(episodic_response)
 
-            dense_summary = episodic_response['dense_summary']
-            what_worked = episodic_response['what_worked']
-            what_to_avoid = episodic_response['what_to_avoid']
-
             episodic_memory = (f"@ timestep {timestep}:\n"
-                               f"## DENSE SUMMARY: {dense_summary}\n"
-                               f"## WHAT WORKED: {what_worked}\n"
-                               f"## WHAT TO AVOID: {what_to_avoid}\n")
-
+                               f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
+                               f"## WHAT WORKED: {episodic_response['what_worked']}\n"
+                               f"## WHAT TO AVOID: {episodic_response['what_to_avoid']}\n")
             self.set_episodic_memory(episodic_memory)
+
         else:
             user_msg = (f"## MAIN TASK: {main_task}\n"
                         f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
                         f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
                         f"## STATE: {state}\n")
-            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
 
-            semantic_response = self.associative_learner.client.models.generate_content(
-                model=self.associative_learner.config.model_id,
-                contents=contents,
-                config=self.semantic_gen_config
+            semantic_response_text = self._call_associative(
+                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
             )
-
             semantic_response = re.search(
                 self.associative_learner.extractable_json_structured_output,
-                semantic_response.text
+                semantic_response_text
             )[1]
             semantic_response = ast.literal_eval(semantic_response)
             new_semantic_memory = semantic_response['new_semantic_memory']
@@ -257,77 +284,58 @@ class EmbodiedAgent:
             agent_mode = semantic_response['mode']
 
             self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
-
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
 
             if agent_mode == "perception":
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"
             elif agent_mode == "navigation":
                 available_actions = f"{NAVIGATION_ACTIONS}\n\n"
-            elif agent_mode in ["STOP", "manipulation"]:
+            elif agent_mode == "manipulation":
+                available_actions = f"{MANIPULATION_ACTIONS}\n\n"
+            elif agent_mode == "STOP":
                 return {
                     'halt': True,
                     'text': "STOP action received, terminating execution..."
                 }
 
+            depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
                         f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
-                        f"## AVAILABLE ACTIONS:\n{available_actions}")
+                        f"## AVAILABLE ACTIONS:\n{available_actions}"
+                        f"{depth_hint}")
 
-            contents = [curr_obs_header, screenshot, curr_depth_map_header, depth_map, user_msg]
-            response = self.vlm_agent.chat.send_message(
-                message=contents,
-                config=self.vlm_agent.generate_config()
-            )
+            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
+            response_text = self.vlm_agent.send_message(vlm_content)
 
             response_json = re.search(
                 self.vlm_agent.extractable_json_structured_output,
-                response.text
+                response_text
             )[1]
             response_json = ast.literal_eval(response_json)
 
-            history = ""
-            for message in self.vlm_agent.chat.get_history()[-8:]:
-                role = message.role
-                content = message.parts[0].text
-                history += f"{role.upper()}: {content}\n"
-            history = history.strip()
-
-            episodic_response = self.associative_learner.client.models.generate_content(
-                model='gemini-2.5-flash-preview-05-20',
-                config=self.episodic_gen_config,
-                contents=[history]
-            )
-
+            episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
             episodic_response = re.search(
                 self.associative_learner.extractable_json_structured_output,
-                episodic_response.text
+                episodic_response_text
             )[1]
             episodic_response = ast.literal_eval(episodic_response)
 
-            dense_summary = episodic_response['dense_summary']
-            what_worked = episodic_response['what_worked']
-            what_to_avoid = episodic_response['what_to_avoid']
-
             episodic_memory = (f"@ timestep {timestep}:\n"
-                               f"## DENSE SUMMARY: {dense_summary}\n"
-                               f"## WHAT WORKED: {what_worked}\n"
-                               f"## WHAT TO AVOID: {what_to_avoid}\n")
+                               f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
+                               f"## WHAT WORKED: {episodic_response['what_worked']}\n"
+                               f"## WHAT TO AVOID: {episodic_response['what_to_avoid']}\n")
             self.set_episodic_memory(episodic_memory)
 
-        # Write base semantic memory to file
         with open('semantic_memory.txt', 'w') as f:
             f.write(self.vlm_agent.base_semantic_memory)
-        # Write episodic memory to file
         with open('episodic_memory.txt', 'w') as f:
             f.write(self.vlm_agent.episodic_memory)
 
-        agent_response = {
+        return {
             'halt': False,
-            'text': response.text,
+            'text': response_text,
             'agent_mode': agent_mode,
         }
-        return agent_response

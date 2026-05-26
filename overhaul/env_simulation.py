@@ -16,10 +16,11 @@ from env import *
 from actions import (
     NAVIGATION_ACTIONS_REF,
     PERCEPTION_ACTIONS_REF,
+    MANIPULATION_ACTIONS_REF,
 )
 
 MAIN_TASK = sys.argv[1]
-RUN_ENTRY = sys.argv[2] or None
+RUN_ENTRY = sys.argv[2] if len(sys.argv) > 2 else None
 ON_PLAY = True
 
 at_init_state = True
@@ -57,17 +58,15 @@ print(CURRENT_AGENT_STATE)
 print("=" * 100)
 
 # ====== Initialize Embodied Agent ======
-from agent import EmbodiedAgent, GeminiConfig
+from agent import EmbodiedAgent, OpenRouterConfig
 
-vlm_config = GeminiConfig(
-    model_id='gemini-2.5-pro-preview-05-06',
-    max_thinking_tokens=3072,
+vlm_config = OpenRouterConfig(
+    model_id='google/gemini-3.1-pro-preview',
     temperature=0.5,
     mode='lean'
 )
-associative_config = GeminiConfig(
-    model_id='gemini-2.5-pro-preview-05-06',
-    max_thinking_tokens=3072,
+associative_config = OpenRouterConfig(
+    model_id='google/gemini-3.1-pro-preview',
     temperature=0.3,
     mode='lean'
 )
@@ -81,7 +80,7 @@ embodied_agent = EmbodiedAgent(
 
 while ON_PLAY:
     if RUN_ENTRY:
-        directory_path = os.path.join('screenshots', 'SIM_RUNS/' + RUN_ENTRY)
+        directory_path = os.path.join('screenshots', 'SIM_RUNS2/' + RUN_ENTRY)
         os.makedirs(directory_path, exist_ok=True)
         existing = [fn for fn in os.listdir(directory_path) if fn.lower().endswith(('.png', '.jpg', '.jpeg'))]
         prefix = str(len(existing) + 1).zfill(6)
@@ -139,16 +138,36 @@ while ON_PLAY:
             action = action.strip()
             time = int(time)
 
+            # Parse inline argument: action_name('arg') or action_name("arg")
+            inline_arg = None
+            inline_match = re.match(r'^(\w+)\([\'"]?(.*?)[\'"]?\)$', action)
+            if inline_match:
+                action, inline_arg = inline_match.group(1), inline_match.group(2)
+
             if action in NAVIGATION_ACTIONS_REF:
                 action_ref = NAVIGATION_ACTIONS_REF[action]
             elif action in PERCEPTION_ACTIONS_REF:
                 action_ref = PERCEPTION_ACTIONS_REF[action]
+            elif action in MANIPULATION_ACTIONS_REF:
+                action_ref = MANIPULATION_ACTIONS_REF[action]
             else:
                 print(f"Unknown action: {action}")
                 continue
 
             if action == "center_object_on_screen":
                 target_info = f"main_goal={main_goal}\nsub_goals={sub_goals}\nkey_info={key_info}\nchecklist={checklist}"
-                action_ref(target_info)  # Center the object based on the target info
+                action_ref(target_info)
+            elif action in ("retrieve_item", "approach_object"):
+                target_info = f"main_goal={main_goal}\nsub_goals={sub_goals}\nkey_info={key_info}\nchecklist={checklist}"
+                action_ref(main_goal)
+            elif action in ("grab_item_in_view_right", "grab_item_in_view_left"):
+                action_ref(inline_arg if inline_arg else main_goal)
             else:
-                action_ref(time) # Execute the action with the specified time
+                action_ref(time)
+
+        # Refresh state from the environment after all actions have been executed
+        updated_agent = TransformAgent((0, 0, 0), (0, 0, 0))
+        updated_hands = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+        for k, v in {**updated_agent, **updated_hands}.items():
+            CURRENT_AGENT_STATE[k] = v
+        # mode is kept as set by the agent above

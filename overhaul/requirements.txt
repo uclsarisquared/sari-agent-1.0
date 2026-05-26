@@ -22,7 +22,6 @@ fire==0.7.0
 fonttools==4.58.0
 fsspec==2024.6.1
 google-auth==2.40.3
-google-genai==1.21.1
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.6.4
@@ -69,6 +68,7 @@ PyYAML==6.0.2
 pyzmq==26.4.0
 RapidFuzz==3.13.0
 regex==2024.11.6
+replicate>=0.34.0
 requests==2.32.4
 rsa==4.9.1
 safetensors==0.5.3

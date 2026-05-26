@@ -15,15 +15,37 @@
 #            "STOP: Stop all actions. Use this when you think you have completed the task.\n")
 
 
-NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 units. This will move in the Z-axis\n"
-                      "pan_left: Pan left 2.5 degrees.\n"
-                      "pan_right: Pan right 2.5 degrees.\n"
-                      "tilt_up: Tilt up 2.5 degrees.\n"
-                      "tilt_down: Tilt down 2.5 degrees.\n")
+NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 meters. This will move in the Z-axis. Maximum 10 steps per action.\n"
+                      "move_backward: Move backward 0.1 meters. Maximum 10 steps per action.\n"
+                      "move_left: Move left 0.1 meters. Maximum 10 steps per action.\n"
+                      "move_right: Move right 0.1 meters. Maximum 10 steps per action.\n"
+                      "pan_left: Pan left 2.5 degrees. Maximum 15 steps per action.\n"
+                      "pan_right: Pan right 2.5 degrees. Maximum 15 steps per action.\n"
+                      "tilt_up: Tilt up 2.5 degrees. Maximum 10 steps per action.\n"
+                      "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n")
 
 PERCEPTION_ACTIONS = (
     "center_object_on_screen: Center the agent's body on the target object in the frame.\n"
-    "retrieve_item: Approach the target object, grab it with the agent's hand, and read it.\n"
+    # "retrieve_item: Approach the target object, grab it with the agent's hand, and read it.\n"
 )
 
-ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS
+MANIPULATION_ACTIONS = (
+    "extend_left_hand_forward: Extend left hand forward 0.025 meters per step.\n"
+    "extend_right_hand_forward: Extend right hand forward 0.025 meters per step.\n"
+    "pull_left_hand_backward: Pull left hand backward 0.025 meters per step.\n"
+    "pull_right_hand_backward: Pull right hand backward 0.025 meters per step.\n"
+    "raise_left_hand: Raise left hand 0.025 meters per step.\n"
+    "raise_right_hand: Raise right hand 0.025 meters per step.\n"
+    "lower_left_hand: Lower left hand 0.025 meters per step.\n"
+    "lower_right_hand: Lower right hand 0.025 meters per step.\n"
+    "rotate_left_clockwise: Rotate left hand clockwise 15 degrees per step.\n"
+    "rotate_left_counterclockwise: Rotate left hand counterclockwise 15 degrees per step.\n"
+    "rotate_right_clockwise: Rotate right hand clockwise 15 degrees per step.\n"
+    "rotate_right_counterclockwise: Rotate right hand counterclockwise 15 degrees per step.\n"
+    "grip_left: Toggle left grip (times value is ignored).\n"
+    "grip_right: Toggle right grip (times value is ignored).\n"
+    "grab_item_in_view_right: Reach to the named item with the right hand, grip it, and return the hand to default position. Must be at most 1 meter away from the item.\n"
+    "grab_item_in_view_left: Reach to the named item with the left hand, grip it, and return the hand to default position. Must be at most 1 meter away from the item.\n"
+)
+
+ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS

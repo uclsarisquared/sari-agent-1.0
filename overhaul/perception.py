@@ -1,22 +1,25 @@
 import ast
 import random
 import os
+import base64
 from dotenv import load_dotenv
 
-from google import genai
-from google.genai import types
+from openai import OpenAI
 from PIL import Image, ImageDraw
 from io import BytesIO
 import requests
 import ast
 import re
-from paddleocr import PaddleOCR
-
 load_dotenv('../api.env')
 
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-MODEL_NAME = "gemini-2.5-pro-preview-05-06"
-CLIENT = genai.Client(api_key=GEMINI_API_KEY)
+GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to grab
+
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+MODEL_NAME = "google/gemini-2.5-pro-preview-05-06"
+CLIENT = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 ORIGINAL_WIDTH = 1920
 ORIGINAL_HEIGHT = 1080
 PERCEPTION_PROMPT = ("Detect the <target_object> from the provided info about it. The box_2d should be [ymin, xmin, ymax, xmax] in the image normalized to 0-1000. "
@@ -42,14 +45,29 @@ from env import *
 from manipulation import *
 
 
-ocr = PaddleOCR(use_angle_cls=True, lang='en')
+_ocr = None
+
+def _get_ocr():
+    global _ocr
+    if _ocr is None:
+        from paddleocr import PaddleOCR
+        _ocr = PaddleOCR(use_angle_cls=True, lang='en')
+    return _ocr
+
+
+def _encode_image(image: Image.Image) -> dict:
+    buf = BytesIO()
+    image.save(buf, format='PNG')
+    b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+
 
 def read_text(image_path='screenshots/ClientScreenshot.png'):
-    result = ocr.ocr(image_path)
+    result = _get_ocr().ocr(image_path)
     return "\n".join([line[1][0] for line in result[0]]) if result else ""
 
 def extract_text_from_image(image_path):
-    result = ocr.ocr(image_path, cls=True)
+    result = _get_ocr().ocr(image_path, cls=True)
     if len(result) == 0:
         return "", []
     try:
@@ -60,16 +78,13 @@ def extract_text_from_image(image_path):
 
 def find_most_similar_bbox_to_target_name(target_name, ocr_result):
     bboxes = '\n'.join([f'* {box}' for box in ocr_result])
-    response = CLIENT.models.generate_content(
+    resp = CLIENT.chat.completions.create(
         model=MODEL_NAME,
-        contents=[FIND_MOST_SIMILAR_OCR_BBOX_PROMPT, f"target_name={target_name}\n\n", bboxes],
-        config=types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            temperature=0.5
-        )
+        messages=[{"role": "user", "content": f"{FIND_MOST_SIMILAR_OCR_BBOX_PROMPT}\n\ntarget_name={target_name}\n\n{bboxes}"}],
+        temperature=0.5,
     )
-    annotated_bbox = response.text
-    
+    annotated_bbox = resp.choices[0].message.content
+
     match = re.search(EXTRACTABLE_JSON_PATTERN, annotated_bbox)
     if match:
         extracted = match.group(1)
@@ -83,13 +98,9 @@ def transform_paddle_result_to_coco_label_format(paddle_result):
 
 
 def annotate_target(ymin, xmin, ymax, xmax, file_path='screenshots/ClientScreenshot.png'):
-    """
-    Annotate the target in the image with a bounding box.
-    """
     image = Image.open(file_path)
     draw = ImageDraw.Draw(image)
-    
-    # Convert coordinates to pixel values
+
     ymin_pixel = int(ymin / 1000 * ORIGINAL_HEIGHT)
     xmin_pixel = int(xmin / 1000 * ORIGINAL_WIDTH)
     ymax_pixel = int(ymax / 1000 * ORIGINAL_HEIGHT)
@@ -107,26 +118,24 @@ def center_object_on_screen(target_info):
         image_bytes = image_file.read()
     image = Image.open(BytesIO(image_bytes))
 
-    response = CLIENT.models.generate_content(
+    resp = CLIENT.chat.completions.create(
         model=MODEL_NAME,
-        contents=[PERCEPTION_PROMPT, f"target_info={target_info}\n\n", image],
-        config=types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            temperature=0.5
-        )
+        messages=[{"role": "user", "content": [
+            _encode_image(image),
+            {"type": "text", "text": f"{PERCEPTION_PROMPT}\n\ntarget_info={target_info}\n\n"},
+        ]}],
+        temperature=0.5,
     )
-    print(f"[DETECT OBJECT IN FRAME] Response: {response.text}")
-    annotated_bbox = response.text
+    annotated_bbox = resp.choices[0].message.content
+    print(f"[DETECT OBJECT IN FRAME] Response: {annotated_bbox}")
+
     match = re.search(EXTRACTABLE_JSON_PATTERN, annotated_bbox)
     if match:
         extracted = match.group(1)
-        try:
-            box_2d = ast.literal_eval(extracted)[0]
-        except Exception as e:
-            box_2d = ast.literal_eval(extracted)
+        parsed = ast.literal_eval(extracted)
+        box_2d = parsed[0] if isinstance(parsed, list) else parsed
+        target_object = box_2d.get('label', 'unknown')
         box_2d = box_2d['box_2d']
-        
-        target_object = ast.literal_eval(extracted)['label']
 
         print(f"Detected bounding box: {box_2d}, Target Object: {target_object}")
         ymin = box_2d[0] / 1000 * ORIGINAL_HEIGHT
@@ -147,21 +156,15 @@ def center_object_on_screen(target_info):
 
 
 def detect_object_via_gemini(target_name):
-    from google import genai
-    from google.genai import types
-    from PIL import Image
-    from io import BytesIO
-    import re
-    import ast
     import dotenv
-
     dotenv.load_dotenv('api.env')
 
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+    )
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    
-    model_name = "gemini-2.5-pro-preview-05-06"
+    model_name = "google/gemini-2.5-pro-preview-05-06"
     original_width = 1920
     original_height = 1080
     RequestScreenshot(save_image=True)
@@ -175,15 +178,15 @@ def detect_object_via_gemini(target_name):
               "{'box_2d': box_2d, 'label': label_name}\n"
               "```\n\n")
 
-    response = client.models.generate_content(
+    resp = client.chat.completions.create(
         model=model_name,
-        contents=[prompt, im],
-        config=types.GenerateContentConfig(
-            temperature=0.5
-        )
+        messages=[{"role": "user", "content": [
+            _encode_image(im),
+            {"type": "text", "text": prompt},
+        ]}],
+        temperature=0.5,
     )
-
-    annotated_bbox = response.text
+    annotated_bbox = resp.choices[0].message.content
 
     json_pattern = r'```json\n(.*?)\n```'
     match = re.search(json_pattern, annotated_bbox, re.DOTALL)
@@ -202,6 +205,44 @@ def detect_object_via_gemini(target_name):
     return {'box': {'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax}}
 
 
+_md_model = None
+
+def _get_md_model():
+    global _md_model
+    if _md_model is None:
+        import moondream as md
+        _md_model = md.vl(api_key=os.getenv("MDREAM_API_KEY"))
+    return _md_model
+
+
+def detect_object_via_moondream(target_name):
+    RequestScreenshot(save_image=True)
+    file_path = os.path.join("screenshots", "ClientScreenshot.png")
+    image = Image.open(BytesIO(open(file_path, "rb").read()))
+
+    model = _get_md_model()
+    result = model.detect(image, target_name)
+    objects = result.get("objects", [])
+
+    if not objects:
+        return None
+
+    def dist_to_center(obj):
+        cx = (obj["x_min"] + obj["x_max"]) / 2
+        cy = (obj["y_min"] + obj["y_max"]) / 2
+        return (cx - 0.5) ** 2 + (cy - 0.5) ** 2
+
+    best = min(objects, key=dist_to_center)
+
+    xmin = best["x_min"] * ORIGINAL_WIDTH
+    ymin = best["y_min"] * ORIGINAL_HEIGHT
+    xmax = best["x_max"] * ORIGINAL_WIDTH
+    ymax = best["y_max"] * ORIGINAL_HEIGHT
+
+    annotate_target(ymin, xmin, ymax, xmax)
+    return {"box": {"xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax}}
+
+
 def request_rgbd_image():
     RequestScreenshot(save_image=True)
     DEPTH_API = "http://202.92.159.242:8000/estimate-depth"
@@ -209,56 +250,63 @@ def request_rgbd_image():
     with open("screenshots/ClientScreenshot.png", "rb") as file:
         response = requests.post(DEPTH_API, files={"file": file})
 
-    # Ensure request succeeded
     response.raise_for_status()
 
-    # Read image from response directly
     depth_img = Image.open(BytesIO(response.content))
-    depth_img.save("depth_image.png")  # Save for inspection
+    depth_img.save("depth_image.png")
     return depth_img
 
 
-def estimate_steps_from_depth(bbox, depth_img):
-    """
-    Given a PIL grayscale depth image and bbox, compute how many 0.1-unit steps to move.
-    """
-    pixels = depth_img.convert("L").load()
-    cx = int((bbox["xmin"] + bbox["xmax"]) / 2)
-    cy = int((bbox["ymin"] + bbox["ymax"]) / 2)
-    intensity = pixels[cx, cy]  # 0 = far, 255 = near
-
-    # Normalize: 1.0 = max visible range assumed, scaled by (1 - intensity/255)
-    est_distance = (8.0) * (1 - intensity / 255.0)
-    est_steps = round(est_distance / 0.1)  # each step = 0.1 units
-    print(f"[DEPTH] center intensity={intensity}, est_dist={est_distance:.2f}, steps={est_steps}")
+def estimate_steps_from_depth(bbox, depth_source):
+    import numpy as np
+    if isinstance(depth_source, np.ndarray):
+        h, w = depth_source.shape[:2]
+        cx = int((bbox["xmin"] + bbox["xmax"]) / 2 * w / 1920)
+        cy = int((bbox["ymin"] + bbox["ymax"]) / 2 * h / 1080)
+        cx = max(0, min(cx, w - 1))
+        cy = max(0, min(cy, h - 1))
+        distance = float(depth_source[cy, cx])
+        est_steps = round(distance / 0.1)
+        print(f"[DEPTH] Array ({cx},{cy})={distance:.3f}m, steps={est_steps}")
+        return est_steps
+    # Fallback: colorized image from request_rgbd_image (RGB heuristic)
+    img_width, img_height = depth_source.size
+    pixels = depth_source.convert("RGB").load()
+    cx = int((bbox["xmin"] + bbox["xmax"]) / 2 * img_width / 1920)
+    cy = int((bbox["ymin"] + bbox["ymax"]) / 2 * img_height / 1080)
+    cx = max(0, min(cx, img_width - 1))
+    cy = max(0, min(cy, img_height - 1))
+    r, g, b = pixels[cx, cy]
+    closeness = (r - b + 255) / 510.0
+    est_distance = 8.0 * (1 - closeness)
+    est_steps = round(est_distance / 0.1)
+    print(f"[DEPTH] RGB=({r},{g},{b}), closeness={closeness:.2f}, est_dist={est_distance:.2f}, steps={est_steps}")
     return est_steps
 
 
 def approach_target(target_name, annotate=False):
-    # 1) Detect object and set bounding box
-    item = detect_object_via_gemini(target_name)
+    item = detect_object_via_moondream(target_name)
     box = item["box"]
 
-    # 2) grab depth image and estimate steps
     try:
         depth_img = request_rgbd_image()
+        steps = estimate_steps_from_depth(box, depth_img)
     except Exception as e:
         from depth import estimate_depth
         from env import _REQUEST_SCREENSHOT_
         from io import BytesIO
         import base64
-        
+
         imagebytes = _REQUEST_SCREENSHOT_()['image']
         imageb64 = base64.b64encode(imagebytes).decode('utf-8')
         imageb64 = imageb64.encode('utf-8')
         screenshot = base64.b64decode(imageb64)
         screenshot = BytesIO(screenshot)
-        depth_img = estimate_depth(screenshot)
-    steps = estimate_steps_from_depth(box, depth_img)
+        _, depth_array = estimate_depth(screenshot)
+        steps = estimate_steps_from_depth(box, depth_array)
 
-    # 3) Pan camera on object
     x_center_before = (box["xmin"] + box["xmax"]) / 2
-    y_center_before = (box["ymin"] + box["ymin"]) / 2
+    y_center_before = (box["ymin"] + box["ymax"]) / 2
     if annotate:
         from annotation_tools import annotate_boxes
         annotate_boxes(item)
@@ -271,80 +319,75 @@ def approach_target(target_name, annotate=False):
     print("Movement X: ", x_cam_movement)
     TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
 
-    # 4) estimate steps & move once
     state = move_forward(units=steps)
-
-    # 5) read/grab if desired
-    # print("Final readout:", grab_and_read_item(text_read_fn=read_text))
     return state, box
 
 
 def face_cardinal_direction(angle_deg):
-    """
-    Set camera to one of the cardinal angles: 0 (north/+z), 90 (east/+x), etc.
-    """
-    # Only affects rotation (pitch, yaw, roll)
     current_angle = TransformAgent((0, 0, 0), (0, 0, 0))['rotation'][1]
     TransformAgent((0,0,0), (0,angle_deg-current_angle, 0))
     print(f"[ROTATE] Facing {angle_deg} degrees")
 
 
 def strafe_to_center(bbox, image_width=1920):
-    """
-    Move sideways until the object is horizontally centered.
-    """
     center_x = (bbox["xmin"] + bbox["xmax"]) / 2
     offset_px = center_x - (image_width / 2)
-    offset_units = 0.1 * (offset_px / 19.2)  # same scaling as before
+    offset_units = 0.1 * (offset_px / 19.2)
 
     print(f"[STRAFE] Object offset: {offset_px} px -> {offset_units:.2f} units")
 
-    # Move sideways: +Z is right, -Z is left
-    # TransformAgent((offset_units, 0, 0), (0, 0, 0))
-    # Or do it gradually
     movement_count = int(offset_units // 1)
     for _ in range(movement_count):
         move_right(units=1)
 
 
 def define_cardinal_direction(current_yaw_angle):
-    """ This would work better if we had pose estimation
-    on the object. We're only getting the direction of the
-    closest cardinal based on the current target angle.
-    """
     cardinals = [0, 90, 180, 270, 360]
     resultant = [abs(c - current_yaw_angle) for c in cardinals]
     min_value = min(resultant)
     min_index = resultant.index(min_value) % 4
     return cardinals[min_index]
-    
+
 
 def retrieve_item(target_name, cardinal_deg=None, annotate=False):
-    # Step 1: Use rough approach
+    item = detect_object_via_gemini(target_name)
+    if item is None:
+        print("[RETRIEVE] Target not detected in current view. Navigate closer.")
+        return None
+
+    try:
+        depth_img = request_rgbd_image()
+        steps = estimate_steps_from_depth(item["box"], depth_img)
+    except Exception:
+        from depth import estimate_depth
+        from env import _REQUEST_SCREENSHOT_
+        imagebytes = BytesIO(base64.b64decode(base64.b64encode(_REQUEST_SCREENSHOT_()['image'])))
+        _, depth_array = estimate_depth(imagebytes)
+        steps = estimate_steps_from_depth(item["box"], depth_array)
+    est_distance = steps * 0.1
+    if est_distance > GRAB_DISTANCE_THRESHOLD:
+        print(f"[RETRIEVE] Too far to grab: {est_distance:.2f} units (threshold={GRAB_DISTANCE_THRESHOLD}). Navigate closer first.")
+        return None
+
     state, box = approach_target(target_name, annotate=annotate)
 
-    # Step 2: Lock camera to face cardinal direction
     if not cardinal_deg:
         current_yaw_angle = TransformAgent((0,0,0), (0,0,0))['rotation'][1]
         cardinal_deg = define_cardinal_direction(current_yaw_angle)
     face_cardinal_direction(cardinal_deg)
 
-    # Step 3: Take new image & re-detect object
     item = detect_object_via_gemini(target_name)
     if item:
         box = item["box"]
         if annotate:
             from annotation_tools import annotate_boxes
             annotate_boxes(item)
-
-        # Step 4: Strafe left/right until object is centered
         strafe_to_center(box)
 
-    # Step 5: Take fresh RGBD image & estimate new approach steps
     item = detect_object_via_gemini(target_name)
     box = item["box"]
     x_center_before = (box["xmin"] + box["xmax"]) / 2
-    y_center_before = (box["ymin"] + box["ymin"]) / 2
+    y_center_before = (box["ymin"] + box["ymax"]) / 2
     if annotate:
         from annotation_tools import annotate_boxes
         annotate_boxes(item)
@@ -357,9 +400,5 @@ def retrieve_item(target_name, cardinal_deg=None, annotate=False):
     print("Movement X: ", x_cam_movement)
     TransformAgent((0,0,0), ((y_center_before - 540) / 19.2,(x_center_before - 960) / 19.2, 0))
 
-    # Step 6: Move forward to final position
-    # state = move_forward(units=steps)
-
-    # Step 7: Grab and read
     print("Final readout:", grab_and_read_item(text_read_fn=read_text))
     return state
