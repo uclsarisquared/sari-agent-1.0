@@ -1,341 +1,88 @@
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Literal
-from dataclasses import dataclass, field
-import os
 import base64
-from io import BytesIO
-from dotenv import load_dotenv
-from openai import OpenAI
-import re
+import io
+import json
+import time
+import replicate
+from replicate.exceptions import ReplicateError
+import httpx
+import numpy as np
 from PIL import Image
-from loguru import logger
-import ast
 
-load_dotenv('C:\\Sari\\sari-agent-1.0\\api.env')
-
-from sys_inst import (
-    SYS_INST_ASSOCIATIVE_SEMANTIC,
-    SYS_INST_ASSOCIATIVE_EPISODIC,
-    SYS_INST_VLM_LEAN
-)
-from memory import BASE_SEMANTIC_MEMORY
-from actions_str import (
-    NAVIGATION_ACTIONS,
-    PERCEPTION_ACTIONS,
-    MANIPULATION_ACTIONS,
-)
-
-from depth import estimate_depth
+_REPLICATE_MODEL = "vufinder/depth-anything-v3-metric:d2ef7653aa75f87e3b502738a3f57ca2b09ba92f6f286075c8929a69937a013f"
+_MAX_RETRIES = 5
+_RETRY_BASE_DELAY = 10  # seconds; 429 resets in ~6s so 10s is safe
 
 
-@dataclass
-class OpenRouterConfig:
-    model_id: str = 'google/gemini-2.5-flash-preview-05-20'
-    temperature: float = 0.5
-    mode: Literal['base', 'lean'] = 'base'
-    api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
-
-
-def _encode_image(image: Image.Image) -> dict:
-    buf = BytesIO()
-    image.save(buf, format='PNG')
-    b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-    return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
-
-
-def _build_content(*parts) -> list:
-    """Build OpenRouter content list from mixed strings and PIL Images."""
-    content = []
-    for part in parts:
-        if part is None:
-            continue
-        if isinstance(part, Image.Image):
-            content.append(_encode_image(part))
-        elif isinstance(part, str):
-            content.append({"type": "text", "text": part})
-    return content
-
-
-class BaseAgent(ABC):
-    @abstractmethod
-    def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
-        self.config = config or OpenRouterConfig()
-
-    @property
-    def extractable_json_structured_output(self):
-        return re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
-
-
-class SemanticEpisodicAssociativeLearner(BaseAgent):
-    def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
-        super().__init__(config)
-        self.client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=self.config.api_key,
-        )
-
-    def generate_content(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
-        content = _build_content(image, text) if image else [{"type": "text", "text": text}]
-        resp = self.client.chat.completions.create(
-            model=self.config.model_id,
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": content},
-            ],
-            temperature=self.config.temperature,
-        )
-        return resp.choices[0].message.content
-
-
-class VLMAgent(BaseAgent):
-    def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
-        super().__init__(config)
-        self.client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=self.config.api_key,
-        )
-        self.history: List[Dict[str, Any]] = []
-        self.episodic_memory: str = ""
-        self.base_semantic_memory: str = ""
-        logger.info(f"VLMAgent initialized with model: {self.config.model_id}")
-
-    def reset_history(self):
-        self.history = []
-
-    def send_message(self, content: list) -> str:
-        self.history.append({"role": "user", "content": content})
-        resp = self.client.chat.completions.create(
-            model=self.config.model_id,
-            messages=[
-                {"role": "system", "content": SYS_INST_VLM_LEAN},
-                *self.history,
-            ],
-            temperature=self.config.temperature,
-        )
-        reply = resp.choices[0].message.content
-        self.history.append({"role": "assistant", "content": reply})
-        return reply
-
-    def get_history_text(self, n: int = 8) -> str:
-        result = ""
-        for message in self.history[-n:]:
-            role = message["role"]
-            content = message["content"]
-            if isinstance(content, list):
-                text = " ".join(p["text"] for p in content if p.get("type") == "text")
-            else:
-                text = content
-            result += f"{role.upper()}: {text}\n"
-        return result.strip()
-
-
-class EmbodiedAgent:
-    def __init__(self, vlm_config: Optional[OpenRouterConfig] = None,
-                 associative_config: Optional[OpenRouterConfig] = None,
-                 mode: Literal['base', 'lean'] = 'base') -> None:
-
-        self.vlm_agent = VLMAgent(vlm_config)
-        self.mode = mode
-
-        if mode == 'lean':
-            self.associative_learner = SemanticEpisodicAssociativeLearner(associative_config)
-            self.set_semantic_memory()
-
-    def set_semantic_memory(self) -> None:
-        self.vlm_agent.base_semantic_memory = BASE_SEMANTIC_MEMORY
-        logger.info("Base semantic memory set for VLMAgent.")
-
-    def set_episodic_memory(self, episodic_memory: str) -> None:
-        self.vlm_agent.episodic_memory = episodic_memory
-        logger.info(f"Episodic memory updated: {episodic_memory}")
-
-    def _compute_depth_hint(self, main_task: str, depth_array) -> str:
+def _run_replicate(data_uri: str):
+    for attempt in range(_MAX_RETRIES):
+        print(f"[DEPTH] Attempting to run Replicate model (attempt {attempt + 1}/{_MAX_RETRIES})...")
         try:
-            from perception import detect_object_via_moondream, estimate_steps_from_depth
-            item = detect_object_via_moondream(main_task)
-            if item is None:
-                return ""
-            steps = estimate_steps_from_depth(item["box"], depth_array)
-            return f"## ESTIMATED HAND STEPS TO TARGET: {steps}\n"
-        except Exception as e:
-            logger.warning(f"Could not compute depth hint for manipulation: {e}")
-            return ""
-
-    def _call_associative(self, system_instruction: str, image: Optional[Image.Image], depth_map: Optional[Image.Image], text: str) -> str:
-        content = _build_content(image, "## CURRENT OBSERVATION\n", depth_map, "## CURRENT DEPTH MAP\n", text)
-        resp = self.associative_learner.client.chat.completions.create(
-            model=self.associative_learner.config.model_id,
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": content},
-            ],
-            temperature=self.associative_learner.config.temperature,
-        )
-        return resp.choices[0].message.content
-
-    def _call_episodic(self, history_text: str) -> str:
-        resp = self.associative_learner.client.chat.completions.create(
-            model=self.associative_learner.config.model_id,
-            messages=[
-                {"role": "system", "content": SYS_INST_ASSOCIATIVE_EPISODIC},
-                {"role": "user", "content": history_text},
-            ],
-            temperature=self.associative_learner.config.temperature,
-        )
-        return resp.choices[0].message.content
-
-    def execute_lean(self, request, timestep):
-        main_task = request['task']
-        state = str(request['state'])
-        screenshot = str(request['image']).encode('utf-8')
-        screenshot = base64.b64decode(screenshot)
-        imagebytes = BytesIO(screenshot)
-        screenshot = Image.open(imagebytes).convert('RGB')
-
-        depth_image, depth_array = estimate_depth(imagebytes)
-
-        new_semantic_memory = ""
-        recall = ""
-
-        if timestep == 1:
-            user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"## MAIN TASK: {main_task}\n"
-                        f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
-                        f"## STATE: {state}\n")
-
-            semantic_response_text = self._call_associative(
-                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
+            return replicate.run(
+                _REPLICATE_MODEL,
+                input={
+                    "images": [data_uri],
+                    "to_base64": True,
+                    "num_patches": 24,
+                    "return_depth": True,
+                    "output_format": "json",
+                    "keys_to_exclude": "",
+                    "alpha_blend_onto": "white",
+                    "processing_resolution": "match_input",
+                },
             )
-            print(f"SEMANTIC LEARNER RESPONSE: {semantic_response_text}")
+        except ReplicateError as e:
+            if e.status == 429 and attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_BASE_DELAY * (attempt + 1)
+                print(f"[DEPTH] Rate limited (429). Retrying in {delay}s... (attempt {attempt + 1}/{_MAX_RETRIES})")
+                time.sleep(delay)
+            else:
+                raise
+        except httpx.HTTPError as e:
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_BASE_DELAY * (attempt + 1)
+                print(f"[DEPTH] Network error: {e}. Retrying in {delay}s... (attempt {attempt + 1}/{_MAX_RETRIES})")
+                time.sleep(delay)
+            else:
+                raise
+    return None  # unreachable
 
-            semantic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                semantic_response_text
-            )[1]
-            semantic_response = ast.literal_eval(semantic_response)
-            new_semantic_memory = semantic_response['new_semantic_memory']
-            recall = semantic_response['recall']
-            agent_mode = semantic_response['mode']
 
-            if agent_mode == "perception":
-                available_actions = f"{PERCEPTION_ACTIONS}\n\n"
-            elif agent_mode == "navigation":
-                available_actions = f"{NAVIGATION_ACTIONS}\n\n"
-            elif agent_mode == "manipulation":
-                available_actions = f"{MANIPULATION_ACTIONS}\n\n"
-            elif agent_mode == "STOP":
-                return {
-                    'halt': True,
-                    'text': "STOP action received, terminating execution...",
-                    'agent_mode': agent_mode
-                }
+def estimate_depth(image_bytes: io.BytesIO) -> tuple[Image.Image, np.ndarray]:
+    image_bytes.seek(0)
+    img = Image.open(image_bytes).convert("RGB")
+    max_dim = 640
+    w, h = img.size
+    if max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    buf.seek(0)
+    image_data = base64.b64encode(buf.read()).decode("utf-8")
+    data_uri = f"data:image/jpeg;base64,{image_data}"
+    print("Estimating depth from image of size:", buf.getbuffer().nbytes, "bytes")
 
-            self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
+    output = _run_replicate(data_uri)
 
-            depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
-            user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"## MAIN TASK: {main_task}\n"
-                        f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
-                        f"## STATE: {state}\n"
-                        f"## AGENT MODE: {agent_mode}\n"
-                        f"## AVAILABLE ACTIONS:\n{available_actions}"
-                        f"{depth_hint}")
+    if output is None:
+        raise RuntimeError("Replicate depth model returned None — check REPLICATE_API_TOKEN and model availability")
 
-            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
-            response_text = self.vlm_agent.send_message(vlm_content)
-            print(f"VLMAgent RESPONSE: {response_text}")
+    depth_file = output['depth_images'][0]
+    depth_data = depth_file.read()
+    with open("depth_map.png", "wb") as f:
+        f.write(depth_data)
+    depth_image = Image.open(io.BytesIO(depth_data)).convert("RGB")
 
-            response_json = re.search(
-                self.vlm_agent.extractable_json_structured_output,
-                response_text
-            )[1]
-            response_json = ast.literal_eval(response_json)
+    raw = json.loads(output['data'][0].read())
+    entry = raw[0] if isinstance(raw, list) else raw
+    depth = entry['depth']
+    if isinstance(depth, str):
+        depth_array = np.frombuffer(base64.b64decode(depth), dtype=np.float32)
+    elif isinstance(depth, dict):
+        depth_array = np.frombuffer(base64.b64decode(depth['data']), dtype=np.dtype(depth.get('dtype', 'float32')))
+        if 'shape' in depth:
+            depth_array = depth_array.reshape(depth['shape'])
+    else:
+        depth_array = np.array(depth, dtype=np.float32)
 
-            episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                episodic_response_text
-            )[1]
-            episodic_response = ast.literal_eval(episodic_response)
-
-            episodic_memory = (f"@ timestep {timestep}:\n"
-                               f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
-                               f"## WHAT WORKED: {episodic_response['what_worked']}\n"
-                               f"## WHAT TO AVOID: {episodic_response['what_to_avoid']}\n")
-            self.set_episodic_memory(episodic_memory)
-
-        else:
-            user_msg = (f"## MAIN TASK: {main_task}\n"
-                        f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
-                        f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
-                        f"## STATE: {state}\n")
-
-            semantic_response_text = self._call_associative(
-                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
-            )
-            semantic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                semantic_response_text
-            )[1]
-            semantic_response = ast.literal_eval(semantic_response)
-            new_semantic_memory = semantic_response['new_semantic_memory']
-            recall = semantic_response['recall']
-            agent_mode = semantic_response['mode']
-
-            self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
-            print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
-
-            if agent_mode == "perception":
-                available_actions = f"{PERCEPTION_ACTIONS}\n\n"
-            elif agent_mode == "navigation":
-                available_actions = f"{NAVIGATION_ACTIONS}\n\n"
-            elif agent_mode == "manipulation":
-                available_actions = f"{MANIPULATION_ACTIONS}\n\n"
-            elif agent_mode == "STOP":
-                return {
-                    'halt': True,
-                    'text': "STOP action received, terminating execution..."
-                }
-
-            depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
-            user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
-                        f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
-                        f"## STATE: {state}\n"
-                        f"## AGENT MODE: {agent_mode}\n"
-                        f"## AVAILABLE ACTIONS:\n{available_actions}"
-                        f"{depth_hint}")
-
-            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
-            response_text = self.vlm_agent.send_message(vlm_content)
-
-            response_json = re.search(
-                self.vlm_agent.extractable_json_structured_output,
-                response_text
-            )[1]
-            response_json = ast.literal_eval(response_json)
-
-            episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                episodic_response_text
-            )[1]
-            episodic_response = ast.literal_eval(episodic_response)
-
-            episodic_memory = (f"@ timestep {timestep}:\n"
-                               f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
-                               f"## WHAT WORKED: {episodic_response['what_worked']}\n"
-                               f"## WHAT TO AVOID: {episodic_response['what_to_avoid']}\n")
-            self.set_episodic_memory(episodic_memory)
-
-        with open('semantic_memory.txt', 'w') as f:
-            f.write(self.vlm_agent.base_semantic_memory)
-        with open('episodic_memory.txt', 'w') as f:
-            f.write(self.vlm_agent.episodic_memory)
-
-        return {
-            'halt': False,
-            'text': response_text,
-            'agent_mode': agent_mode,
-        }
+    return depth_image, depth_array
