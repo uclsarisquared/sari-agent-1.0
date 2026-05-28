@@ -10,6 +10,7 @@ import re
 from PIL import Image
 from loguru import logger
 import ast
+import math
 
 load_dotenv('C:\\Sari\\sari-agent-1.0\\api.env')
 
@@ -65,6 +66,55 @@ class BaseAgent(ABC):
     def extractable_json_structured_output(self):
         return re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
+class NavigationPlanError(Exception):
+    pass
+
+
+class HumanNavigationReasoner:
+    """
+    Prompts the operator for waypoints via stdin.
+    Used to validate the waypoint-following architecture before committing to an LLM reasoner.
+    """
+    ARRIVAL_RADIUS = 0.5  # world units
+
+    def plan(self, current_x, current_z, current_yaw, target_x, target_z,
+             target_shelf="", known_obstacles="", navigation_memory="") -> list[dict]:
+        print("\n" + "=" * 60)
+        print("[NAVIGATION REASONER] Input required.")
+        print(f"  Current position : x={current_x:.2f}, z={current_z:.2f}, yaw={current_yaw:.1f}°")
+        print(f"  Target position  : x={target_x:.2f}, z={target_z:.2f}  ({target_shelf})")
+        if known_obstacles:
+            print(f"  Known obstacles  :\n{known_obstacles}")
+        if navigation_memory:
+            print(f"  Past navigation records:\n{navigation_memory}")
+        print()
+        print("Enter 2-5 waypoints as a JSON list.")
+        print("Each rationale should be an ACTION HINT — facing direction + steps, e.g.:")
+        print('  [{"x": 2.0, "z": 4.5, "rationale": "Pan right to yaw≈0, move_forward ~8 steps"},')
+        print('   {"x": 2.0, "z": 7.6, "rationale": "Continue move_forward ~31 steps"},')
+        print('   {"x": 3.01, "z": 7.65, "rationale": "Pan right to yaw≈270, move_forward ~10 steps"}]')
+        print("Then press Enter twice.")
+        print("=" * 60)
+
+        lines = []
+        while True:
+            line = input()
+            if line == "" and lines:
+                break
+            lines.append(line)
+
+        raw = " ".join(lines).strip()
+        try:
+            waypoints = json.loads(raw)
+            if not isinstance(waypoints, list):
+                raise ValueError("Expected a JSON array.")
+            return waypoints
+        except Exception as e:
+            raise NavigationPlanError(f"Could not parse your waypoint input: {e}\nRaw: {raw[:200]}")
+
+    @staticmethod
+    def distance_2d(ax, az, bx, bz) -> float:
+        return math.sqrt((ax - bx) ** 2 + (az - bz) ** 2)
 
 class SemanticEpisodicAssociativeLearner(BaseAgent):
     def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
@@ -140,14 +190,99 @@ class EmbodiedAgent:
         if mode == 'lean':
             self.associative_learner = SemanticEpisodicAssociativeLearner(associative_config)
             self.set_semantic_memory()
+            self.navigation_reasoner = HumanNavigationReasoner()
+            self.current_waypoints: list[dict] = []
+            self.current_waypoint_idx: int = 0
+            self.current_nav_target: Optional[tuple[float, float]] = None
+            self.navigation_memory: str = ""          # separate from semantic memory; read by nav reasoner and VLM (nav mode only)
 
     def set_semantic_memory(self) -> None:
         self.vlm_agent.base_semantic_memory = BASE_SEMANTIC_MEMORY
         logger.info("Base semantic memory set for VLMAgent.")
 
-    def set_episodic_memory(self, episodic_memory: str) -> None:
-        self.vlm_agent.episodic_memory = episodic_memory
-        logger.info(f"Episodic memory updated: {episodic_memory}")
+    def set_episodic_memory(self, entry: str, max_entries: int = 5) -> None:
+        existing = [e for e in self.vlm_agent.episodic_memory.strip().split("\n\n") if e]
+        existing.append(entry)
+        self.vlm_agent.episodic_memory = "\n\n".join(existing[-max_entries:])
+        logger.info(f"Episodic memory updated ({len(existing[-max_entries:])} entries).")
+
+    def _check_waypoint_advance(self, ax: float, az: float):
+        if not self.current_waypoints or self.current_waypoint_idx >= len(self.current_waypoints):
+            return
+        wp = self.current_waypoints[self.current_waypoint_idx]
+        if self.navigation_reasoner.distance_2d(ax, az, wp['x'], wp['z']) <= self.navigation_reasoner.ARRIVAL_RADIUS:
+            logger.info(f"Waypoint {self.current_waypoint_idx + 1}/{len(self.current_waypoints)} reached.")
+            self.current_waypoint_idx += 1
+
+    def _get_current_waypoint_text(self) -> str:
+        if not self.current_waypoints or self.current_waypoint_idx >= len(self.current_waypoints):
+            return ""
+        wp = self.current_waypoints[self.current_waypoint_idx]
+        n, total = self.current_waypoint_idx + 1, len(self.current_waypoints)
+        return (f"## NAVIGATION WAYPOINT ({n}/{total}): "
+                f"Move to (x={wp['x']}, z={wp['z']}). "
+                f"Action hint: {wp.get('rationale', '')}\n")
+
+    @staticmethod
+    def _extract_nav_target(recall: str) -> Optional[tuple[float, float]]:
+        m = re.search(r'translation\s*:\s*\(\s*([0-9.]+)\s*,\s*[0-9.]+\s*,\s*([0-9.]+)\s*\)', recall)
+        return (float(m.group(1)), float(m.group(2))) if m else None
+
+    @staticmethod
+    def _extract_target_shelf(recall: str) -> str:
+        m = re.search(r'Shelf\s+\d+', recall)
+        return m.group(0) if m else "unknown shelf"
+
+    def _maybe_plan_navigation(self, agent_mode: str, recall: str,
+                                ax: float, az: float, yaw: float) -> str:
+        if agent_mode != "navigation":
+            self.current_waypoints = []
+            self.current_waypoint_idx = 0
+            self.current_nav_target = None
+            return ""
+
+        self._check_waypoint_advance(ax, az)
+        new_target = self._extract_nav_target(recall)
+        need_replan = (not self.current_waypoints) or (
+            new_target is not None and new_target != self.current_nav_target
+        )
+
+        if not need_replan:
+            return self._get_current_waypoint_text()
+
+        if new_target is None:
+            logger.warning("Navigation mode but no target coords in recall. Skipping planner.")
+            return self._get_current_waypoint_text()
+
+        tx, tz = new_target
+        if self.navigation_reasoner.distance_2d(ax, az, tx, tz) <= self.navigation_reasoner.ARRIVAL_RADIUS:
+            self.current_waypoints = [{'x': tx, 'z': tz, 'rationale': 'Already at target.'}]
+            self.current_waypoint_idx = 0
+            self.current_nav_target = new_target
+            return self._get_current_waypoint_text()
+
+        try:
+            shelf = self._extract_target_shelf(recall)
+            waypoints = self.navigation_reasoner.plan(
+                ax, az, yaw, tx, tz,
+                target_shelf=shelf,
+                navigation_memory=self.navigation_memory,   # pass past records to reasoner
+            )
+            self.current_waypoints = waypoints
+            self.current_waypoint_idx = 0
+            self.current_nav_target = new_target
+            summary = "; ".join(f"({w['x']},{w['z']})" for w in waypoints)
+            # append to navigation_memory — NOT semantic memory
+            self.navigation_memory += f"[PATH] start=({ax:.1f},{az:.1f}) → {shelf} → waypoints={summary} → outcome=PENDING\n"
+            logger.info(f"Navigation plan: {summary}")
+        except NavigationPlanError as e:
+            logger.error(f"Navigation planner failed: {e}. Proceeding without waypoints.")
+
+        return self._get_current_waypoint_text()
+
+    def _record_collision(self, ax: float, az: float, timestep: int):
+        self.navigation_memory += f"[COLLISION] position=({ax:.1f},{az:.1f}) → timestep={timestep}\n"
+        logger.warning(f"Collision recorded at ({ax:.1f},{az:.1f}) timestep={timestep}")
 
     def _compute_depth_hint(self, main_task: str, depth_array) -> str:
         try:
@@ -186,7 +321,20 @@ class EmbodiedAgent:
 
     def execute_lean(self, request, timestep):
         main_task = request['task']
-        state = str(request['state'])
+        _raw_state = request['state']
+        if isinstance(_raw_state, dict):
+            _t = _raw_state.get('translation', (0, 0, 0))
+            _r = _raw_state.get('rotation', (0, 0, 0))
+            _colliding = _raw_state.get('isColliding', False)
+        else:
+            _t = _r = (0, 0, 0)
+            _colliding = False
+        agent_x   = float(_t[0])
+        agent_z   = float(_t[2])
+        agent_yaw = float(_r[1]) if len(_r) > 1 else 0.0
+        state = str(_raw_state)
+        if _colliding:
+            self._record_collision(agent_x, agent_z, timestep)
         screenshot = str(request['image']).encode('utf-8')
         screenshot = base64.b64decode(screenshot)
         imagebytes = BytesIO(screenshot)
@@ -233,13 +381,21 @@ class EmbodiedAgent:
             self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
 
             depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
+            waypoint_text = self._maybe_plan_navigation(
+                agent_mode=agent_mode, recall=recall,
+                ax=agent_x, az=agent_z, yaw=agent_yaw,
+            )
+            nav_memory_block = (f"## NAVIGATION MEMORY:\n{self.navigation_memory}\n"
+                                if agent_mode == "navigation" and self.navigation_memory else "")
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}"
-                        f"{depth_hint}")
+                        f"{depth_hint}"
+                        f"{nav_memory_block}"
+                        f"{waypoint_text}")
 
             vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
             response_text = self.vlm_agent.send_message(vlm_content)
@@ -299,13 +455,21 @@ class EmbodiedAgent:
                 }
 
             depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
+            waypoint_text = self._maybe_plan_navigation(
+                agent_mode=agent_mode, recall=recall,
+                ax=agent_x, az=agent_z, yaw=agent_yaw,
+            )
+            nav_memory_block = (f"## NAVIGATION MEMORY:\n{self.navigation_memory}\n"
+                                if agent_mode == "navigation" and self.navigation_memory else "")
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
                         f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}"
-                        f"{depth_hint}")
+                        f"{depth_hint}"
+                        f"{nav_memory_block}"
+                        f"{waypoint_text}")
 
             vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
             response_text = self.vlm_agent.send_message(vlm_content)
@@ -329,9 +493,9 @@ class EmbodiedAgent:
                                f"## WHAT TO AVOID: {episodic_response['what_to_avoid']}\n")
             self.set_episodic_memory(episodic_memory)
 
-        with open('semantic_memory.txt', 'w') as f:
+        with open('semantic_memory.txt', 'w', encoding='utf-8') as f:
             f.write(self.vlm_agent.base_semantic_memory)
-        with open('episodic_memory.txt', 'w') as f:
+        with open('episodic_memory.txt', 'w', encoding='utf-8') as f:
             f.write(self.vlm_agent.episodic_memory)
 
         return {

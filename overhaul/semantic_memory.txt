@@ -46,4 +46,29 @@ This semantic memory outlines the store's environment, detailing its layout, ite
 - Shelf 16 has the target position -> translation: (6.16, 1.36, 6.04), rotation: (0.0, 358.83, 0.0)
 - Shelf 17 has the target position -> translation: (7.76, 1.36, 6.08), rotation: (0.0, 358.83, 0.0)
 
-@ timestep 1: The agent is currently near the self-checkout counter, facing Shelves 9, 10, and 11. Canned goods are known to be located on Shelves 5 and 6.
+**Aisle Corridors** (navigable lanes — use these to plan paths):
+- Left wall corridor: x∈[0,1.0], z∈[0,9] — starting point area, near counter and Shelves 3/9
+- Front wall corridor: z∈[0,1.0], x∈[0,9] — along front
+- Central aisle A: x∈[2.0,4.4], z∈[1,5.5] — between left cluster and middle column (Shelves 1/2/5/6)
+- Central aisle B: x∈[5.5,8.2], z∈[1,5.5] — between middle column and right cluster (Shelves 4/8)
+- Back wall corridor: z∈[7.2,9.0], x∈[0,9] — behind z≈6 back shelf row
+
+**Shelf Footprints** (approximate bounding boxes — avoid placing waypoints inside these):
+- Shelf 1: x∈[4.5,5.5], z∈[1.0,1.9]
+- Shelf 2: x∈[4.5,5.5], z∈[4.1,5.1]
+- Shelf 3: x∈[0.7,1.7], z∈[2.7,3.6]
+- Shelf 4: x∈[8.2,9.3], z∈[2.6,3.6]
+- Shelf 5: x∈[4.4,5.5], z∈[3.4,4.4]
+- Shelf 6: x∈[4.5,5.5], z∈[6.1,7.1]
+- Shelf 7: x∈[0.8,1.8], z∈[4.8,5.8]
+- Shelf 8: x∈[8.2,9.3], z∈[4.8,5.8]
+- Shelf 9: x∈[1.0,2.0], z∈[2.8,3.8]
+- Shelf 10: x∈[0.9,2.0], z∈[4.4,5.4]
+- Shelf 11: x∈[1.0,2.1], z∈[6.2,7.2]
+- Shelves 12-13: x∈[1.9,3.0], z∈[5.7,6.7]
+- Shelves 14-15: x∈[3.7,4.8], z∈[5.6,6.6]
+- Shelf 16: x∈[5.7,6.7], z∈[5.6,6.5]
+- Shelf 17: x∈[7.3,8.3], z∈[5.6,6.6]
+- Counter: x∈[0,2.5], z∈[0,1.5]
+
+@ timestep 1: The agent is near the starting area, facing the left wall where Shelves 9, 10, and 11 are located. These shelves contain instant noodles, cup noodles, and ramen. The checkout counter is visible to the left, and Shelf 1 is partially visible on the right.

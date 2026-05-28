@@ -22,7 +22,7 @@ def _run_replicate(data_uri: str):
                 input={
                     "images": [data_uri],
                     "to_base64": True,
-                    "num_patches": 16,
+                    "num_patches": 24,
                     "return_depth": True,
                     "output_format": "json",
                     "keys_to_exclude": "",
@@ -56,10 +56,10 @@ def estimate_depth(image_bytes: io.BytesIO) -> tuple[Image.Image, np.ndarray]:
         scale = max_dim / max(w, h)
         img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    img.save(buf, format="JPEG", quality=85)
     buf.seek(0)
     image_data = base64.b64encode(buf.read()).decode("utf-8")
-    data_uri = f"data:image/png;base64,{image_data}"
+    data_uri = f"data:image/jpeg;base64,{image_data}"
     print("Estimating depth from image of size:", buf.getbuffer().nbytes, "bytes")
 
     output = _run_replicate(data_uri)
