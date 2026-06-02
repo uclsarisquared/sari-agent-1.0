@@ -1,0 +1,31 @@
+This semantic memory outlines the store's environment, detailing its layout, item locations, and general product descriptions.
+
+**Layout of the Store**:
+1. Counter: Situated near Shelves 1 and 2, and beside Shelves 7-8, this area includes a cash register.
+2. Shelf 1: Features instant meals like cup noodles, instant noodles, instant ramen, chocolate rice porridge mix, and instant soup.
+3. Shelf 2: Features canned goods, including meats (meat loaf, beef loaf, corned beef), fish (tuna, sardines, fried sardines, corned tuna), pork & beans, Shiitake mushroom slices, mushroom pieces & stems, and tomato sauce.
+4. Shelf 3: Features a variety of snacks and junk food, including Pringles, potato chips, corn chips, cheese rings, pretzel twists, and etc.
+5. Shelf 4: Features a selection of nuts like Mixed nuts, toasted peanuts, cashews, and green peas.
+6. Shelf 5: Features a selection of nuts like Mixed nuts, toasted peanuts, cashews, and green peas (similar to Shelf 4).
+7. Shelf 6: Features cereals, breakfast items, and biscuits, such as Butter cookies, cookie sandwich, Choco Mallows, House of Polvoron (polvoron and soft cookies), Pepero, Ritz crackers, Ube-filled crackers, Hansel Crackers, Fita Crackers, cereals (Koko Krunch, Gold Corn Flakes, Honey Stars, Choco Crunchies), and Mamon.
+8. Shelf 7: Features bottled water only.
+9. Shelf 8: Features fruit juices only.
+10. Shelf 9: Features a variety of beverages, including energy drinks, tonic drinks, soft drinks, and dairy products such as milk, processed cheese, yoghurt, and yoghurt drinks, alongside popcorn.
+
+**Top-down View of the Store**:
+1. From the starting point, Shelves 1-2 and the counter are immediately visible.
+2. Moving several steps forward from the starting point and panning right should reveal Shelves 7-9 because they are adjacent to the counter.
+3. Moving towards Shelves 7-9 and panning right will reveal Shelf 6.
+4. Shelf 3 is behind Shelf 2 (likewise, Shelf 2 is behind Shelf 3). Shelves 4 and 5 are adjacent to Shelves 2 and 3.
+5. Shelf 5 is facing Shelf 7.
+6. Moving towards Shelf 6 and panning right will reveal Shelf 3.
+7. From the starting point, panning right will reveal Shelf 4, and a portion of Shelf 6.
+**Fast Tracking** (use this to guide you quickly to the target object):
+- Shelf 1 has the target position -> translation: (1.51, 1.36, 3.37), rotation: (0.0, 270.0, 0.0)
+- Shelf 2 has the target position -> translation: (1.52, 1.36, 3.96), rotation: (0.0, 90.0, 0.0)
+- Shelf 4 has the target position -> translation: (2.9, 1.36, 0.33), rotation: (0.0, 357.5, 0.0)
+- Shelf 3 has the target position -> translation: (4.38, 1.36, 3.88), rotation: (0.0, 270.0, 0.0)
+- Shelf 6 has the target position -> translation: (4.38, 1.36, 3.68), rotation: (0.0, 90.0, 0.0)
+- Shelf 5 has the target position -> translation: (3.01, 1.36, 7.65), rotation: (0.0, 180.0, 0.0)
+- Shelves 7-8 have the same target position -> translation: (3.4, 1.36, 7.15), rotation: (0.0, 0.0, 0.0)
+- Shelf 9 has the target position -> translation: (4.8, 1.36, 7.15), rotation: (0.0, 0.0, 0.0)

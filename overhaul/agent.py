@@ -145,9 +145,11 @@ class EmbodiedAgent:
         self.vlm_agent.base_semantic_memory = BASE_SEMANTIC_MEMORY
         logger.info("Base semantic memory set for VLMAgent.")
 
-    def set_episodic_memory(self, episodic_memory: str) -> None:
-        self.vlm_agent.episodic_memory = episodic_memory
-        logger.info(f"Episodic memory updated: {episodic_memory}")
+    def set_episodic_memory(self, entry: str, max_entries: int = 5) -> None:
+        existing = [e for e in self.vlm_agent.episodic_memory.strip().split("\n\n") if e]
+        existing.append(entry)
+        self.vlm_agent.episodic_memory = "\n\n".join(existing[-max_entries:])
+        logger.info(f"Episodic memory updated ({len(existing[-max_entries:])} entries).")
 
     def _compute_depth_hint(self, main_task: str, depth_array) -> str:
         try:
@@ -184,6 +186,11 @@ class EmbodiedAgent:
         )
         return resp.choices[0].message.content
 
+    @staticmethod
+    def _extract_json(pattern, text):
+        m = re.search(pattern, text) if text else None
+        return m.group(1) if m else None
+
     def execute_lean(self, request, timestep):
         main_task = request['task']
         state = str(request['state'])
@@ -208,11 +215,13 @@ class EmbodiedAgent:
             )
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response_text}")
 
-            semantic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                semantic_response_text
-            )[1]
-            semantic_response = ast.literal_eval(semantic_response)
+            semantic_raw = self._extract_json(
+                self.associative_learner.extractable_json_structured_output, semantic_response_text
+            )
+            if semantic_raw is None:
+                print(f"[ERROR] No JSON in semantic response: {semantic_response_text}")
+                return {'halt': True, 'text': semantic_response_text or '', 'agent_mode': 'STOP'}
+            semantic_response = ast.literal_eval(semantic_raw)
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
@@ -245,18 +254,22 @@ class EmbodiedAgent:
             response_text = self.vlm_agent.send_message(vlm_content)
             print(f"VLMAgent RESPONSE: {response_text}")
 
-            response_json = re.search(
-                self.vlm_agent.extractable_json_structured_output,
-                response_text
-            )[1]
-            response_json = ast.literal_eval(response_json)
+            response_raw = self._extract_json(
+                self.vlm_agent.extractable_json_structured_output, response_text
+            )
+            if response_raw is None:
+                print(f"[ERROR] No JSON in VLM response: {response_text}")
+                return {'halt': True, 'text': response_text or '', 'agent_mode': agent_mode}
+            response_json = ast.literal_eval(response_raw)
 
             episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                episodic_response_text
-            )[1]
-            episodic_response = ast.literal_eval(episodic_response)
+            episodic_raw = self._extract_json(
+                self.associative_learner.extractable_json_structured_output, episodic_response_text
+            )
+            if episodic_raw is None:
+                print(f"[ERROR] No JSON in episodic response: {episodic_response_text}")
+                return {'halt': True, 'text': response_text or '', 'agent_mode': agent_mode}
+            episodic_response = ast.literal_eval(episodic_raw)
 
             episodic_memory = (f"@ timestep {timestep}:\n"
                                f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
@@ -274,11 +287,13 @@ class EmbodiedAgent:
             semantic_response_text = self._call_associative(
                 SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
             )
-            semantic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                semantic_response_text
-            )[1]
-            semantic_response = ast.literal_eval(semantic_response)
+            semantic_raw = self._extract_json(
+                self.associative_learner.extractable_json_structured_output, semantic_response_text
+            )
+            if semantic_raw is None:
+                print(f"[ERROR] No JSON in semantic response: {semantic_response_text}")
+                return {'halt': True, 'text': semantic_response_text or '', 'agent_mode': 'STOP'}
+            semantic_response = ast.literal_eval(semantic_raw)
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
@@ -310,18 +325,22 @@ class EmbodiedAgent:
             vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
             response_text = self.vlm_agent.send_message(vlm_content)
 
-            response_json = re.search(
-                self.vlm_agent.extractable_json_structured_output,
-                response_text
-            )[1]
-            response_json = ast.literal_eval(response_json)
+            response_raw = self._extract_json(
+                self.vlm_agent.extractable_json_structured_output, response_text
+            )
+            if response_raw is None:
+                print(f"[ERROR] No JSON in VLM response: {response_text}")
+                return {'halt': True, 'text': response_text or '', 'agent_mode': agent_mode}
+            response_json = ast.literal_eval(response_raw)
 
             episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = re.search(
-                self.associative_learner.extractable_json_structured_output,
-                episodic_response_text
-            )[1]
-            episodic_response = ast.literal_eval(episodic_response)
+            episodic_raw = self._extract_json(
+                self.associative_learner.extractable_json_structured_output, episodic_response_text
+            )
+            if episodic_raw is None:
+                print(f"[ERROR] No JSON in episodic response: {episodic_response_text}")
+                return {'halt': True, 'text': response_text or '', 'agent_mode': agent_mode}
+            episodic_response = ast.literal_eval(episodic_raw)
 
             episodic_memory = (f"@ timestep {timestep}:\n"
                                f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
@@ -329,9 +348,9 @@ class EmbodiedAgent:
                                f"## WHAT TO AVOID: {episodic_response['what_to_avoid']}\n")
             self.set_episodic_memory(episodic_memory)
 
-        with open('semantic_memory.txt', 'w') as f:
+        with open('semantic_memory.txt', 'w', encoding='utf-8') as f:
             f.write(self.vlm_agent.base_semantic_memory)
-        with open('episodic_memory.txt', 'w') as f:
+        with open('episodic_memory.txt', 'w', encoding='utf-8') as f:
             f.write(self.vlm_agent.episodic_memory)
 
         return {

@@ -11,16 +11,24 @@ from PIL import Image
 _REPLICATE_MODEL = "vufinder/depth-anything-v3-metric:d2ef7653aa75f87e3b502738a3f57ca2b09ba92f6f286075c8929a69937a013f"
 _MAX_RETRIES = 5
 _RETRY_BASE_DELAY = 10  # seconds; 429 resets in ~6s so 10s is safe
+# Replicate inline base64 data URI limit; above this we upload via files API
+_MAX_INLINE_BYTES = 4 * 1024 * 1024  # 4 MB
 
 
-def _run_replicate(data_uri: str):
+def _upload_image(buf: io.BytesIO) -> str:
+    buf.seek(0)
+    file_obj = replicate.files.create(buf, filename="depth_input.png")
+    return file_obj.urls["get"]
+
+
+def _run_replicate(image_url: str):
     for attempt in range(_MAX_RETRIES):
         print(f"[DEPTH] Attempting to run Replicate model (attempt {attempt + 1}/{_MAX_RETRIES})...")
         try:
             return replicate.run(
                 _REPLICATE_MODEL,
                 input={
-                    "images": [data_uri],
+                    "images": [image_url],
                     "to_base64": True,
                     "num_patches": 24,
                     "return_depth": True,
@@ -50,19 +58,21 @@ def _run_replicate(data_uri: str):
 def estimate_depth(image_bytes: io.BytesIO) -> tuple[Image.Image, np.ndarray]:
     image_bytes.seek(0)
     img = Image.open(image_bytes).convert("RGB")
-    max_dim = 640
-    w, h = img.size
-    if max(w, h) > max_dim:
-        scale = max_dim / max(w, h)
-        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
+    img.save(buf, format="PNG")
     buf.seek(0)
-    image_data = base64.b64encode(buf.read()).decode("utf-8")
-    data_uri = f"data:image/jpeg;base64,{image_data}"
-    print("Estimating depth from image of size:", buf.getbuffer().nbytes, "bytes")
+    size = buf.getbuffer().nbytes
+    print(f"Estimating depth from image of size: {size} bytes")
 
-    output = _run_replicate(data_uri)
+    if size > _MAX_INLINE_BYTES:
+        print("[DEPTH] Image exceeds inline limit, uploading via Replicate files API...")
+        image_url = _upload_image(buf)
+    else:
+        buf.seek(0)
+        image_data = base64.b64encode(buf.read()).decode("utf-8")
+        image_url = f"data:image/png;base64,{image_data}"
+
+    output = _run_replicate(image_url)
 
     if output is None:
         raise RuntimeError("Replicate depth model returned None — check REPLICATE_API_TOKEN and model availability")

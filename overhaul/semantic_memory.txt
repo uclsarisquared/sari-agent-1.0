@@ -46,4 +46,10 @@ This semantic memory outlines the store's environment, detailing its layout, ite
 - Shelf 16 has the target position -> translation: (6.16, 1.36, 6.04), rotation: (0.0, 358.83, 0.0)
 - Shelf 17 has the target position -> translation: (7.76, 1.36, 6.08), rotation: (0.0, 358.83, 0.0)
 
-@ timestep 1: The agent is currently near the self-checkout counter, facing Shelves 9, 10, and 11. Canned goods are known to be located on Shelves 5 and 6.
+@ timestep 1: The agent is at the starting point, facing the counter and Shelves 9, 10, and 11 on the left. Shelf 1 is visible on the right, containing various bags of chips.
+@ timestep 2: The shelf labeled 'Shelf 1' directly in front of the agent contains cereals and biscuits. Bags of chips are visually confirmed to be located on the adjacent shelf to the immediate left, likely Shelf 11.
+@ timestep 3: The agent is directly in front of a shelf stocked with green bags of chips. This section is immediately adjacent to the shelves containing biscuits and cereals.
+@ timestep 4: The shelf immediately adjacent to the biscuits and cereals section contains green bags of chips. The agent's left hand is currently positioned near these chips, ready for manipulation.
+@ timestep 5: The green bags of chips on the shelf are likely categorized as potato chips or corn chips. The agent's left hand is positioned near them but has not successfully gripped an item yet.
+@ timestep 6: The green bags of chips are located on a shelf that is currently more than 1 meter away from the agent's body. The agent must move its body closer to the shelf to bring the items within the 1-meter manipulation range.
+@ timestep 7: The agent is now within reach of the chips on the shelf, specifically the Super Crunch Sweet Corn, which is currently hovered by the left hand.
