@@ -19,10 +19,19 @@ NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 meters. This will move in 
                       "move_backward: Move backward 0.1 meters. Maximum 10 steps per action.\n"
                       "move_left: Move left 0.1 meters. Maximum 10 steps per action.\n"
                       "move_right: Move right 0.1 meters. Maximum 10 steps per action.\n"
-                      "pan_left: Pan left 2.5 degrees. Maximum 15 steps per action.\n"
-                      "pan_right: Pan right 2.5 degrees. Maximum 15 steps per action.\n"
                       "tilt_up: Tilt up 2.5 degrees. Maximum 10 steps per action.\n"
-                      "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n")
+                      "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n"
+                      "turn_left_90: Snap body yaw 90 degrees counter-clockwise to the nearest cardinal direction.\n"
+                      "turn_right_90: Snap body yaw 90 degrees clockwise to the nearest cardinal direction.\n"
+                      "snap_to_cardinal: Snap body yaw to the nearest cardinal direction (0°, 90°, 180°, 270°). Use this to recover from yaw drift.\n"
+                      "get_heading: Print the current cardinal heading as a human-readable label (e.g. North, East, South, West). Use this to confirm orientation before planning movement.\n")
+
+SCAN_ACTIONS = ("move_left: Move left 0.1 meters. Maximum 10 steps per action.\n"
+                "move_right: Move right 0.1 meters. Maximum 10 steps per action.\n"
+                "tilt_up: Tilt up 2.5 degrees. Maximum 10 steps per action.\n"
+                "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n"
+                "scan_shelf_left: Strafe left along the shelf face 0.1 meters per step. Maximum 20 steps per action. Use while facing the shelf to sweep across products.\n"
+                "scan_shelf_right: Strafe right along the shelf face 0.1 meters per step. Maximum 20 steps per action. Use while facing the shelf to sweep across products.\n")
 
 PERCEPTION_ACTIONS = (
     "center_object_on_screen: Center the agent's body on the target object in the frame.\n"
@@ -44,8 +53,8 @@ MANIPULATION_ACTIONS = (
     "rotate_right_counterclockwise: Rotate right hand counterclockwise 15 degrees per step.\n"
     "grip_left: Toggle left grip (times value is ignored).\n"
     "grip_right: Toggle right grip (times value is ignored).\n"
-    "grab_item_in_view_right: Reach to the named item with the right hand, grip it, and return the hand to default position. Must be at most 1 meter away from the item.\n"
-    "grab_item_in_view_left: Reach to the named item with the left hand, grip it, and return the hand to default position. Must be at most 1 meter away from the item.\n"
+    "reach_and_grip_right: Extend the right hand forward in steps, attempting a grip at each step until the item is gripped or max extension is reached. Hand resets to default position on success. Use once vertically and horizontally aligned with the target item.\n"
+    "reach_and_grip_left: Extend the left hand forward in steps, attempting a grip at each step until the item is gripped or max extension is reached. Hand resets to default position on success. Use once vertically and horizontally aligned with the target item.\n"
 )
 
-ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS
+ATOMIC_ACTIONS = NAVIGATION_ACTIONS + SCAN_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS

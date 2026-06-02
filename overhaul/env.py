@@ -186,6 +186,57 @@ _ROT_RIGHT_CLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 
 _ROT_RIGHT_CTRCLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, -15, 0))
 _REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=False: RequestScreenshot(prefix, suffix, folder_name, save_image)
 
+
+def _nearest_cardinal(yaw: float) -> int:
+    cardinals = [0, 90, 180, 270, 360]
+    return min(cardinals, key=lambda c: abs(c - yaw)) % 360
+
+
+def turn_left_90(units=1):
+    current_yaw = TransformAgent((0, 0, 0), (0, 0, 0))['rotation'][1]
+    target = (_nearest_cardinal(current_yaw) - 90) % 360
+    TransformAgent((0, 0, 0), (0, target - current_yaw, 0))
+    print(f"[TURN] Left 90° → facing {target}°")
+
+
+def turn_right_90(units=1):
+    current_yaw = TransformAgent((0, 0, 0), (0, 0, 0))['rotation'][1]
+    target = (_nearest_cardinal(current_yaw) + 90) % 360
+    TransformAgent((0, 0, 0), (0, target - current_yaw, 0))
+    print(f"[TURN] Right 90° → facing {target}°")
+
+
+def snap_to_cardinal(units=1):
+    current_yaw = TransformAgent((0, 0, 0), (0, 0, 0))['rotation'][1]
+    target = _nearest_cardinal(current_yaw)
+    TransformAgent((0, 0, 0), (0, target - current_yaw, 0))
+    print(f"[SNAP] Cardinal snap → facing {target}°")
+
+
+_HEADING_LABELS = {0: 'North (0°)', 90: 'East (90°)', 180: 'South (180°)', 270: 'West (270°)'}
+
+def get_heading(units=1):
+    current_yaw = TransformAgent((0, 0, 0), (0, 0, 0))['rotation'][1]
+    cardinal = _nearest_cardinal(current_yaw)
+    label = _HEADING_LABELS.get(cardinal, f'{cardinal}°')
+    print(f"[HEADING] Current heading: {label}")
+    return label
+
+
+def scan_shelf_left(units):
+    if units > 20:
+        print("Warning: Scanning more than 20 steps at once. Setting to 20.")
+    for _ in range(min(units, 20)):
+        _MOVE_LEFT_()
+
+
+def scan_shelf_right(units):
+    if units > 20:
+        print("Warning: Scanning more than 20 steps at once. Setting to 20.")
+    for _ in range(min(units, 20)):
+        _MOVE_RIGHT_()
+
+
 def move_forward(units):
     if units > 10:
         print("Warning: Moving forward more than 10 units at once may cause instability. Setting to 10 units.")

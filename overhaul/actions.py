@@ -3,10 +3,14 @@ from env import (
     move_backward,
     move_left,
     move_right,
-    pan_left,
-    pan_right,
     tilt_up,
     tilt_down,
+    turn_left_90,
+    turn_right_90,
+    snap_to_cardinal,
+    get_heading,
+    scan_shelf_left,
+    scan_shelf_right,
 
     extend_left_hand_forward,
     extend_right_hand_forward,
@@ -33,7 +37,7 @@ from perception import (
     retrieve_item
 )
 
-from md_tools import grab_item_in_view_right, grab_item_in_view_left
+from md_tools import reach_and_grip_right, reach_and_grip_left
 
 
 NAVIGATION_ACTIONS_REF = {
@@ -41,10 +45,21 @@ NAVIGATION_ACTIONS_REF = {
     "move_backward": move_backward,
     "move_left": move_left,
     "move_right": move_right,
-    "pan_left": pan_left,
-    "pan_right": pan_right,
     "tilt_up": tilt_up,
     "tilt_down": tilt_down,
+    "turn_left_90": turn_left_90,
+    "turn_right_90": turn_right_90,
+    "snap_to_cardinal": snap_to_cardinal,
+    "get_heading": get_heading,
+}
+
+SCAN_ACTIONS_REF = {
+    "move_left": move_left,
+    "move_right": move_right,
+    "tilt_up": tilt_up,
+    "tilt_down": tilt_down,
+    "scan_shelf_left": scan_shelf_left,
+    "scan_shelf_right": scan_shelf_right,
 }
 
 PERCEPTION_ACTIONS_REF = {
@@ -68,6 +83,6 @@ MANIPULATION_ACTIONS_REF = {
     'rotate_right_counterclockwise': rotate_right_counterclockwise,
     'grip_left': grip_left,
     'grip_right': grip_right,
-    'grab_item_in_view_right': grab_item_in_view_right,
-    'grab_item_in_view_left': grab_item_in_view_left,
+    'reach_and_grip_right': reach_and_grip_right,
+    'reach_and_grip_left': reach_and_grip_left,
 }
