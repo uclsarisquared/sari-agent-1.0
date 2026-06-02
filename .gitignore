@@ -12,3 +12,6 @@ v3/
 annotations/
 v0.4
 V1
+overhaul/subagent_run.py
+overhaul/AGENT_REDESIGN.md
+overhaul/NavReasonPlan.md
