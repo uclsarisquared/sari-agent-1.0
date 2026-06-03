@@ -21,6 +21,7 @@ from sys_inst import (
 from memory import BASE_SEMANTIC_MEMORY
 from actions_str import (
     NAVIGATION_ACTIONS,
+    SCAN_ACTIONS,
     PERCEPTION_ACTIONS,
     MANIPULATION_ACTIONS,
 )
@@ -230,6 +231,8 @@ class EmbodiedAgent:
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"
             elif agent_mode == "navigation":
                 available_actions = f"{NAVIGATION_ACTIONS}\n\n"
+            elif agent_mode == "scan":
+                available_actions = f"{SCAN_ACTIONS}\n\n"
             elif agent_mode == "manipulation":
                 available_actions = f"{MANIPULATION_ACTIONS}\n\n"
             elif agent_mode == "STOP":
@@ -305,12 +308,15 @@ class EmbodiedAgent:
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"
             elif agent_mode == "navigation":
                 available_actions = f"{NAVIGATION_ACTIONS}\n\n"
+            elif agent_mode == "scan":
+                available_actions = f"{SCAN_ACTIONS}\n\n"
             elif agent_mode == "manipulation":
                 available_actions = f"{MANIPULATION_ACTIONS}\n\n"
             elif agent_mode == "STOP":
                 return {
                     'halt': True,
-                    'text': "STOP action received, terminating execution..."
+                    'text': "STOP action received, terminating execution...",
+                    'agent_mode': agent_mode
                 }
 
             depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""

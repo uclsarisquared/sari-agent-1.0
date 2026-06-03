@@ -9,8 +9,6 @@ from env import (
     turn_right_90,
     snap_to_cardinal,
     get_heading,
-    scan_shelf_left,
-    scan_shelf_right,
 
     extend_left_hand_forward,
     extend_right_hand_forward,
@@ -34,7 +32,9 @@ def grip_right(units=1): _GRIP_RIGHT_()
 
 from perception import (
     center_object_on_screen,
-    retrieve_item
+    retrieve_item,
+    scan_shelf_left,
+    scan_shelf_right,
 )
 
 from md_tools import reach_and_grip_right, reach_and_grip_left
@@ -47,10 +47,10 @@ NAVIGATION_ACTIONS_REF = {
     "move_right": move_right,
     "tilt_up": tilt_up,
     "tilt_down": tilt_down,
-    "turn_left_90": turn_left_90,
-    "turn_right_90": turn_right_90,
-    "snap_to_cardinal": snap_to_cardinal,
-    "get_heading": get_heading,
+    "turn_left_90":    lambda units=1: turn_left_90(),
+    "turn_right_90":   lambda units=1: turn_right_90(),
+    "snap_to_cardinal":lambda units=1: snap_to_cardinal(),
+    "get_heading":     lambda units=1: get_heading(),
 }
 
 SCAN_ACTIONS_REF = {

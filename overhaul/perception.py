@@ -349,6 +349,38 @@ def define_cardinal_direction(current_yaw_angle):
     return cardinals[min_index]
 
 
+def scan_shelf_left(n: int, target_name: str) -> dict:
+    """
+    Strafe left one step at a time, checking for target_name after each step.
+    Stops early if the target is found.
+    Returns {'found': True, 'box': bbox} on detection, {'found': False} otherwise.
+    """
+    for i in range(n):
+        move_left(units=1)
+        result = detect_object_via_moondream(target_name)
+        if result is not None:
+            print(f"[SCAN_LEFT] Target '{target_name}' found at step {i + 1}/{n}")
+            return {'found': True, 'box': result['box']}
+    print(f"[SCAN_LEFT] Target '{target_name}' not found after {n} steps.")
+    return {'found': False}
+
+
+def scan_shelf_right(n: int, target_name: str) -> dict:
+    """
+    Strafe right one step at a time, checking for target_name after each step.
+    Stops early if the target is found.
+    Returns {'found': True, 'box': bbox} on detection, {'found': False} otherwise.
+    """
+    for i in range(n):
+        move_right(units=1)
+        result = detect_object_via_moondream(target_name)
+        if result is not None:
+            print(f"[SCAN_RIGHT] Target '{target_name}' found at step {i + 1}/{n}")
+            return {'found': True, 'box': result['box']}
+    print(f"[SCAN_RIGHT] Target '{target_name}' not found after {n} steps.")
+    return {'found': False}
+
+
 def retrieve_item(target_name, cardinal_deg=None, annotate=False):
     item = detect_object_via_gemini(target_name)
     if item is None:
