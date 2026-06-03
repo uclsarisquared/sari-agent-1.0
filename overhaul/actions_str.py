@@ -15,23 +15,23 @@
 #            "STOP: Stop all actions. Use this when you think you have completed the task.\n")
 
 
-NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 meters. This will move in the Z-axis. Maximum 10 steps per action.\n"
-                      "move_backward: Move backward 0.1 meters. Maximum 10 steps per action.\n"
-                      "move_left: Move left 0.1 meters. Maximum 10 steps per action.\n"
-                      "move_right: Move right 0.1 meters. Maximum 10 steps per action.\n"
-                      "tilt_up: Tilt up 2.5 degrees. Maximum 10 steps per action.\n"
-                      "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n"
+NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 meters. This will move in the Z-axis.\n"
+                      "move_backward: Move backward 0.1 meters.\n"
+                      "move_left: Move left 0.1 meters.\n"
+                      "move_right: Move right 0.1 meters.\n"
+                      "tilt_up: Tilt up 2.5 degrees.\n"
+                      "tilt_down: Tilt down 2.5 degrees.\n"
                       "turn_left_90: Snap body yaw 90 degrees counter-clockwise to the nearest cardinal direction.\n"
                       "turn_right_90: Snap body yaw 90 degrees clockwise to the nearest cardinal direction.\n"
                       "snap_to_cardinal: Snap body yaw to the nearest cardinal direction (0°, 90°, 180°, 270°). Use this to recover from yaw drift.\n"
                       "get_heading: Print the current cardinal heading as a human-readable label (e.g. North, East, South, West). Use this to confirm orientation before planning movement.\n")
 
-SCAN_ACTIONS = ("move_left: Move left 0.1 meters. Maximum 10 steps per action.\n"
-                "move_right: Move right 0.1 meters. Maximum 10 steps per action.\n"
-                "tilt_up: Tilt up 2.5 degrees. Maximum 10 steps per action.\n"
-                "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n"
-                "scan_shelf_left: Strafe left along the shelf face 0.1 meters per step. Maximum 20 steps per action. Use while facing the shelf to sweep across products.\n"
-                "scan_shelf_right: Strafe right along the shelf face 0.1 meters per step. Maximum 20 steps per action. Use while facing the shelf to sweep across products.\n")
+SCAN_ACTIONS = ("move_left: Move left 0.1 meters.\n"
+                "move_right: Move right 0.1 meters.\n"
+                "tilt_up: Tilt up 2.5 degrees.\n"
+                "tilt_down: Tilt down 2.5 degrees.\n"
+                "scan_shelf_left: Strafe left along the shelf face 0.1 meters per step. Use while facing the shelf to sweep across products.\n"
+                "scan_shelf_right: Strafe right along the shelf face 0.1 meters per step. Use while facing the shelf to sweep across products.\n")
 
 PERCEPTION_ACTIONS = (
     "center_object_on_screen: Center the agent's body on the target object in the frame.\n"

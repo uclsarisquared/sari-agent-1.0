@@ -29,27 +29,7 @@ This semantic memory outlines the store's environment, detailing its layout, ite
 7. Shelves 9-11 are literally on the same side as the counter.
 8. Going to Shelf 4 and 8 from the starting point requires you to pan right until you see the end of Shelf 1, then move forward for some distance until you see the aisle that leads to Shelf 4 and 8.
 
-**Fast Tracking** (use this to guide you quickly to the target object):
-- Shelf 1 has the target position -> translation: (5.01, 1.36, 1.42), rotation: (0.0, 358.83, 0.0)
-- Shelf 4 has the target position -> translation: (8.72, 1.36, 3.1), rotation: (0.0, 268.83, 0.0)
-- Shelf 2 has the target position -> translation: (5.01, 1.36, 4.56), rotation: (0.0, 178.83, 0.0)
-- Shelf 3 has the target position -> translation: (1.18, 1.36, 3.13), rotation: (0.0, 88.83, 0.0)
-- Shelf 5 has the target position -> translation: (4.95, 1.36, 3.9), rotation: (0.0, 358.83, 0.0)
-- Shelf 8 has the target position -> translation: (8.76, 1.36, 5.27), rotation: (0.0, 271.33, 0.0)
-- Shelf 6 has the target position -> translation: (5.0, 1.36, 6.62), rotation: (0.0, 178.83, 0.0)
-- Shelf 7 has the target position -> translation: (1.32, 1.36, 5.28), rotation: (0.0, 91.33, 0.0)
-- Shelf 9 has the target position -> translation: (1.5, 1.36, 3.29), rotation: (0.0, 268.83, 0.0)
-- Shelf 10 has the target position -> translation: (1.47, 1.36, 4.89), rotation: (0.0, 268.83, 0.0)
-- Shelf 11 has the target position -> translation: (1.54, 1.36, 6.7), rotation: (0.0, 268.83, 0.0)
-- Shelves 12-13 have the same target position -> translation: (2.46, 1.36, 6.15), rotation: (0.0, 358.83, 0.0)
-- Shelves 14-15 have the same target position -> translation: (4.26, 1.36, 6.09), rotation: (0.0, 358.83, 0.0)
-- Shelf 16 has the target position -> translation: (6.16, 1.36, 6.04), rotation: (0.0, 358.83, 0.0)
-- Shelf 17 has the target position -> translation: (7.76, 1.36, 6.08), rotation: (0.0, 358.83, 0.0)
-
-@ timestep 1: The agent is at the starting point, facing the counter and Shelves 9, 10, and 11 on the left. Shelf 1 is visible on the right, containing various bags of chips.
-@ timestep 2: The shelf labeled 'Shelf 1' directly in front of the agent contains cereals and biscuits. Bags of chips are visually confirmed to be located on the adjacent shelf to the immediate left, likely Shelf 11.
-@ timestep 3: The agent is directly in front of a shelf stocked with green bags of chips. This section is immediately adjacent to the shelves containing biscuits and cereals.
-@ timestep 4: The shelf immediately adjacent to the biscuits and cereals section contains green bags of chips. The agent's left hand is currently positioned near these chips, ready for manipulation.
-@ timestep 5: The green bags of chips on the shelf are likely categorized as potato chips or corn chips. The agent's left hand is positioned near them but has not successfully gripped an item yet.
-@ timestep 6: The green bags of chips are located on a shelf that is currently more than 1 meter away from the agent's body. The agent must move its body closer to the shelf to bring the items within the 1-meter manipulation range.
-@ timestep 7: The agent is now within reach of the chips on the shelf, specifically the Super Crunch Sweet Corn, which is currently hovered by the left hand.
+@ timestep 1: Shelf 9 contains cup noodles. Shelf 10 holds Pringles, Tostitos, and other snacks. Shelf 11 displays green and red bags of chips. Shelf 1 features Ritz, Gold Corn Flakes, Danisa, Pepero, Fita, Choco Mallows, and Honey Stars.
+@ timestep 2: Shelf 1 also contains Pocky.
+@ timestep 3: A shelf labeled Shelf 3 displays Danisa butter cookies, Gold Corn Flakes, Ritz crackers, Fita, Choco Mallows, Pepero, and Pocky. Shelf 12 displays bottled water.
+@ timestep 4: Shelf 11 contains Tostitos, Clover Chips, and Pik-Nik. The shelf to the right of Shelf 12 contains Pancit Canton and cup noodles.

@@ -75,23 +75,7 @@ BASE_SEMANTIC_MEMORY = ("This semantic memory outlines the store's environment, 
                         "5. Shelves 12-16 are along the same aisle as Shelf 6, which are directly opposite to it.\n"
                         "6. Shelf 17 is along the same aisle as Shelf 12-16, directly beside Shelf 16.\n"
                         "7. Shelves 9-11 are literally on the same side as the counter.\n"
-                        "8. Going to Shelf 4 and 8 from the starting point requires you to pan right until you see the end of Shelf 1, then move forward for some distance until you see the aisle that leads to Shelf 4 and 8.\n\n"
-                        "**Fast Tracking** (use this to guide you quickly to the target object):\n"
-                        "- Shelf 1 has the target position -> translation: (5.01, 1.36, 1.42), rotation: (0.0, 358.83, 0.0)\n"
-                        "- Shelf 4 has the target position -> translation: (8.72, 1.36, 3.1), rotation: (0.0, 268.83, 0.0)\n"
-                        "- Shelf 2 has the target position -> translation: (5.01, 1.36, 4.56), rotation: (0.0, 178.83, 0.0)\n"
-                        "- Shelf 3 has the target position -> translation: (1.18, 1.36, 3.13), rotation: (0.0, 88.83, 0.0)\n"
-                        "- Shelf 5 has the target position -> translation: (4.95, 1.36, 3.9), rotation: (0.0, 358.83, 0.0)\n"
-                        "- Shelf 8 has the target position -> translation: (8.76, 1.36, 5.27), rotation: (0.0, 271.33, 0.0)\n"
-                        "- Shelf 6 has the target position -> translation: (5.0, 1.36, 6.62), rotation: (0.0, 178.83, 0.0)\n"
-                        "- Shelf 7 has the target position -> translation: (1.32, 1.36, 5.28), rotation: (0.0, 91.33, 0.0)\n"
-                        "- Shelf 9 has the target position -> translation: (1.5, 1.36, 3.29), rotation: (0.0, 268.83, 0.0)\n"
-                        "- Shelf 10 has the target position -> translation: (1.47, 1.36, 4.89), rotation: (0.0, 268.83, 0.0)\n"
-                        "- Shelf 11 has the target position -> translation: (1.54, 1.36, 6.7), rotation: (0.0, 268.83, 0.0)\n"
-                        "- Shelves 12-13 have the same target position -> translation: (2.46, 1.36, 6.15), rotation: (0.0, 358.83, 0.0)\n"
-                        "- Shelves 14-15 have the same target position -> translation: (4.26, 1.36, 6.09), rotation: (0.0, 358.83, 0.0)\n"
-                        "- Shelf 16 has the target position -> translation: (6.16, 1.36, 6.04), rotation: (0.0, 358.83, 0.0)\n"
-                        "- Shelf 17 has the target position -> translation: (7.76, 1.36, 6.08), rotation: (0.0, 358.83, 0.0)\n\n")
+                        "8. Going to Shelf 4 and 8 from the starting point requires you to pan right until you see the end of Shelf 1, then move forward for some distance until you see the aisle that leads to Shelf 4 and 8.\n\n")
 
 # # ========= Layout 3 =========
 # BASE_SEMANTIC_MEMORY = ("This semantic memory outlines the store's environment, detailing its layout, item locations, and general product descriptions.\n\n"

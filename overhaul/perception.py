@@ -112,47 +112,18 @@ def annotate_target(ymin, xmin, ymax, xmax, file_path='screenshots/ClientScreens
 
 
 def center_object_on_screen(target_info):
-    RequestScreenshot(save_image=True)
-    filepath = os.path.join("screenshots", "ClientScreenshot.png")
-    with open(filepath, "rb") as image_file:
-        image_bytes = image_file.read()
-    image = Image.open(BytesIO(image_bytes))
+    item = detect_object_via_gemini(target_info)
+    if item is None:
+        return TransformAgent((0, 0, 0), (0, 0, 0))
 
-    resp = CLIENT.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": [
-            _encode_image(image),
-            {"type": "text", "text": f"{PERCEPTION_PROMPT}\n\ntarget_info={target_info}\n\n"},
-        ]}],
-        temperature=0.5,
-    )
-    annotated_bbox = resp.choices[0].message.content
-    print(f"[DETECT OBJECT IN FRAME] Response: {annotated_bbox}")
+    box = item["box"]
+    y_center = (box["ymin"] + box["ymax"]) / 2
 
-    match = re.search(EXTRACTABLE_JSON_PATTERN, annotated_bbox)
-    if match:
-        extracted = match.group(1)
-        parsed = ast.literal_eval(extracted)
-        box_2d = parsed[0] if isinstance(parsed, list) else parsed
-        target_object = box_2d.get('label', 'unknown')
-        box_2d = box_2d['box_2d']
+    strafe_to_center(box)
 
-        print(f"Detected bounding box: {box_2d}, Target Object: {target_object}")
-        ymin = box_2d[0] / 1000 * ORIGINAL_HEIGHT
-        xmin = box_2d[1] / 1000 * ORIGINAL_WIDTH
-        ymax = box_2d[2] / 1000 * ORIGINAL_HEIGHT
-        xmax = box_2d[3] / 1000 * ORIGINAL_WIDTH
-
-        annotate_target(ymin, xmin, ymax, xmax)
-
-        x_center_before = (xmin + xmax) / 2
-        y_center_before = (ymin + ymax) / 2
-        agent_x_rot = (x_center_before - 960) / 19.2
-        agent_y_rot = (y_center_before - 540) / 19.2
-
-        state = TransformAgent((0, 0, 0), (agent_y_rot, agent_x_rot, 0))
-        return state
-    return TransformAgent((0,0,0), (0,0,0))
+    agent_y_rot = (y_center - 540) / 19.2
+    state = TransformAgent((0, 0, 0), (agent_y_rot, 0, 0))
+    return state
 
 
 def detect_object_via_gemini(target_name):
