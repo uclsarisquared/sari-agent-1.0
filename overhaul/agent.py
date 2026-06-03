@@ -203,6 +203,7 @@ class EmbodiedAgent:
             self.current_waypoint_idx: int = 0
             self.current_nav_target: Optional[tuple] = None
             self.navigation_memory: str = ""
+            self._position_gate_cleared: bool = False
 
     def set_semantic_memory(self) -> None:
         self.vlm_agent.base_semantic_memory = BASE_SEMANTIC_MEMORY
@@ -289,6 +290,7 @@ class EmbodiedAgent:
             self.current_waypoints = waypoints
             self.current_waypoint_idx = 0
             self.current_nav_target = new_target
+            self._position_gate_cleared = False
             summary = "; ".join(f"({w['x']},{w['z']})" for w in waypoints)
             self.navigation_memory += f"[PATH] start=({ax:.1f},{az:.1f}) → {shelf_id} → waypoints={summary} → outcome=PENDING\n"
             logger.info(f"Navigation plan: {summary}")
@@ -414,6 +416,7 @@ class EmbodiedAgent:
 
         # Pre-extract target shelf from task for proximity hint to semantic learner
         _task_shelf_id = self._extract_target_shelf_id(main_task)
+        _shelf = None
         _approach_hint = ""
         if _task_shelf_id:
             _shelf = self._lookup_shelf(_task_shelf_id)
@@ -453,6 +456,24 @@ class EmbodiedAgent:
         agent_mode = semantic_response['mode']
         self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
         print(f"SEMANTIC LEARNER: mode={agent_mode} | recall={recall[:80]}...")
+
+        # Position gate: override mode until the agent is correctly positioned at the target shelf
+        if self.current_waypoints and self.current_waypoint_idx < len(self.current_waypoints):
+            # Gate 1: waypoints still in progress
+            agent_mode = "navigation"
+            logger.info(f"Gate 1: waypoint {self.current_waypoint_idx + 1}/{len(self.current_waypoints)} pending. Forcing navigation.")
+        elif not self._position_gate_cleared and _shelf and agent_mode not in ("manipulation", "STOP"):
+            # Gate 2: waypoints exhausted but position/yaw not yet verified
+            _ap = _shelf['approach']
+            _gate_dist = HumanNavigationReasoner.distance_2d(agent_x, agent_z, _ap['x'], _ap['z'])
+            _agent_yaw_cardinal = int(round(agent_yaw / 90) * 90) % 360
+            if _gate_dist > 1.0 or _agent_yaw_cardinal != _ap['yaw']:
+                self.current_waypoints = []
+                agent_mode = "navigation"
+                logger.info(f"Gate 2: position not ready (dist={_gate_dist:.2f}m, yaw={_agent_yaw_cardinal}° vs {_ap['yaw']}°). Forcing navigation.")
+            else:
+                self._position_gate_cleared = True
+                logger.info(f"Gate 2: cleared (dist={_gate_dist:.2f}m, yaw={_agent_yaw_cardinal}°). Releasing mode control.")
 
         # Mode routing
         if agent_mode == "perception":
