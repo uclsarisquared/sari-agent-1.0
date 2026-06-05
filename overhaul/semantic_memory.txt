@@ -29,7 +29,7 @@ This semantic memory outlines the store's environment, detailing its layout, ite
 7. Shelves 9-11 are literally on the same side as the counter.
 8. Going to Shelf 4 and 8 from the starting point requires you to pan right until you see the end of Shelf 1, then move forward for some distance until you see the aisle that leads to Shelf 4 and 8.
 
-@ timestep 1: Shelf 9 contains cup noodles. Shelf 10 holds Pringles, Tostitos, and other snacks. Shelf 11 displays green and red bags of chips. Shelf 1 features Ritz, Gold Corn Flakes, Danisa, Pepero, Fita, Choco Mallows, and Honey Stars.
-@ timestep 2: Shelf 1 also contains Pocky.
-@ timestep 3: A shelf labeled Shelf 3 displays Danisa butter cookies, Gold Corn Flakes, Ritz crackers, Fita, Choco Mallows, Pepero, and Pocky. Shelf 12 displays bottled water.
-@ timestep 4: Shelf 11 contains Tostitos, Clover Chips, and Pik-Nik. The shelf to the right of Shelf 12 contains Pancit Canton and cup noodles.
+@ timestep 1: Shelf 9 is observed to hold cup noodles and instant noodles. Shelf 10 contains instant noodles and snacks. Shelf 1 holds cereals such as Gold Corn Flakes and Honey Stars, as well as Ritz crackers.
+@ timestep 2: A self-checkout terminal with a 'Start' button is located at the current position.
+@ timestep 3: Shelf 10 holds Pringles, Pik-Nik, Cheezy, Indomie Mi Goreng, Cup Noodles, Clover Chips, Tostitos, and Lucky Me Pancit Canton.
+@ timestep 4: The Tostitos bag is located on the bottom shelf of Shelf 10, positioned between Clover Chips and Cup Noodles.

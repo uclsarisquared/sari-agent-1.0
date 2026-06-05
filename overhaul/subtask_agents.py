@@ -208,7 +208,7 @@ def _fresh_agent_state() -> dict:
         "leftGrippedState": False,
         "rightHoveredObject": "None",
         "rightGrippedState": False,
-        "mode": "perception",
+        "mode": "navigation",
     }
     for k, v in {**agent_pos, **hands_pos}.items():
         state[k] = v
@@ -254,8 +254,9 @@ def run_subtask(
     if context:
         print(f"[CONTEXT] {context[:120]}{'...' if len(context) > 120 else ''}")
 
-    # Reset conversation history only; semantic and episodic memory persist across subtasks
+    # Reset conversation history and nav state; semantic and episodic memory persist across subtasks
     agent.vlm_agent.reset_history()
+    agent.reset_nav_state()
     semantic_memory_before = agent.vlm_agent.base_semantic_memory
 
     current_state = _fresh_agent_state()
@@ -267,6 +268,7 @@ def run_subtask(
 
         request = {
             'task': augmented_task,
+            'bare_task': subtask,
             'image': imageb64,
             'state': current_state,
         }

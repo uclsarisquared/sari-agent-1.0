@@ -209,6 +209,13 @@ class EmbodiedAgent:
         self.vlm_agent.base_semantic_memory = BASE_SEMANTIC_MEMORY
         logger.info("Base semantic memory set for VLMAgent.")
 
+    def reset_nav_state(self) -> None:
+        self.current_waypoints = []
+        self.current_waypoint_idx = 0
+        self.current_nav_target = None
+        self._position_gate_cleared = False
+        self.navigation_memory = ""
+
     def set_episodic_memory(self, entry: str, max_entries: int = 5) -> None:
         existing = [e for e in self.vlm_agent.episodic_memory.strip().split("\n\n") if e]
         existing.append(entry)
@@ -392,11 +399,13 @@ class EmbodiedAgent:
 
     def execute_lean(self, request, timestep):
         main_task = request['task']
+        _bare_task = request.get('bare_task', main_task)
         _raw_state = request['state']
         screenshot_bytes = base64.b64decode(str(request['image']).encode('utf-8'))
         imagebytes = BytesIO(screenshot_bytes)
         screenshot = Image.open(imagebytes).convert('RGB')
-        depth_image, depth_array = estimate_depth(imagebytes)
+        # depth_image, depth_array = estimate_depth(imagebytes)  # temporarily disabled
+        depth_image, depth_array = None, None
 
         # Extract numeric state for nav infrastructure
         if isinstance(_raw_state, dict):
@@ -415,7 +424,7 @@ class EmbodiedAgent:
             self._record_collision(agent_x, agent_z, timestep)
 
         # Pre-extract target shelf from task for proximity hint to semantic learner
-        _task_shelf_id = self._extract_target_shelf_id(main_task)
+        _task_shelf_id = self._extract_target_shelf_id(_bare_task)
         _shelf = None
         _approach_hint = ""
         if _task_shelf_id:
