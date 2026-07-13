@@ -12,5 +12,5 @@ v3/
 annotations/
 v0.4
 V1
-overhaul/slamtest/output
-overhaul/slamtest/plans
+overhaul/slamtest/output/
+overhaul/slamtest/plans/
