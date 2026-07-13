@@ -68,7 +68,14 @@ class Checkpoint:
     id: int
     cell: tuple          # (cx, cz)
     world_xz: tuple       # (x, z)
-    kind: str             # "end" | "junction" | "doorway"
+    kind: str             # "end" | "junction" | "doorway" | "shelf"
+    neighbors: list = field(default_factory=list)  # adjacent Checkpoint.id values
+    # Phase 2 (shelf_coverage.py) fields - unset (None) for Phase 1's own "end"/"junction"/
+    # "doorway" checkpoints, always set together for a "shelf" checkpoint. Kept on the same
+    # Checkpoint rather than a side-channel lookup since a shelf checkpoint IS this data.
+    shelf_side: str = None          # "left" | "right"
+    reading_distance_m: float = None
+    shelf_cell: tuple = None        # (cx, cz) of the shelf face this checkpoint reads
 
 
 @dataclass
@@ -76,6 +83,10 @@ class TopologyEdge:
     a: int                # Checkpoint.id
     b: int                # Checkpoint.id
     length_m: float
+    path: list = field(default_factory=list)  # (cx, cz) skeleton cells from a to b inclusive;
+    # in-memory only, not part of save_topology()'s JSON schema - Phase 2 (shelf_coverage.py)
+    # needs the raw cells to simplify into segments; a persisted consumer either already has
+    # the grid to recompute from, or doesn't need cell-level detail at all.
 
 
 @dataclass
@@ -321,8 +332,20 @@ def _drop_orphaned_checkpoints(checkpoints, edges):
         remap[c.id] = len(kept_checkpoints)
         kept_checkpoints.append(Checkpoint(id=remap[c.id], cell=c.cell, world_xz=c.world_xz, kind=c.kind))
 
-    remapped_edges = [TopologyEdge(a=remap[e.a], b=remap[e.b], length_m=e.length_m) for e in edges]
+    remapped_edges = [TopologyEdge(a=remap[e.a], b=remap[e.b], length_m=e.length_m, path=e.path) for e in edges]
     return kept_checkpoints, remapped_edges
+
+
+def _populate_neighbors(checkpoints, edges):
+    """Fill in each Checkpoint's `neighbors` from the edge list, so a consumer can hop
+    checkpoint-to-checkpoint ("you are at checkpoint 5, adjacent checkpoints are 3 and
+    7") without re-deriving adjacency from the edges every time. `edges` stays the
+    metric source of truth (length_m); `neighbors` is a derived convenience index kept
+    in sync with it here, not an independent structure."""
+    by_id = {c.id: c for c in checkpoints}
+    for e in edges:
+        by_id[e.a].neighbors.append(e.b)
+        by_id[e.b].neighbors.append(e.a)
 
 
 def extract_topology(grid, connectivity=8, min_branch_length_m=DEFAULT_MIN_BRANCH_LENGTH_M,
@@ -363,17 +386,19 @@ def extract_topology(grid, connectivity=8, min_branch_length_m=DEFAULT_MIN_BRANC
         a_id, b_id = id_of_cluster[a_idx], id_of_cluster[b_idx]
         split_idx = _maybe_split_for_doorway(path, clearance, doorway_width_ratio, doorway_max_width_m)
         if split_idx is None:
-            edges.append(TopologyEdge(a=a_id, b=b_id, length_m=_path_length(path, grid.res)))
+            edges.append(TopologyEdge(a=a_id, b=b_id, length_m=_path_length(path, grid.res), path=path))
             continue
 
         door_cell = path[split_idx]
         door_id = next_id
         next_id += 1
         checkpoints.append(Checkpoint(id=door_id, cell=door_cell, world_xz=grid.to_world(*door_cell), kind="doorway"))
-        edges.append(TopologyEdge(a=a_id, b=door_id, length_m=_path_length(path[:split_idx + 1], grid.res)))
-        edges.append(TopologyEdge(a=door_id, b=b_id, length_m=_path_length(path[split_idx:], grid.res)))
+        first_half, second_half = path[:split_idx + 1], path[split_idx:]
+        edges.append(TopologyEdge(a=a_id, b=door_id, length_m=_path_length(first_half, grid.res), path=first_half))
+        edges.append(TopologyEdge(a=door_id, b=b_id, length_m=_path_length(second_half, grid.res), path=second_half))
 
     checkpoints, edges = _drop_orphaned_checkpoints(checkpoints, edges)
+    _populate_neighbors(checkpoints, edges)
     return TopologyGraph(checkpoints=checkpoints, edges=edges)
 
 
@@ -382,7 +407,10 @@ def save_topology(topology, output_dir, tag):
     path = os.path.join(output_dir, f"topology_{tag}.json")
     payload = {
         "checkpoints": [
-            {"id": c.id, "cell": list(c.cell), "world_xz": list(c.world_xz), "kind": c.kind}
+            {"id": c.id, "cell": list(c.cell), "world_xz": list(c.world_xz), "kind": c.kind,
+             "neighbors": list(c.neighbors), "shelf_side": c.shelf_side,
+             "reading_distance_m": c.reading_distance_m,
+             "shelf_cell": list(c.shelf_cell) if c.shelf_cell is not None else None}
             for c in topology.checkpoints
         ],
         "edges": [{"a": e.a, "b": e.b, "length_m": e.length_m} for e in topology.edges],
