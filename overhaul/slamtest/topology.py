@@ -27,7 +27,7 @@ cluster_frontiers()/astar() in frontier_planner.py) - correctness/clarity is fav
 per-call performance here.
 
 Run standalone against a saved grid_final.npy for inspection:
-    python slamtest/slamtest_frontier/topology.py path/to/grid_final.npy --resolution 0.1
+    python slamtest/topology.py path/to/grid_final.npy --resolution 0.1
 """
 import argparse
 import heapq
@@ -39,10 +39,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/slamtest_frontier
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest
+_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)                     # overhaul
+for _p in (_OVERHAUL_DIR, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

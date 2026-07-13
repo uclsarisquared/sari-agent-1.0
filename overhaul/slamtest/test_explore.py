@@ -1,9 +1,9 @@
 """
-Standalone unit tests for the pure-logic helpers in slamtest_frontier/explore.py.
+Standalone unit tests for the pure-logic helpers in explore.py.
 No live Unity/WebSocket connection needed.
 
 Run with:
-    python slamtest/slamtest_frontier/test_explore.py
+    python slamtest/test_explore.py
 """
 import math
 import os
@@ -11,10 +11,9 @@ import sys
 import tempfile
 import unittest
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/slamtest_frontier
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest
+_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)                     # overhaul
+for _p in (_OVERHAUL_DIR, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

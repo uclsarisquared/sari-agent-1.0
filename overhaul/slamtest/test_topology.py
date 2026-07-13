@@ -1,10 +1,10 @@
 """
-Standalone unit tests for slamtest_frontier/topology.py's skeleton-to-checkpoint-graph
-extraction. No live Unity/WebSocket connection needed - builds synthetic OccupancyGrid
+Standalone unit tests for topology.py's skeleton-to-checkpoint-graph extraction.
+No live Unity/WebSocket connection needed - builds synthetic OccupancyGrid
 instances directly, the same pattern test_frontier_planner.py uses.
 
 Run with:
-    python slamtest/slamtest_frontier/test_topology.py
+    python slamtest/test_topology.py
 """
 import os
 import sys
@@ -12,10 +12,9 @@ import unittest
 
 import numpy as np
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/slamtest_frontier
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest
+_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)                     # overhaul
+for _p in (_OVERHAUL_DIR, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

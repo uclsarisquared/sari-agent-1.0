@@ -1,14 +1,10 @@
 """
 Frontier clustering, A* path planning, and a goal-commitment state machine for
-slamtest_frontier/explore.py.
+explore.py.
 
-Replaces slamtest/explore.py's old pick_frontier(): greedy nearest-raw-cell
-picking with no clustering or commitment, which (combined with the separately
-fixed OccupancyGrid.frontiers() np.roll wraparound bug) caused the agent to
-circle near the origin instead of exploring outward. This module never reads
-the Rigidbody isColliding/collided signal (known unreliable) - all obstacle
-awareness here comes from the LiDAR-built OccupancyGrid passed in by the
-caller.
+This module never reads the Rigidbody isColliding/collided signal (known
+unreliable) - all obstacle awareness here comes from the LiDAR-built
+OccupancyGrid passed in by the caller.
 """
 import os
 import sys
@@ -21,16 +17,9 @@ from enum import Enum, auto
 
 import numpy as np
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/slamtest_frontier
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
-    # Idempotent: slamtest/ and slamtest_frontier/ both happen to contain a file named
-    # explore.py. If this insert re-ran unconditionally every time this module loads, a
-    # redundant re-insert (e.g. triggered by explore.py importing this module) would shove
-    # slamtest/ back ahead of slamtest_frontier/ in sys.path - meaning a bare `import explore`
-    # anywhere would silently resolve to the OLD explore.py instead of the new one. Skipping
-    # already-present entries preserves whichever script bootstrapped first.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest
+_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)                     # overhaul
+for _p in (_OVERHAUL_DIR, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

@@ -1,20 +1,19 @@
 """
 Standalone unit tests for the height-band LiDAR obstacle filtering in
-slamtest/mapping.py. No live Unity/WebSocket connection needed - builds
-synthetic scan dicts by hand.
+mapping.py. No live Unity/WebSocket connection needed - builds synthetic
+scan dicts by hand.
 
 Run with:
-    python slamtest/slamtest_frontier/test_mapping_height.py
+    python slamtest/test_mapping_height.py
 """
 import math
 import os
 import sys
 import unittest
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/slamtest_frontier
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest
+_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)                     # overhaul
+for _p in (_OVERHAUL_DIR, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

@@ -1,11 +1,10 @@
 """
-Standalone unit tests for slamtest_frontier/frontier_planner.py and the
-frontiers() wraparound fix in slamtest/occupancy_grid.py. No live Unity/
-WebSocket connection needed - builds synthetic OccupancyGrid instances
-directly.
+Standalone unit tests for frontier_planner.py and the frontiers() wraparound
+fix in occupancy_grid.py. No live Unity/WebSocket connection needed - builds
+synthetic OccupancyGrid instances directly.
 
 Run with:
-    python slamtest/slamtest_frontier/test_frontier_planner.py
+    python slamtest/test_frontier_planner.py
 """
 import os
 import sys
@@ -13,13 +12,9 @@ import unittest
 
 import numpy as np
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/slamtest_frontier
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-# Idempotent, and _THIS_DIR inserted last (so it ends up first/highest-priority) - see the
-# matching comment in frontier_planner.py/explore.py for why (slamtest/ and
-# slamtest_frontier/ both contain a file named explore.py).
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest
+_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)                     # overhaul
+for _p in (_OVERHAUL_DIR, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
