@@ -14,6 +14,7 @@ import os
 import sys
 import heapq
 import math
+import time
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -281,8 +282,14 @@ class FrontierPlanner:
                  replan_stuck_steps=1, replan_no_progress_steps=8,
                  min_progress_m=0.15, goal_blocklist_steps=40,
                  window_slack=1.5, min_window_cells=100, astar_max_window_cells=300,
-                 max_replans_without_moving=10, body_radius=0.3):
+                 max_replans_without_moving=10, body_radius=0.3, debug=False):
         self.grid = grid
+        # Prints timing/progress through _pick_and_plan()/_plan_to_cluster() - the A*
+        # window-growth retry loop over many candidate clusters is pure-Python and can run
+        # for a long time with zero console output in between, which is indistinguishable
+        # from a true hang unless you can see it's still working. Off by default (noisy);
+        # explore.py's --debug-planner flag turns this on.
+        self.debug = debug
         self.min_cluster_size = min_cluster_size
         self.connectivity = connectivity
         self.goal_arrival_radius = goal_arrival_radius
@@ -314,6 +321,10 @@ class FrontierPlanner:
         self._no_progress_pick_cell = None   # last cell _pick_and_plan was called from
         self._no_progress_pick_count = 0     # consecutive _pick_and_plan calls from that cell
 
+    def _dbg(self, msg):
+        if self.debug:
+            print(f"[planner] {msg}", flush=True)
+
     def _decay_blocklist(self):
         expired = [cell for cell, remaining in self._blocklist.items() if remaining <= 1]
         for cell in expired:
@@ -329,12 +340,16 @@ class FrontierPlanner:
         straight_dist = math.hypot(cluster.centroid_cell[0] - cur_cell[0],
                                     cluster.centroid_cell[1] - cur_cell[1])
         window = max(self.min_window_cells, straight_dist * self.window_slack)
+        self._dbg(f"  _plan_to_cluster: size={cluster.size} centroid={cluster.centroid_cell} "
+                  f"straight_dist={straight_dist:.1f}cells initial_window={window:.0f}")
 
         # Inflated by body_radius so A*/simplify_path never confirm a path through a gap
         # narrower than the agent can actually fit through (see _inflate_occupied) -
         # computed once per call, reused across every candidate goal cell and window-growth
         # retry below rather than recomputed per astar() call.
+        t0 = time.perf_counter()
         occupied_mask = _inflate_occupied(self.grid, self.body_radius)
+        self._dbg(f"  _inflate_occupied took {time.perf_counter() - t0:.3f}s")
 
         # Try the centroid first, then a couple of member cells nearest the
         # centroid, in case the centroid itself is awkward for A* to reach.
@@ -349,18 +364,34 @@ class FrontierPlanner:
 
         for goal_cell in candidates:
             w = window
+            t0 = time.perf_counter()
             path = astar(self.grid, cur_cell, goal_cell, connectivity=self.connectivity,
                          window_radius=w, occupied_mask=occupied_mask)
+            self._dbg(f"  astar candidate={goal_cell} window={w:.0f} -> "
+                      f"{'found len=' + str(len(path)) if path is not None else 'None'} "
+                      f"({time.perf_counter() - t0:.3f}s)")
             while path is None and w < self.astar_max_window_cells:
                 w = min(w * 2, self.astar_max_window_cells)
+                t0 = time.perf_counter()
                 path = astar(self.grid, cur_cell, goal_cell, connectivity=self.connectivity,
                              window_radius=w, occupied_mask=occupied_mask)
+                self._dbg(f"  astar candidate={goal_cell} window={w:.0f} (grown) -> "
+                          f"{'found len=' + str(len(path)) if path is not None else 'None'} "
+                          f"({time.perf_counter() - t0:.3f}s)")
             if path is not None:
+                t0 = time.perf_counter()
                 simplified = simplify_path(path, self.grid, occupied_mask=occupied_mask)
+                self._dbg(f"  simplify_path {len(path)} -> {len(simplified)} waypoints "
+                          f"({time.perf_counter() - t0:.3f}s)")
                 return [self.grid.to_world(*c) for c in simplified], goal_cell
+        self._dbg(f"  _plan_to_cluster: no candidate reachable, giving up on this cluster")
         return None, None
 
     def _pick_and_plan(self, cur_cell):
+        pick_t0 = time.perf_counter()
+        self._dbg(f"_pick_and_plan start cur_cell={cur_cell} "
+                  f"no_progress_count={self._no_progress_pick_count}")
+
         # Circuit breaker: the blocklist-fallback pass below (needed so a merely-cooling-down
         # cluster doesn't get mistaken for "nothing left to explore") can otherwise loop
         # forever. body_radius inflation (see _plan_to_cluster/_inflate_occupied) fixes the
@@ -375,17 +406,24 @@ class FrontierPlanner:
             self._no_progress_pick_cell = cur_cell
             self._no_progress_pick_count = 0
         if self._no_progress_pick_count >= self.max_replans_without_moving:
+            self._dbg("_pick_and_plan: circuit breaker tripped -> done")
             self.state = PlannerState.DONE
             return NavCommand(kind="done")
 
+        t0 = time.perf_counter()
         frontier_cells = self.grid.frontiers()
+        self._dbg(f"grid.frontiers(): {len(frontier_cells)} cells ({time.perf_counter() - t0:.3f}s)")
         if len(frontier_cells) == 0:
+            self._dbg("_pick_and_plan: no frontier cells -> done")
             self.state = PlannerState.DONE
             return NavCommand(kind="done")
 
+        t0 = time.perf_counter()
         clusters = cluster_frontiers(frontier_cells, connectivity=self.connectivity,
                                       min_cluster_size=self.min_cluster_size)
+        self._dbg(f"cluster_frontiers(): {len(clusters)} clusters ({time.perf_counter() - t0:.3f}s)")
         if not clusters:
+            self._dbg("_pick_and_plan: no clusters survived min_cluster_size -> done")
             self.state = PlannerState.DONE
             return NavCommand(kind="done")
 
@@ -400,10 +438,16 @@ class FrontierPlanner:
         # large unexplored areas still visible in the saved map, long before the blocklist
         # entries would have naturally expired.
         for consider_blocklisted in (False, True):
-            for cluster in clusters:
+            self._dbg(f"pass consider_blocklisted={consider_blocklisted}: {len(clusters)} clusters to try")
+            for i, cluster in enumerate(clusters):
                 if not consider_blocklisted and cluster.centroid_cell in self._blocklist:
                     continue
+                self._dbg(f" cluster {i + 1}/{len(clusters)} size={cluster.size} "
+                          f"centroid={cluster.centroid_cell} blocklisted={cluster.centroid_cell in self._blocklist}")
+                cluster_t0 = time.perf_counter()
                 path_world, reached_cell = self._plan_to_cluster(cur_cell, cluster)
+                self._dbg(f" cluster {i + 1}/{len(clusters)} done in {time.perf_counter() - cluster_t0:.3f}s "
+                          f"-> {'reachable' if path_world is not None else 'unreachable'}")
                 if path_world is not None:
                     self.goal_cluster = cluster
                     self.path_world = path_world
@@ -414,6 +458,8 @@ class FrontierPlanner:
                     self._steps_since_progress = 0
                     self._stuck_counter = 0
                     goal_world = self.grid.to_world(*cluster.centroid_cell)
+                    self._dbg(f"_pick_and_plan committed to cluster {i + 1} in "
+                              f"{time.perf_counter() - pick_t0:.3f}s total")
                     return NavCommand(kind="goto_waypoint", target_world_xz=self.path_world[self.waypoint_idx],
                                        goal_world_xz=goal_world, replanned=True)
                 if not consider_blocklisted:
@@ -422,6 +468,8 @@ class FrontierPlanner:
                     # timer on a cluster we're now retrying anyway.
                     self._blocklist[cluster.centroid_cell] = self.goal_blocklist_steps
 
+        self._dbg(f"_pick_and_plan: every cluster unreachable in both passes -> done "
+                  f"({time.perf_counter() - pick_t0:.3f}s total)")
         self.state = PlannerState.DONE
         return NavCommand(kind="done")
 

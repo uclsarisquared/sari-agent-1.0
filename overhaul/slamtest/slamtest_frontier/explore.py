@@ -72,6 +72,13 @@ from mapping import (  # noqa: E402
     SELF_EXCLUSION_RANGE_M,
 )
 from frontier_planner import FrontierPlanner  # noqa: E402
+from topology import (  # noqa: E402
+    extract_topology,
+    save_topology,
+    DEFAULT_MIN_BRANCH_LENGTH_M,
+    DEFAULT_DOORWAY_MAX_WIDTH_M,
+    DEFAULT_DOORWAY_WIDTH_RATIO,
+)
 
 
 def step_agent(delta_translation, delta_rotation, uri):
@@ -226,6 +233,7 @@ def run(args):
         astar_max_window_cells=args.astar_max_window_cells,
         max_replans_without_moving=args.max_replans_without_moving,
         body_radius=args.body_radius,
+        debug=args.debug_planner,
     )
 
     pos, rot, _ = step_agent((0, 0, 0), (0, 0, 0), args.uri)
@@ -245,6 +253,20 @@ def run(args):
     save_snapshot(grid, args.output_dir, "final", interactive_backend=args.show_map, show_now=args.show_map)
     cloud.save(args.output_dir, "final")
     print(f"[explore] saved final grid + point cloud to {args.output_dir}")
+
+    if args.extract_topology:
+        topology = extract_topology(
+            grid, connectivity=args.connectivity,
+            min_branch_length_m=args.topology_min_branch_length_m,
+            doorway_max_width_m=args.topology_doorway_max_width_m,
+            doorway_width_ratio=args.topology_doorway_width_ratio,
+        )
+        topology_path = save_topology(topology, args.output_dir, "final")
+        kind_counts = {}
+        for c in topology.checkpoints:
+            kind_counts[c.kind] = kind_counts.get(c.kind, 0) + 1
+        print(f"[explore] saved topology ({len(topology.checkpoints)} checkpoints {kind_counts}, "
+              f"{len(topology.edges)} edges) to {topology_path}")
 
 
 def _explore_loop(args, grid, cloud, pos, rot, planner):
@@ -461,6 +483,15 @@ def build_parser():
 
     planner_group = parser.add_argument_group("frontier planner")
     planner_group.add_argument(
+        "--debug-planner", action=argparse.BooleanOptionalAction, default=False,
+        help="Print timing/progress through FrontierPlanner._pick_and_plan()/_plan_to_cluster() "
+             "on every replan: frontier/cluster counts, which cluster is being tried, and how "
+             "long each astar() window-growth attempt takes. The pure-Python A* retry loop over "
+             "many candidate clusters can run for a while with no other console output in "
+             "between, which looks identical to a hang unless you can see it's still working - "
+             "use this to tell the two apart and see exactly where time is going.",
+    )
+    planner_group.add_argument(
         "--min-cluster-size", type=int, default=4,
         help="Drop raw-frontier clusters smaller than this many cells before they're eligible as goals",
     )
@@ -517,6 +548,31 @@ def build_parser():
              "cluster that A* can reach on paper (through open/unknown space) but that keeps "
              "getting blocked in real time - e.g. by a self-hit not reflected as a static "
              "occupied cell in the grid - can get re-picked and re-blocked identically forever.",
+    )
+
+    topology_group = parser.add_argument_group("topology extraction")
+    topology_group.add_argument(
+        "--extract-topology", action=argparse.BooleanOptionalAction, default=True,
+        help="After the run finishes, thin the resolved grid's free space to a skeleton and "
+             "reduce it to a small checkpoint/adjacency graph (aisle ends, junctions, doorway "
+             "pinch points) saved as topology_final.json - see topology.py. Purely derived "
+             "from what was actually observed (free vs occupied), not the true Unity layout.",
+    )
+    topology_group.add_argument(
+        "--topology-min-branch-length-m", type=float, default=DEFAULT_MIN_BRANCH_LENGTH_M,
+        help="Drop dead-end skeleton spurs shorter than this - typically a thinning artifact "
+             "from a jagged shelf corner rather than a real, walkable aisle stub.",
+    )
+    topology_group.add_argument(
+        "--topology-doorway-max-width-m", type=float, default=DEFAULT_DOORWAY_MAX_WIDTH_M,
+        help="A corridor's narrowest point must be below this width to ever qualify as a "
+             "doorway checkpoint.",
+    )
+    topology_group.add_argument(
+        "--topology-doorway-width-ratio", type=float, default=DEFAULT_DOORWAY_WIDTH_RATIO,
+        help="A corridor's narrowest point must also be below this fraction of its own median "
+             "width to qualify as a doorway - so a uniformly-narrow corridor doesn't get a "
+             "spurious doorway checkpoint just for being narrow throughout.",
     )
     return parser
 
