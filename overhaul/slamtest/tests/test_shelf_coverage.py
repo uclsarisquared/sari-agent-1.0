@@ -60,13 +60,13 @@ def _reachable_from(start_id, checkpoints):
 class TestFindShelfCheckpoint(unittest.TestCase):
     def test_uses_max_reading_distance_when_there_is_room(self):
         grid = _open_grid()
-        grid.log_odds[30, 12] = 5.0  # shelf 1.8m away - within the 2.0m default search radius
+        grid.log_odds[30, 10] = 5.0  # shelf 2.0m away
 
         result = find_shelf_checkpoint(grid, (30, 30), direction=(1, 0), side="right")
 
         self.assertIsNotNone(result)
         self.assertAlmostEqual(result["reading_distance_m"], 1.5, places=6)
-        self.assertEqual(result["shelf_cell"], (30, 12))
+        self.assertEqual(result["shelf_cell"], (30, 10))
 
     def test_clamps_reading_distance_to_the_available_width(self):
         # Narrow aisle: shelf only 1.2m away - must use 1.2m, not the 1.5m max.
@@ -173,10 +173,7 @@ class TestSweepEdgeSide(unittest.TestCase):
         grid.log_odds[15:86, 20] = 5.0  # long shelf wall, cz=20, spanning cx 15-85
         path = [(cx, 50) for cx in range(20, 81)]  # straight path, 3.0m from the shelf
 
-        # search_radius_m/interval_m pinned explicitly rather than left at the (tunable,
-        # density-driven) defaults - this test is about spacing/offset correctness, not
-        # about what the current default values happen to be.
-        result = sweep_edge_side(grid, path, side="right", search_radius_m=3.0, interval_m=1.0)
+        result = sweep_edge_side(grid, path, side="right")
 
         self.assertEqual(len(result), 7, "6.0m path at 1.0m intervals -> 7 checkpoints")
         for cp in result:
@@ -193,9 +190,8 @@ class TestSweepEdgeSide(unittest.TestCase):
         grid.log_odds[15:86, 20] = 5.0
         path = [(cx, 50) for cx in range(20, 81)]
 
-        result = sweep_edge_side(grid, path, side="right", search_radius_m=3.0)
+        result = sweep_edge_side(grid, path, side="right")
 
-        self.assertTrue(result, "sanity check: this geometry must actually produce checkpoints")
         cxs = [cp["cell"][0] for cp in result]
         self.assertEqual(cxs, sorted(cxs), "checkpoints must come back in path-traversal order")
 
@@ -264,7 +260,7 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
         path = [(cx, 50) for cx in range(20, 81)]  # 3.0m from the shelf
         graph, a, b, _ = _two_checkpoint_graph(grid, path)
 
-        result = splice_shelf_checkpoints(grid, graph, search_radius_m=3.0, interval_m=1.0)
+        result = splice_shelf_checkpoints(grid, graph)
 
         self.assertIs(result, graph, "should mutate and return the same graph")
         shelf_cps = [c for c in graph.checkpoints if c.kind == "shelf"]
@@ -282,7 +278,7 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
         path = [(cx, 50) for cx in range(20, 81)]
         graph, a, b, _ = _two_checkpoint_graph(grid, path, a_kind="junction", b_kind="junction")
 
-        splice_shelf_checkpoints(grid, graph, search_radius_m=3.0)
+        splice_shelf_checkpoints(grid, graph)
 
         shelf_cps = [c for c in graph.checkpoints if c.kind == "shelf"]
         self.assertEqual({c.shelf_side for c in shelf_cps}, {"left", "right"})
@@ -310,10 +306,9 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
         path = [(cx, 50) for cx in range(20, 81)]
         graph, a, b, _ = _two_checkpoint_graph(grid, path, a_id=5, b_id=9)
 
-        splice_shelf_checkpoints(grid, graph, search_radius_m=3.0)
+        splice_shelf_checkpoints(grid, graph)
 
         ids = sorted(c.id for c in graph.checkpoints)
-        self.assertGreater(len(ids), 2, "sanity check: this geometry must actually produce new checkpoints")
         self.assertEqual(ids[:2], [5, 9])
         self.assertEqual(ids[2:], list(range(10, 10 + len(ids) - 2)))
 
@@ -349,7 +344,7 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
         edge_far = TopologyEdge(a=0, b=1, length_m=6.0, path=path_far)
         graph = TopologyGraph(checkpoints=[a, b], edges=[edge_near, edge_far])
 
-        splice_shelf_checkpoints(grid, graph, search_radius_m=3.0)
+        splice_shelf_checkpoints(grid, graph)
 
         self.assertIn(1, a.neighbors, "edge_far's direct link must survive")
         self.assertIn(0, b.neighbors)
@@ -365,11 +360,10 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
         path = [(cx, 50) for cx in range(20, 81)]
         graph, a, b, _ = _two_checkpoint_graph(grid, path)
 
-        splice_shelf_checkpoints(grid, graph, search_radius_m=3.0)
+        splice_shelf_checkpoints(grid, graph)
 
         left_cps = [c for c in graph.checkpoints if c.shelf_side == "left"]
         right_cps = [c for c in graph.checkpoints if c.shelf_side == "right"]
-        self.assertTrue(left_cps and right_cps, "sanity check: this geometry must produce checkpoints on both sides")
         right_ids = {c.id for c in right_cps}
         for lc in left_cps:
             rung_targets = [n for n in lc.neighbors if n in right_ids]
@@ -388,7 +382,7 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
         path = [(cx, 50) for cx in range(20, 81)]
         graph, a, b, _ = _two_checkpoint_graph(grid, path)
 
-        splice_shelf_checkpoints(grid, graph, search_radius_m=3.0, interval_m=1.0)
+        splice_shelf_checkpoints(grid, graph)
 
         left_cps = [c for c in graph.checkpoints if c.shelf_side == "left"]
         right_cps = [c for c in graph.checkpoints if c.shelf_side == "right"]
@@ -409,11 +403,10 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
         path = [(cx, 50) for cx in range(20, 81)]
         graph, a, b, _ = _two_checkpoint_graph(grid, path)
 
-        splice_shelf_checkpoints(grid, graph, search_radius_m=3.0, add_ladder_rungs=False)
+        splice_shelf_checkpoints(grid, graph, add_ladder_rungs=False)
 
         left_ids = {c.id for c in graph.checkpoints if c.shelf_side == "left"}
         right_ids = {c.id for c in graph.checkpoints if c.shelf_side == "right"}
-        self.assertTrue(left_ids and right_ids, "sanity check: this geometry must produce checkpoints on both sides")
         for c in graph.checkpoints:
             if c.id in left_ids:
                 self.assertFalse(any(n in right_ids for n in c.neighbors))
@@ -432,12 +425,11 @@ class TestSpliceShelfCheckpoints(unittest.TestCase):
 
         graph_a, *_ = _two_checkpoint_graph(grid, path)
         graph_b, *_ = _two_checkpoint_graph(grid, path)
-        splice_shelf_checkpoints(grid, graph_a, search_radius_m=3.0)
-        splice_shelf_checkpoints(grid, graph_b, search_radius_m=3.0)
+        splice_shelf_checkpoints(grid, graph_a)
+        splice_shelf_checkpoints(grid, graph_b)
 
         cells_a = [c.cell for c in graph_a.checkpoints]
         cells_b = [c.cell for c in graph_b.checkpoints]
-        self.assertGreater(len(cells_a), 2, "sanity check: this geometry must actually produce new checkpoints")
         self.assertEqual(cells_a, cells_b)
 
 

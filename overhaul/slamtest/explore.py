@@ -52,10 +52,10 @@ for _p in (_OVERHAUL_DIR, _THIS_DIR):
 from env import TransformAgent, SetHandsActive  # noqa: E402
 
 from occupancy_grid import OccupancyGrid  # noqa: E402
+from voxel_grid import VoxelGrid  # noqa: E402
 from pointcloud_map import PointCloudMap  # noqa: E402
 from lidar_client import RequestLidarScan  # noqa: E402
 from mapping import (  # noqa: E402
-    scan_to_world_points,
     scan_to_world_points_3d,
     normalize_deg,
     angle_to_deg,
@@ -208,7 +208,17 @@ def run(args):
     if args.clear_output:
         _clear_output_dir(args.output_dir)
 
-    grid = OccupancyGrid(size_m=args.size, resolution=args.resolution)
+    # Phase 1.1: scans update a 3D VoxelGrid, collapsed each step to voxel.grid - the same
+    # OccupancyGrid every consumer below reads. The band ([min,max]_obstacle_height, above-
+    # root frame) must match scan_to_world_points' own filter so the voxel column spans
+    # exactly the heights the 2D map cares about. See plans/phase1.1_voxelized_mapping.md.
+    voxel = VoxelGrid(
+        size_m=args.size, resolution=args.resolution,
+        min_obstacle_height=args.min_obstacle_height,
+        max_obstacle_height=args.max_obstacle_height,
+        sensor_height_offset=args.sensor_height_offset,
+    )
+    grid = voxel.grid
     cloud = PointCloudMap()
     planner = FrontierPlanner(
         grid,
@@ -237,7 +247,7 @@ def run(args):
         SetHandsActive(False, uri=args.uri)
 
     try:
-        _explore_loop(args, grid, cloud, pos, rot, planner)
+        _explore_loop(args, voxel, grid, cloud, pos, rot, planner)
     finally:
         if args.stow_hands:
             SetHandsActive(True, uri=args.uri)
@@ -261,22 +271,20 @@ def run(args):
               f"{len(topology.edges)} edges) to {topology_path}")
 
 
-def _explore_loop(args, grid, cloud, pos, rot, planner):
+def _explore_loop(args, voxel, grid, cloud, pos, rot, planner):
     for step in range(args.max_steps):
         scan = RequestLidarScan(args.uri)
-        hits = scan_to_world_points(
-            scan, pos, rot[1],
-            min_obstacle_height=args.min_obstacle_height,
-            max_obstacle_height=args.max_obstacle_height,
-            sensor_height_offset=args.sensor_height_offset,
-            self_exclusion_range=args.self_exclusion_range,
-        )
-        grid.integrate((pos[0], pos[2]), hits)
+        # 3D-integrate into the voxel grid, then collapse to the 2D `grid` (same object) the
+        # planner/topology read. collapse() runs before planner.update() below so the planner
+        # always sees a grid consistent with the latest scan (and with any blocked-mark from
+        # the previous step, which lands in the voxel grid and surfaces on this collapse).
+        n_hits = voxel.integrate(scan, pos, rot[1], self_exclusion_range=args.self_exclusion_range)
+        voxel.collapse()
         cloud.add(scan_to_world_points_3d(scan, pos, rot[1], sensor_height_offset=args.sensor_height_offset))
 
         nav = planner.update((pos[0], pos[2]), grid.cell(pos[0], pos[2]))
         if nav.kind == "done":
-            print(f"[explore] map complete after {step} scans, {len(hits)} hits in final scan")
+            print(f"[explore] map complete after {step} scans, {n_hits} hits in final scan")
             break
 
         target_x, target_z = nav.target_world_xz
@@ -326,12 +334,17 @@ def _explore_loop(args, grid, cloud, pos, rot, planner):
 
         if step_len < args.min_step:
             blocked_x, blocked_z = blocked_position(pos, rot[1], clearance, clearance_debug)
+            # Height of the offending hit, so the mark lands in the right voxel bin (see
+            # VoxelGrid.mark_blocked_region). Fall back to sensor height when there's no
+            # offending hit (blocked by dist/step-size, not an obstacle) - a mid-band bin.
+            blocked_h = clearance_debug["height_above_root"] if clearance_debug else args.sensor_height_offset
             # A region, not a single point: one real obstacle spans many cells, and marking
             # only the exact hit point took many repeated near-identical blocks to build up
             # enough occupied area for inflation-aware A* to actually avoid the danger zone
             # (or exclude a candidate goal too close to it). body_radius as the mark radius
-            # keeps this consistent with the same clearance the agent itself needs.
-            grid.mark_occupied_region((blocked_x, blocked_z), radius_m=args.body_radius)
+            # keeps this consistent with the same clearance the agent itself needs. Marked in
+            # the voxel grid (not the 2D grid, which the next collapse() would overwrite).
+            voxel.mark_blocked_region((blocked_x, blocked_z), blocked_h, radius_m=args.body_radius)
             planner.notify_blocked((blocked_x, blocked_z))
             print(f"[explore] path blocked (clearance={clearance:.2f}m) toward waypoint "
                   f"{nav.target_world_xz}; holding position and rescanning"

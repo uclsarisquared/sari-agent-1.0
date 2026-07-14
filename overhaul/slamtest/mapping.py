@@ -47,23 +47,23 @@ def _hit_height_above_root(v_deg, r, sensor_height_offset=SENSOR_HEIGHT_OFFSET_M
     return r * math.sin(math.radians(v_deg)) + sensor_height_offset
 
 
-def scan_to_world_points(scan, world_pos, yaw_deg, min_obstacle_height=0.05,
-                          max_obstacle_height=2.0, sensor_height_offset=SENSOR_HEIGHT_OFFSET_M,
-                          self_exclusion_range=SELF_EXCLUSION_RANGE_M):
-    """Project LiDAR hits whose height falls within [min_obstacle_height,
-    max_obstacle_height] of the agent's own body (see _hit_height_above_root)
-    into world XZ, for the 2D occupancy grid. Height-band filtering (rather
-    than a fixed vertical angle) means overhanging ceiling signage - out of
-    the agent's real reach - doesn't get baked into the map as an obstacle,
-    while a small min_obstacle_height keeps ordinary floor hits from
-    downward-angled channels from doing the same at the low end.
+def iter_banded_hits(scan, world_pos, yaw_deg, min_obstacle_height=0.05,
+                     max_obstacle_height=2.0, sensor_height_offset=SENSOR_HEIGHT_OFFSET_M,
+                     self_exclusion_range=SELF_EXCLUSION_RANGE_M):
+    """Shared projection core for the height-banded 2D mapping path: yields
+    (wx, wz, height_above_root) for every LiDAR hit that clears the range/
+    self-exclusion filters AND falls within [min_obstacle_height,
+    max_obstacle_height] of the agent's own body (see _hit_height_above_root).
 
-    Rotation sign follows Unity's left-handed Y-up Euler(0, yaw, 0):
-    verify against a real scan next to a known wall before trusting it.
+    Both scan_to_world_points() - which discards the height - and voxel_grid's
+    3D integrate - which bins by it - consume this, so the fragile rotation-sign
+    convention and the height-band filter live in exactly ONE place and can't
+    drift between the 2D grid and the voxel grid. Rotation sign follows Unity's
+    left-handed Y-up Euler(0, yaw, 0): verify against a real scan next to a known
+    wall before trusting it.
     """
     yaw = math.radians(yaw_deg)
     cos_y, sin_y = math.cos(yaw), math.sin(yaw)
-    points = []
     channels = scan["channels"]
     azimuth_samples = scan["azimuth_samples"]
     ranges = scan["ranges"]
@@ -92,8 +92,31 @@ def scan_to_world_points(scan, world_pos, yaw_deg, min_obstacle_height=0.05,
             lx, lz = math.sin(az) * r, math.cos(az) * r
             wx = lx * cos_y + lz * sin_y + world_pos[0]
             wz = -lx * sin_y + lz * cos_y + world_pos[2]
-            points.append((wx, wz))
-    return points
+            yield wx, wz, height
+
+
+def scan_to_world_points(scan, world_pos, yaw_deg, min_obstacle_height=0.05,
+                          max_obstacle_height=2.0, sensor_height_offset=SENSOR_HEIGHT_OFFSET_M,
+                          self_exclusion_range=SELF_EXCLUSION_RANGE_M):
+    """Project LiDAR hits whose height falls within [min_obstacle_height,
+    max_obstacle_height] of the agent's own body (see _hit_height_above_root)
+    into world XZ, for the 2D occupancy grid. Height-band filtering (rather
+    than a fixed vertical angle) means overhanging ceiling signage - out of
+    the agent's real reach - doesn't get baked into the map as an obstacle,
+    while a small min_obstacle_height keeps ordinary floor hits from
+    downward-angled channels from doing the same at the low end.
+
+    Thin wrapper over iter_banded_hits() (which owns the projection/filter
+    logic, shared with voxel_grid); this one just drops the height component.
+    """
+    return [
+        (wx, wz)
+        for wx, wz, _height in iter_banded_hits(
+            scan, world_pos, yaw_deg,
+            min_obstacle_height=min_obstacle_height, max_obstacle_height=max_obstacle_height,
+            sensor_height_offset=sensor_height_offset, self_exclusion_range=self_exclusion_range,
+        )
+    ]
 
 
 def scan_to_world_points_3d(scan, world_pos, yaw_deg, vertical_band_deg=90.0,
