@@ -396,14 +396,22 @@ class FrontierPlanner:
 
         A candidate must be known-free AND outside the inflation (body-safe to stand at) AND
         have line-of-sight to the cluster centroid over the raw (un-inflated) occupied mask -
-        i.e. a real scan from there would actually reach the frontier. Returned nearest-to-
-        agent first (cheapest to reach), capped at max_candidates. Searched only within
-        max_view_m of the frontier, so this stays a cheap, bounded pass run only when a
-        cluster is otherwise unreachable (not the common case)."""
+        i.e. a real scan from there would actually reach the frontier. It must ALSO be real
+        movement - farther than waypoint_arrival_radius from where the agent already stands:
+        a vantage the agent already occupies gives no new view, and returning it makes
+        _try_reach produce a degenerate "go to your own cell" path (dist ~ 0) the executor
+        can't move along, so the agent holds every step until the no-movement circuit breaker
+        ends the run (confirmed live: a stall at a shelf-corner pocket endlessly re-picking
+        top-wall frontier slivers already fully in view). Excluding the self-vantage lets such
+        a cluster be deemed unreachable so the planner moves on / ends cleanly instead.
+        Returned nearest-to-agent first (cheapest to reach), capped at max_candidates.
+        Searched only within max_view_m of the frontier, so this stays a cheap, bounded pass
+        run only when a cluster is otherwise unreachable (not the common case)."""
         free = self.grid.log_odds < self.grid.FREE_THRESHOLD
         raw_occupied = self.grid.log_odds > self.grid.OCCUPIED_THRESHOLD
         fx, fz = cluster.centroid_cell
         r = int(round(max_view_m / self.grid.res))
+        min_move_cells_sq = (self.waypoint_arrival_radius / self.grid.res) ** 2
         cands = []
         for dx in range(-r, r + 1):
             for dz in range(-r, r + 1):
@@ -415,8 +423,10 @@ class FrontierPlanner:
                     continue
                 if occupied_mask[vx, vz] or not free[vx, vz]:
                     continue  # must be known-free and body-safe to stand at
+                cost = (vx - cur_cell[0]) ** 2 + (vz - cur_cell[1]) ** 2
+                if cost <= min_move_cells_sq:
+                    continue  # a vantage the agent already occupies is not progress (see above)
                 if _line_of_sight(self.grid, (vx, vz), (fx, fz), occupied_mask=raw_occupied):
-                    cost = (vx - cur_cell[0]) ** 2 + (vz - cur_cell[1]) ** 2
                     cands.append((cost, (vx, vz)))
         cands.sort(key=lambda t: t[0])
         return [cell for _cost, cell in cands[:max_candidates]]

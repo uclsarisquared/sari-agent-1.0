@@ -150,6 +150,46 @@ def find_clear_heading(scan, desired_heading_deg, min_needed_step, safety_margin
     return None
 
 
+def find_escape_heading(scan, safety_margin, min_step, *, body_radius, min_obstacle_height,
+                        max_obstacle_height, sensor_height_offset, self_exclusion_range,
+                        sweep_step_deg=10.0):
+    """Full-circle search for the single most-open heading, used to break out of a wedge:
+    a spot where the straight-at-waypoint heading AND every small find_clear_heading nudge
+    are all blocked because the obstruction spans the whole forward arc and the only open
+    space is off to the side or behind (a shelf-corner pocket, an aisle dead-end).
+
+    Where find_clear_heading returns the SMALLEST deviation that merely clears one step
+    (staying as close to the intended waypoint as possible), this returns the heading of
+    MAXIMUM clearance regardless of direction - a decisive step toward the most open space
+    to physically leave the pocket, after which the planner (already forced back to
+    NEED_GOAL by notify_blocked) re-picks a goal from the new, un-wedged cell. The raw scan
+    is a full 360deg sweep (confirmed live: 1024 samples over 360deg), so every heading has
+    a real range measurement in the enclosed store - no unsensed direction can masquerade as
+    "most open".
+
+    Headings are scan-local (relative to the pose the scan was taken at), the same
+    convention as delta_yaw. Returns (heading_deg, clearance, clearance_debug) for the
+    most-open heading, or None if even that heading can't fit a min_step move (the agent is
+    genuinely boxed in on every side - caller falls back to holding position, which then
+    trips the planner's no-movement circuit breaker and ends the run).
+    """
+    best = None
+    n = max(1, int(round(360.0 / sweep_step_deg)))
+    for i in range(n):
+        heading = normalize_deg(i * sweep_step_deg)
+        clearance, debug = swept_clearance_ahead(
+            scan, heading, body_radius=body_radius,
+            min_obstacle_height=min_obstacle_height, max_obstacle_height=max_obstacle_height,
+            sensor_height_offset=sensor_height_offset, self_exclusion_range=self_exclusion_range,
+            debug=True,
+        )
+        if best is None or clearance > best[1]:
+            best = (heading, clearance, debug)
+    if best is None or max(0.0, best[1] - safety_margin) < min_step:
+        return None
+    return best
+
+
 def save_snapshot(grid, output_dir, tag, interactive_backend=False, show_now=False):
     """Save a grid snapshot (.npy + .png). By default forces the Agg backend
     (no display needed, safe on any machine including headless ones). Pass
@@ -275,6 +315,7 @@ def run(args):
 
 
 def _explore_loop(args, voxel, grid, cloud, pos, rot, planner):
+    total_escapes = 0
     for step in range(args.max_steps):
         scan = RequestLidarScan(args.uri)
         # 3D-integrate into the voxel grid, then collapse to the 2D `grid` (same object) the
@@ -348,10 +389,62 @@ def _explore_loop(args, voxel, grid, cloud, pos, rot, planner):
             # keeps this consistent with the same clearance the agent itself needs. Marked in
             # the voxel grid (not the 2D grid, which the next collapse() would overwrite).
             voxel.mark_blocked_region((blocked_x, blocked_z), blocked_h, radius_m=args.body_radius)
+            # notify_blocked forces the planner back to NEED_GOAL (replan next step) and
+            # blocklists the current goal, so whether we escape or hold below, the doomed
+            # waypoint is abandoned rather than re-committed to.
             planner.notify_blocked((blocked_x, blocked_z))
-            print(f"[explore] path blocked (clearance={clearance:.2f}m) toward waypoint "
-                  f"{nav.target_world_xz}; holding position and rescanning"
-                  f"{_format_clearance_debug(clearance_debug)}")
+
+            # Wedge escape. The straight-at-waypoint heading is blocked AND every small
+            # find_clear_heading nudge above already failed - so the obstruction spans the
+            # whole forward arc and the only open space is off to the side/behind (a shelf-
+            # corner pocket, an aisle dead-end). Holding position just rescans the identical
+            # pose until the planner's no-movement circuit breaker ends the run early with
+            # the map half-built (the recurring "blocked path premature end"). Instead, step
+            # toward the most-open direction to physically leave the pocket; the forced replan
+            # above then plans from the new, un-wedged cell, and the blocked-region mark
+            # deters A* from routing right back in. Bounded by --max-escapes so a pathological
+            # approach<->escape oscillation (e.g. a frontier only reachable through the
+            # A*-vs-clearance dead band) still terminates instead of thrashing to --max-steps.
+            #
+            # Gate on safe_step (clearance - safety_margin) < min_step, NOT just step_len <
+            # min_step: step_len is ALSO driven to ~0 when the agent simply arrives at its
+            # waypoint (dist-to-waypoint ~0) with the path's last waypoint un-advanceable -
+            # e.g. parked at an observation vantage. That is not a wedge (clearance is wide
+            # open there); escaping it would waste a 0.5m detour and burn escape budget. Only
+            # a genuine close obstruction (clearance < safety_margin + min_step) is a wedge.
+            escaped = False
+            if args.escape_when_wedged and total_escapes < args.max_escapes and safe_step < args.min_step:
+                escape = find_escape_heading(
+                    scan, args.safety_margin, args.min_step,
+                    body_radius=args.body_radius, min_obstacle_height=args.min_obstacle_height,
+                    max_obstacle_height=args.max_obstacle_height,
+                    sensor_height_offset=args.sensor_height_offset,
+                    self_exclusion_range=args.self_exclusion_range,
+                    sweep_step_deg=args.escape_sweep_step_deg,
+                )
+                if escape is not None:
+                    esc_heading, esc_clear, _esc_debug = escape
+                    # esc_heading is scan-local; the agent currently faces (scan pose +
+                    # delta_yaw) after the rotation above, so rotate by the difference to face
+                    # the escape heading, then step out along it. step magnitude uses the same
+                    # clearance - safety_margin formula as a normal move (never toward the
+                    # waypoint here - we're deliberately leaving it).
+                    pos, rot, _ = step_agent(
+                        (0, 0, 0), (0, normalize_deg(esc_heading - delta_yaw), 0), args.uri)
+                    esc_step = min(args.step_size, max(0.0, esc_clear - args.safety_margin))
+                    world_dx = math.sin(math.radians(rot[1])) * esc_step
+                    world_dz = math.cos(math.radians(rot[1])) * esc_step
+                    pos, rot, _ = step_agent((world_dx, 0, world_dz), (0, 0, 0), args.uri)
+                    total_escapes += 1
+                    escaped = True
+                    print(f"[explore] path blocked (clearance={clearance:.2f}m) toward waypoint "
+                          f"{nav.target_world_xz}; wedged -> escaped {esc_step:.2f}m toward the open "
+                          f"side (clearance {esc_clear:.2f}m, escape {total_escapes}/{args.max_escapes})"
+                          f"{_format_clearance_debug(clearance_debug)}")
+            if not escaped:
+                print(f"[explore] path blocked (clearance={clearance:.2f}m) toward waypoint "
+                      f"{nav.target_world_xz}; holding position and rescanning"
+                      f"{_format_clearance_debug(clearance_debug)}")
         else:
             if nudge_deg:
                 # Deliberately NOT heading straight at the target here - we just steered
@@ -425,6 +518,31 @@ def build_parser():
     parser.add_argument(
         "--nudge-step-deg", type=float, default=5.0,
         help="Degree increment between tried headings within --max-nudge-deg.",
+    )
+    parser.add_argument(
+        "--escape-when-wedged", action=argparse.BooleanOptionalAction, default=True,
+        help="When a step is blocked AND no --max-nudge-deg nudge around it clears either "
+             "(the obstruction spans the whole forward arc - a shelf-corner pocket or aisle "
+             "dead-end), turn to the most-open direction from a full 360deg clearance sweep "
+             "and physically step out, instead of holding position and rescanning the identical "
+             "pose until the planner's no-movement circuit breaker ends the run early (the "
+             "recurring 'blocked path premature end'). The planner replans from the escaped "
+             "cell (notify_blocked already forced it to NEED_GOAL). Disable to restore the old "
+             "hold-and-wait-only behavior.",
+    )
+    parser.add_argument(
+        "--max-escapes", type=int, default=15,
+        help="Total wedge-escapes allowed per run before falling back to hold-and-wait (which "
+             "then trips the no-movement circuit breaker and ends the run). Bounds a pathological "
+             "approach<->escape oscillation - e.g. a frontier only reachable through the "
+             "A*-vs-clearance dead band - so it terminates instead of thrashing to --max-steps. "
+             "Healthy runs use only a few; raise for a large store with many genuine dead-end "
+             "pockets.",
+    )
+    parser.add_argument(
+        "--escape-sweep-step-deg", type=float, default=10.0,
+        help="Degree increment for the full-circle clearance sweep that picks the escape heading "
+             "(see --escape-when-wedged). Smaller = finer heading resolution at more scan cost.",
     )
     parser.add_argument(
         "--body-radius", type=float, default=0.3,
@@ -592,4 +710,10 @@ if __name__ == "__main__":
     # event loop can leave a non-daemon thread alive - either can silently block normal
     # interpreter shutdown even though all real work (files saved, plot closed) is done.
     # All output is already written to disk above, so skipping normal cleanup here is safe.
+    # Flush first, though: os._exit() does NOT flush Python's stdio buffers, so when stdout
+    # is a pipe/file (block-buffered, not a line-buffered TTY) the final buffer of step logs
+    # would be lost - only touches the stdio buffers, not the asyncio/matplotlib threads the
+    # hard exit exists to skip.
+    sys.stdout.flush()
+    sys.stderr.flush()
     os._exit(0)

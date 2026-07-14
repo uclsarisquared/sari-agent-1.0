@@ -144,6 +144,42 @@ class TestFindClearHeading(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestFindEscapeHeading(unittest.TestCase):
+    def test_picks_the_most_open_heading_away_from_a_frontal_wall(self):
+        # A wall dead ahead (azimuth 0) at 0.4m, the rest of the circle open. Unlike
+        # find_clear_heading (smallest deviation that merely clears), the escape heading is
+        # the MAX-clearance one - it must point well away from the blocked straight-ahead,
+        # toward the open space behind/beside.
+        scan = _make_ring_scan([(0.0, 0.4)])  # only obstacle is straight ahead
+
+        result = explore.find_escape_heading(
+            scan, safety_margin=0.65, min_step=0.1,
+            body_radius=0.3, min_obstacle_height=0.05, max_obstacle_height=2.0,
+            sensor_height_offset=1.485, self_exclusion_range=0.1, sweep_step_deg=10.0,
+        )
+
+        self.assertIsNotNone(result)
+        heading, clearance, _debug = result
+        self.assertGreater(abs(explore.normalize_deg(heading)), 30.0,
+                           "escape must turn well away from the blocked straight-ahead heading")
+        self.assertGreaterEqual(clearance - 0.65, 0.1, "escape heading must fit at least a min_step move")
+
+    def test_returns_none_when_boxed_in_on_all_sides(self):
+        # Obstacles all around inside the safety envelope: no heading fits a step, so escape
+        # is impossible and the caller must fall back to holding (which then trips the
+        # planner's no-movement circuit breaker and ends the run) rather than pretend to move.
+        ring = [(az, 0.4) for az in range(0, 360, 10)]
+        scan = _make_ring_scan(ring, azimuth_step_deg=10.0)
+
+        result = explore.find_escape_heading(
+            scan, safety_margin=0.65, min_step=0.1,
+            body_radius=0.3, min_obstacle_height=0.05, max_obstacle_height=2.0,
+            sensor_height_offset=1.485, self_exclusion_range=0.1, sweep_step_deg=10.0,
+        )
+
+        self.assertIsNone(result)
+
+
 class _FakeAgent:
     """Fake Unity connection for step_agent: applies delta translation in world space and
     delta rotation as a yaw increment, no network. Records calls."""
@@ -203,7 +239,7 @@ def _done_nav():
 
 
 class TestExploreLoopVoxelWiring(unittest.TestCase):
-    def _run(self, navs, clearances, nudges):
+    def _run(self, navs, clearances, nudges, escapes=None, escape_when_wedged=False):
         agent = _FakeAgent((0.0, 0.0, 0.0), 0.0)
         voxel = VoxelGrid(size_m=6.0, resolution=0.1,
                           min_obstacle_height=0.05, max_obstacle_height=2.0)
@@ -211,13 +247,20 @@ class TestExploreLoopVoxelWiring(unittest.TestCase):
         planner = _ScriptedPlanner(navs)
         args = explore.build_parser().parse_args([])
         args.size = 6.0
+        # Default OFF so the pre-existing wiring tests exercise the pure blocked-mark/hold
+        # path without find_escape_heading consuming extra swept_clearance_ahead side-effects;
+        # the escape test opts in explicitly. find_escape_heading is patched either way so a
+        # stray call can never reach the real full-circle sweep during a wiring test.
+        args.escape_when_wedged = escape_when_wedged
+        esc_kwargs = {"side_effect": escapes} if escapes is not None else {"return_value": None}
 
         with patch.object(explore, "RequestLidarScan", return_value=_forward_hits_scan()), \
              patch.object(explore, "scan_to_world_points_3d", return_value=[]), \
              patch.object(explore, "save_snapshot"), \
              patch.object(explore, "step_agent", side_effect=agent.step_agent), \
              patch.object(explore, "swept_clearance_ahead", side_effect=clearances), \
-             patch.object(explore, "find_clear_heading", side_effect=nudges):
+             patch.object(explore, "find_clear_heading", side_effect=nudges), \
+             patch.object(explore, "find_escape_heading", **esc_kwargs):
             explore._explore_loop(args, voxel, grid, _FakeCloud(),
                                   (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), planner)
         return agent, voxel, grid, planner
@@ -258,6 +301,62 @@ class TestExploreLoopVoxelWiring(unittest.TestCase):
         # that the next collapse would erase).
         voxel.collapse()
         self.assertGreater((grid.log_odds > OccupancyGrid.OCCUPIED_THRESHOLD).sum(), 0)
+
+    def test_wedged_step_escapes_toward_the_open_side(self):
+        # Blocked straight ahead AND no nudge clears -> with escape enabled the agent must
+        # turn to the most-open heading and physically STEP out (leave the pocket), not just
+        # hold. The blocked mark + notify_blocked still fire first (the planner is forced to
+        # replan from the escaped cell), and the step must be a real, nonzero relocation.
+        debug = {"height_above_root": 1.2, "az_rel_deg": 0.0, "range": 0.30,
+                 "channel": 0, "v_deg": 0.0, "lateral": 0.0}
+        esc_debug = {"height_above_root": 1.0, "az_rel_deg": 0.0, "range": 5.0,
+                     "channel": 0, "v_deg": 0.0, "lateral": 0.0}
+        agent, _voxel, _grid, planner = self._run(
+            navs=[_move_nav(), _done_nav()],
+            clearances=[(0.05, debug)],            # main-loop clearance: blocked
+            nudges=[None],                          # no +-nudge clears
+            escapes=[(180.0, 5.0, esc_debug)],      # most-open heading is behind, 5m clear
+            escape_when_wedged=True,
+        )
+        self.assertEqual(len(planner.notify_blocked_calls), 1,
+                         "the blocked mark/notify must still fire before escaping")
+        translations = [dt for dt, _dr in agent.calls if dt != (0.0, 0.0, 0.0)]
+        self.assertTrue(translations, "escape must issue a real translation, not hold position")
+        self.assertGreater(math.hypot(agent.pos[0], agent.pos[2]), 0.1,
+                           "escape must relocate the agent out of the wedge")
+
+    def test_wedged_step_holds_when_escape_disabled(self):
+        # Same wedge, but with escape off: the agent must NOT move (old hold-and-wait
+        # behavior preserved), proving the escape is gated on the flag.
+        debug = {"height_above_root": 1.2, "az_rel_deg": 0.0, "range": 0.30,
+                 "channel": 0, "v_deg": 0.0, "lateral": 0.0}
+        agent, _voxel, _grid, planner = self._run(
+            navs=[_move_nav(), _done_nav()],
+            clearances=[(0.05, debug)],
+            nudges=[None],
+            escape_when_wedged=False,
+        )
+        self.assertEqual(len(planner.notify_blocked_calls), 1)
+        translations = [dt for dt, _dr in agent.calls if dt != (0.0, 0.0, 0.0)]
+        self.assertFalse(translations, "with escape disabled the agent must hold position")
+
+    def test_arrival_at_waypoint_does_not_trigger_escape(self):
+        # step_len falls below min_step here because dist-to-waypoint is ~0 (the agent is AT
+        # the waypoint), NOT because of an obstacle - clearance is a wide-open 5m. That is a
+        # waypoint arrival, not a wedge; escape must NOT fire (would be a pointless detour and
+        # would burn escape budget). Regression for a real live-run false positive: the agent
+        # parked at a final observation-vantage waypoint and spuriously "escaped".
+        agent, _voxel, _grid, planner = self._run(
+            navs=[_move_nav(target=(0.0, 0.0)), _done_nav()],  # target == start -> dist ~ 0
+            clearances=[(5.0, None)],                          # wide open: not clearance-limited
+            nudges=[None],
+            escapes=[(180.0, 5.0, {"height_above_root": 1.0, "az_rel_deg": 0.0, "range": 5.0,
+                                   "channel": 0, "v_deg": 0.0, "lateral": 0.0})],
+            escape_when_wedged=True,                           # enabled, but must stay unused here
+        )
+        self.assertEqual(len(planner.notify_blocked_calls), 1, "arrival still notifies/replans")
+        translations = [dt for dt, _dr in agent.calls if dt != (0.0, 0.0, 0.0)]
+        self.assertFalse(translations, "a waypoint arrival (open clearance) must not trigger an escape step")
 
 
 class TestClearOutputDir(unittest.TestCase):

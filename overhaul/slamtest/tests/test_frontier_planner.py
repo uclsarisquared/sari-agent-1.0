@@ -381,6 +381,28 @@ class TestObservationVantages(unittest.TestCase):
         self.assertIsNotNone(path_world, "must reach a vantage rather than declare the cluster unreachable")
         self.assertNotEqual(goal, centroid, "goal must be a standable vantage, not the unstandable frontier cell")
 
+    def test_vantage_excludes_the_cell_the_agent_already_occupies(self):
+        # Regression: when a line-of-sight vantage coincides with the cell the agent already
+        # stands on (or within the waypoint-arrival radius of it), returning it produced a
+        # degenerate "go to your own cell" path -> the executor can't move -> the agent holds
+        # every step until the no-movement circuit breaker ends the run (a real stall seen
+        # live at a shelf-corner pocket re-picking top-wall frontier slivers already in view).
+        # Such self-vantages must be excluded so only real-movement vantages are offered.
+        grid = self._wall_grid()
+        planner = FrontierPlanner(grid, body_radius=0.3)
+        occ_mask = _inflate_occupied(grid, 0.3)
+        cluster = FrontierCluster(cells=np.array([[52, 50]]), centroid_cell=(52, 50), size=1)
+        cur_cell = (55, 50)  # east of the wall, itself a valid line-of-sight vantage
+
+        vantages = planner._observation_vantages(cluster, occ_mask, cur_cell=cur_cell)
+
+        self.assertTrue(vantages, "real-movement vantages still exist farther from the agent")
+        self.assertNotIn(cur_cell, vantages, "a vantage the agent already occupies must be excluded")
+        min_move_sq = (planner.waypoint_arrival_radius / grid.res) ** 2
+        for vx, vz in vantages:
+            d2 = (vx - cur_cell[0]) ** 2 + (vz - cur_cell[1]) ** 2
+            self.assertGreater(d2, min_move_sq, "every vantage must be real movement, not an in-place hold")
+
     def test_no_vantage_when_the_target_is_fully_walled_off(self):
         # A frontier with no line-of-sight from any standable cell (boxed in by occupied on
         # all sides) has no vantage - the planner should still, correctly, give up on it
