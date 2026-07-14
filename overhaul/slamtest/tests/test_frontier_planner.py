@@ -27,6 +27,7 @@ from frontier_planner import (  # noqa: E402
     simplify_path,
     _line_of_sight,
     _inflate_occupied,
+    FrontierCluster,
     FrontierPlanner,
 )
 
@@ -341,6 +342,60 @@ class TestFrontierPlannerStateMachine(unittest.TestCase):
                          "must eventually stop retrying from an unchanged cell rather than loop forever")
         self.assertEqual(planner._pick_and_plan(cur_cell).kind, "done",
                          "once tripped, the breaker should not resume trying")
+
+
+class TestObservationVantages(unittest.TestCase):
+    def _wall_grid(self):
+        grid = OccupancyGrid(size_m=12.0, resolution=0.1)  # n = 120
+        grid.log_odds[:, :] = -1.0            # everything known-free by default
+        grid.log_odds[48, 30:70] = 5.0        # a vertical occupied wall at cx=48
+        return grid
+
+    def test_vantages_are_free_body_safe_and_have_line_of_sight(self):
+        grid = self._wall_grid()
+        planner = FrontierPlanner(grid, body_radius=0.3)
+        occ_mask = _inflate_occupied(grid, 0.3)
+        cluster = FrontierCluster(cells=np.array([[52, 50]]), centroid_cell=(52, 50), size=1)
+
+        vantages = planner._observation_vantages(cluster, occ_mask, cur_cell=(60, 50))
+
+        self.assertTrue(vantages, "there should be standable, in-view vantage cells east of the wall")
+        for vx, vz in vantages:
+            self.assertLess(grid.log_odds[vx, vz], grid.FREE_THRESHOLD, "vantage must be known-free")
+            self.assertFalse(occ_mask[vx, vz], "vantage must be body-safe (outside the inflation)")
+            self.assertGreater(vx, 48, "a vantage west of the wall has no line-of-sight to the target")
+
+    def test_plan_to_cluster_falls_back_to_a_vantage_when_the_frontier_is_unstandable(self):
+        # The exact situation this feature targets: a frontier cell that is free (hence a
+        # frontier) but sits inside the body-radius inflation next to a shelf, so A* can't
+        # stand on it. The planner must reach a vantage instead of abandoning the cluster.
+        grid = self._wall_grid()
+        planner = FrontierPlanner(grid, body_radius=0.3)
+        occ_mask = _inflate_occupied(grid, 0.3)
+        centroid = (49, 50)   # free, but one cell off the wall -> inside inflation -> unstandable
+        self.assertTrue(occ_mask[centroid], "precondition: the frontier cell is unstandable")
+        cluster = FrontierCluster(cells=np.array([list(centroid)]), centroid_cell=centroid, size=1)
+
+        path_world, goal = planner._plan_to_cluster((60, 50), cluster)
+
+        self.assertIsNotNone(path_world, "must reach a vantage rather than declare the cluster unreachable")
+        self.assertNotEqual(goal, centroid, "goal must be a standable vantage, not the unstandable frontier cell")
+
+    def test_no_vantage_when_the_target_is_fully_walled_off(self):
+        # A frontier with no line-of-sight from any standable cell (boxed in by occupied on
+        # all sides) has no vantage - the planner should still, correctly, give up on it
+        # rather than invent an unreachable goal.
+        grid = OccupancyGrid(size_m=12.0, resolution=0.1)
+        grid.log_odds[:, :] = -1.0
+        grid.log_odds[58:63, 58:63] = 5.0     # a solid occupied box
+        grid.log_odds[60, 60] = -1.0           # a lone free cell sealed inside it
+        planner = FrontierPlanner(grid, body_radius=0.3)
+        occ_mask = _inflate_occupied(grid, 0.3)
+        cluster = FrontierCluster(cells=np.array([[60, 60]]), centroid_cell=(60, 60), size=1)
+
+        vantages = planner._observation_vantages(cluster, occ_mask, cur_cell=(30, 30))
+
+        self.assertEqual(vantages, [], "a fully-occluded frontier has no line-of-sight vantage")
 
 
 if __name__ == "__main__":

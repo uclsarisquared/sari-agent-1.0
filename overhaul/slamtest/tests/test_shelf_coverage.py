@@ -22,7 +22,9 @@ for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
 from occupancy_grid import OccupancyGrid  # noqa: E402
 from frontier_planner import _inflate_occupied  # noqa: E402
 from topology import Checkpoint, TopologyEdge, TopologyGraph  # noqa: E402
-from shelf_coverage import find_shelf_checkpoint, sweep_edge_side, splice_shelf_checkpoints  # noqa: E402
+from shelf_coverage import (  # noqa: E402
+    find_shelf_checkpoint, sweep_edge_side, splice_shelf_checkpoints, _douglas_peucker,
+)
 
 
 def _open_grid(size_m=6.0, resolution=0.1):
@@ -167,7 +169,45 @@ class TestFindShelfCheckpoint(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestDouglasPeucker(unittest.TestCase):
+    def test_preserves_endpoints_and_a_real_corner(self):
+        path = [(x, 0) for x in range(0, 21)] + [(20, z) for z in range(1, 21)]  # an L
+        simp = _douglas_peucker(path, epsilon_cells=1.0)
+        self.assertEqual(simp[0], (0, 0))
+        self.assertEqual(simp[-1], (20, 20))
+        self.assertIn((20, 0), simp, "the corner must survive as a vertex")
+        self.assertLessEqual(len(simp), 4, "a clean L should reduce to ~3 vertices")
+
+    def test_collapses_sub_tolerance_jitter_to_the_endpoints(self):
+        path = [(x, x % 2) for x in range(0, 21)]  # a near-straight line wobbling z 0/1
+        self.assertEqual(_douglas_peucker(path, epsilon_cells=2.0), [(0, 0), (20, 0)])
+
+    def test_short_paths_pass_through_unchanged(self):
+        self.assertEqual(_douglas_peucker([(3, 3)], 1.0), [(3, 3)])
+        self.assertEqual(_douglas_peucker([(1, 1), (5, 5)], 1.0), [(1, 1), (5, 5)])
+
+
 class TestSweepEdgeSide(unittest.TestCase):
+    def test_shelf_hugging_L_is_not_shortcut_diagonally_across_the_aisle(self):
+        # Regression for the real bug: an edge that hugs a shelf face then turns. A
+        # line-of-sight collapse (the old simplify_path) shortcuts it into a diagonal
+        # straight across the open aisle, so the perpendicular sweep stops pointing at the
+        # shelf and the whole face gets ~1 checkpoint. Douglas-Peucker keeps the run
+        # parallel to the shelf, so the face is covered across its width.
+        grid = _open_grid(size_m=12.0)
+        grid.log_odds[20:81, 60] = 5.0                 # shelf wall at cz=60, cx 20-80
+        seg1 = [(cx, 45) for cx in range(20, 81)]      # runs 1.5m south of the shelf
+        seg2 = [(80, cz) for cz in range(44, 20, -1)]  # then turns south at the east end
+        path = seg1 + seg2
+
+        result = sweep_edge_side(grid, path, side="left")  # "left" of +x faces +z = the shelf
+
+        on_shelf = sorted(c["cell"][0] for c in result if c["shelf_cell"][1] == 60)
+        self.assertGreater(len(on_shelf), 2, "the shelf face must get several checkpoints, not ~1")
+        self.assertGreater(max(on_shelf) - min(on_shelf), 30,
+                            "checkpoints must span the shelf's width, not cluster at one end")
+
+
     def test_straight_shelf_produces_evenly_spaced_checkpoints(self):
         grid = _open_grid(size_m=10.0)
         grid.log_odds[15:86, 20] = 5.0  # long shelf wall, cz=20, spanning cx 15-85

@@ -151,6 +151,47 @@ class TestDoorwayDetection(unittest.TestCase):
         self.assertNotIn("doorway", [c.kind for c in result.checkpoints])
 
 
+class TestNarrowCheckpointFilter(unittest.TestCase):
+    def _grid_with_a_narrow_spur(self):
+        # A wide (0.8m, body-safe) corridor with a 0.2m-wide spur - the spur's tip is a
+        # sub-body-width spot the agent could never stand at, exactly like the junctions/
+        # doorways/ends the real skeleton threads into a ragged shelf face.
+        grid = _corridor_grid(size_m=8.0)     # 80x80, all occupied
+        grid.log_odds[10:70, 36:44] = -1.0    # wide traversable corridor
+        grid.log_odds[39:41, 44:52] = -1.0    # 0.2m-wide spur -> untraversable tip
+        return grid
+
+    def _clearance(self, grid):
+        return topo._distance_to_occupied(grid.log_odds > grid.OCCUPIED_THRESHOLD, grid.res, 8)
+
+    def test_off_by_default_keeps_the_narrow_checkpoint(self):
+        grid = self._grid_with_a_narrow_spur()
+        clr = self._clearance(grid)
+
+        result = topo.extract_topology(grid)  # default min_checkpoint_clearance_m=0.0
+
+        self.assertTrue(any(clr[c.cell[0], c.cell[1]] < 0.3 for c in result.checkpoints),
+                        "with the filter off, the sub-body-width spur tip must survive")
+
+    def test_on_drops_untraversable_checkpoints_and_keeps_a_valid_graph(self):
+        grid = self._grid_with_a_narrow_spur()
+        clr = self._clearance(grid)
+        off = topo.extract_topology(grid)
+        on = topo.extract_topology(grid, min_checkpoint_clearance_m=0.3)
+
+        self.assertLess(len(on.checkpoints), len(off.checkpoints), "the narrow checkpoint must be dropped")
+        self.assertFalse(any(clr[c.cell[0], c.cell[1]] < 0.3 for c in on.checkpoints),
+                         "no surviving checkpoint may sit where the agent's body can't fit")
+        # the graph stays internally consistent: every edge and neighbor ref resolves
+        ids = {c.id for c in on.checkpoints}
+        for e in on.edges:
+            self.assertIn(e.a, ids)
+            self.assertIn(e.b, ids)
+        for c in on.checkpoints:
+            for n in c.neighbors:
+                self.assertIn(n, ids)
+
+
 class TestSaveTopology(unittest.TestCase):
     def test_round_trips_through_json(self):
         import json

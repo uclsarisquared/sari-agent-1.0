@@ -61,6 +61,16 @@ def iter_banded_hits(scan, world_pos, yaw_deg, min_obstacle_height=0.05,
     drift between the 2D grid and the voxel grid. Rotation sign follows Unity's
     left-handed Y-up Euler(0, yaw, 0): verify against a real scan next to a known
     wall before trusting it.
+
+    Horizontal placement uses the ground-projected distance r*cos(v_deg), NOT the
+    raw slant range r: a downward/upward-angled channel's hit is closer to the
+    sensor horizontally than its slant range by exactly cos(v), and an earlier
+    version that used r placed steep channels' hits too far out - smearing a shelf
+    face across a range of depths (worst near the FOV edges, e.g. ~40% over-range
+    at 45deg) and reading it as an over-thick, ragged block. This now matches the
+    same r*cos(v) decomposition _hit_height_above_root (r*sin(v)) and
+    scan_to_world_points_3d already use, so height and ground-distance come from
+    one consistent spherical->cartesian split.
     """
     yaw = math.radians(yaw_deg)
     cos_y, sin_y = math.cos(yaw), math.sin(yaw)
@@ -72,6 +82,7 @@ def iter_banded_hits(scan, world_pos, yaw_deg, min_obstacle_height=0.05,
     exclusion_range = max(scan.get("min_range", 0.0), self_exclusion_range)
     for ch in range(channels):
         v_deg = scan["vertical_angles_deg"][ch]
+        horiz_scale = math.cos(math.radians(v_deg))
         row_start = ch * azimuth_samples
         for az_i in range(azimuth_samples):
             r = ranges[row_start + az_i]
@@ -88,8 +99,9 @@ def iter_banded_hits(scan, world_pos, yaw_deg, min_obstacle_height=0.05,
             height = _hit_height_above_root(v_deg, r, sensor_height_offset)
             if not (min_obstacle_height <= height <= max_obstacle_height):
                 continue
+            horiz = r * horiz_scale  # ground-projected distance, not slant range
             az = math.radians(scan["azimuth_start_deg"] + az_i * scan["azimuth_step_deg"])
-            lx, lz = math.sin(az) * r, math.cos(az) * r
+            lx, lz = math.sin(az) * horiz, math.cos(az) * horiz
             wx = lx * cos_y + lz * sin_y + world_pos[0]
             wz = -lx * sin_y + lz * cos_y + world_pos[2]
             yield wx, wz, height

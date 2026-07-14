@@ -19,7 +19,7 @@ for _p in (_OVERHAUL_DIR, _THIS_DIR):
         sys.path.insert(0, _p)
 
 from occupancy_grid import _bresenham_line  # noqa: E402
-from frontier_planner import _inflate_occupied, _line_of_sight, simplify_path  # noqa: E402
+from frontier_planner import _inflate_occupied, _line_of_sight  # noqa: E402
 from topology import Checkpoint, TopologyEdge  # noqa: E402
 
 
@@ -43,6 +43,51 @@ Raised from an initial 1.0m for the same reason as DEFAULT_SHELF_SEARCH_RADIUS_M
 plain density reduction on a real store layout felt excessive at 1.0m - not yet grounded
 in the sim's actual camera field of view, so revisit if Phase 3 finds real coverage gaps
 between checkpoints."""
+
+DEFAULT_SIMPLIFY_EPSILON_M = 0.3
+"""Max deviation for the Douglas-Peucker simplification of an edge's skeleton path before
+sweeping it. Deliberately NOT frontier_planner.simplify_path() (line-of-sight collapsing):
+that shortcuts a run-along-a-shelf-then-turn path into a diagonal straight across the open
+aisle - great for a shortest travel path, wrong here, because the perpendicular sweep off a
+diagonal no longer points at the shelf the edge was hugging (confirmed live: a shelf's whole
+south face got 1 checkpoint instead of a spread across its width). Douglas-Peucker instead
+keeps the simplified path within this tolerance of the raw one, so segments follow the
+aisle's real shape (and thus the shelf) while still removing per-cell 8-connected tangent
+jitter and preserving genuine corners as vertices."""
+
+
+def _douglas_peucker(points, epsilon_cells):
+    """Ramer-Douglas-Peucker polyline simplification: drop points that lie within
+    epsilon_cells (perpendicular distance) of the straight line between the kept anchors,
+    recursively. Keeps endpoints and any genuine bend, stays within epsilon of the input -
+    shape-preserving, unlike a line-of-sight collapse. Iterative stack (not recursion) so a
+    long skeleton path can't blow the Python recursion limit."""
+    if len(points) < 3:
+        return list(points)
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        lo, hi = stack.pop()
+        if hi <= lo + 1:
+            continue
+        ax, az = points[lo]
+        bx, bz = points[hi]
+        seg_len = math.hypot(bx - ax, bz - az)
+        dmax, idx = -1.0, -1
+        for i in range(lo + 1, hi):
+            px, pz = points[i]
+            if seg_len < 1e-9:
+                dist = math.hypot(px - ax, pz - az)
+            else:
+                dist = abs((bx - ax) * (az - pz) - (ax - px) * (bz - az)) / seg_len
+            if dist > dmax:
+                dmax, idx = dist, i
+        if dmax > epsilon_cells:
+            keep[idx] = True
+            stack.append((lo, idx))
+            stack.append((idx, hi))
+    return [p for p, k in zip(points, keep) if k]
 
 
 def _perpendicular(direction, side):
@@ -160,22 +205,25 @@ def sweep_edge_side(grid, path_cells, side, *,
                      search_radius_m=DEFAULT_SHELF_SEARCH_RADIUS_M,
                      min_reading_distance_m=MIN_READING_DISTANCE_M,
                      max_reading_distance_m=MAX_READING_DISTANCE_M,
-                     body_radius=0.3,
+                     body_radius=0.3, simplify_epsilon_m=DEFAULT_SIMPLIFY_EPSILON_M,
                      occupied_mask=None, inflated_mask=None):
     """Walk one shelf face along a Phase 1 TopologyEdge's raw skeleton path (its `path`
     field), returning an ordered chain of validated checkpoints - the Phase 2 unit one
     step up from the single-point find_shelf_checkpoint() primitive.
 
-    First simplifies path_cells into a small number of straight, line-of-sight-verified
-    segments (frontier_planner.simplify_path(), over the inflated mask) instead of
-    working off the raw per-cell skeleton, so each segment has one constant direction to
-    offset from rather than a jittery per-point tangent - see "Direction & corner
-    handling" in the phase2 plan doc for why. Every segment is sampled at interval_m
-    spacing, always including its own endpoint - which means a corner (where two
-    segments meet) naturally gets its own checkpoint attempt, using the INCOMING
-    segment's direction, with no special-case corner logic needed: it's just the last
-    sample of one segment and the first of the next (the shared vertex is only sampled
-    once - the outgoing segment skips resampling its own start).
+    First simplifies path_cells into a small number of straight segments via
+    shape-preserving Douglas-Peucker (_douglas_peucker, tolerance simplify_epsilon_m)
+    instead of working off the raw per-cell skeleton, so each segment has one constant
+    direction to offset from rather than a jittery per-point tangent - see "Direction &
+    corner handling" in the phase2 plan doc, and _douglas_peucker's docstring for why a
+    line-of-sight collapse (frontier_planner.simplify_path) is specifically wrong here (it
+    shortcuts a shelf-hugging path diagonally across the aisle, so the perpendicular sweep
+    stops pointing at the shelf). Every segment is sampled at interval_m spacing, always
+    including its own endpoint - which means a corner (where two segments meet) naturally
+    gets its own checkpoint attempt, using the INCOMING segment's direction, with no
+    special-case corner logic needed: it's just the last sample of one segment and the
+    first of the next (the shared vertex is only sampled once - the outgoing segment skips
+    resampling its own start).
 
     A sampled point with no valid checkpoint on this side (see find_shelf_checkpoint's
     docstring for why retrying it is pointless) is simply skipped, not retried - the next
@@ -194,7 +242,7 @@ def sweep_edge_side(grid, path_cells, side, *,
     if len(path_cells) < 2:
         return []
 
-    simplified = simplify_path(path_cells, grid, occupied_mask=inflated_mask)
+    simplified = _douglas_peucker(path_cells, simplify_epsilon_m / grid.res)
     if len(simplified) < 2:
         return []
 

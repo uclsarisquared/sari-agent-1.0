@@ -53,6 +53,14 @@ DEFAULT_MIN_BRANCH_LENGTH_M = 0.5
 DEFAULT_DOORWAY_MAX_WIDTH_M = 1.2
 DEFAULT_DOORWAY_WIDTH_RATIO = 0.7
 
+# Half the agent's passable width (matches the default body_radius used by A*/exploration).
+# A checkpoint whose distance to the nearest occupied cell is below this sits somewhere the
+# agent's body can't actually occupy - typically a spot the skeleton threaded into through a
+# sub-body-width gap in a ragged/under-observed shelf face, producing a junction/doorway/end
+# INSIDE a shelf. Production pipelines pass this to extract_topology to drop those; the
+# function itself defaults to 0.0 (off) so direct callers/tests keep the raw skeleton graph.
+DEFAULT_MIN_CHECKPOINT_CLEARANCE_M = 0.3
+
 # Guards a topologically malformed skeleton (e.g. a pure loop with no degree!=2 pixel
 # anywhere on it) from an infinite walk - real store layouts should always have plenty of
 # genuine branch points, so hitting this is a sign of a skeletonization edge case, not a
@@ -315,6 +323,29 @@ def _maybe_split_for_doorway(path, clearance, width_ratio, max_width_m):
     return widths.index(min_w) + 1  # +1 re-offsets into path's own indexing
 
 
+def _drop_narrow_checkpoints(checkpoints, edges, clearance, min_clearance_m):
+    """Remove checkpoints standing where the agent's body can't fit - distance to the
+    nearest occupied cell below min_clearance_m - along with every edge touching one.
+
+    These are the spurious junctions/doorways/ends the medial-axis skeleton manufactures by
+    threading through the sub-body-width gaps of a ragged, under-observed shelf face (the
+    doorway detector is the worst offender: a 1-2 cell gap reads as a "narrow pinch"). An
+    edge through such a cell is itself untraversable, so dropping it is correct, not just
+    cosmetic - a body-radius-inflated planner could never route through there anyway. A
+    no-op when min_clearance_m <= 0 (the extract_topology default), so callers that want the
+    raw skeleton graph are unaffected. Orphaned endpoints left behind are cleaned up by the
+    subsequent _drop_orphaned_checkpoints pass."""
+    if min_clearance_m <= 0:
+        return checkpoints, edges
+    narrow_ids = {c.id for c in checkpoints
+                  if clearance[c.cell[0], c.cell[1]] < min_clearance_m}
+    if not narrow_ids:
+        return checkpoints, edges
+    kept_checkpoints = [c for c in checkpoints if c.id not in narrow_ids]
+    kept_edges = [e for e in edges if e.a not in narrow_ids and e.b not in narrow_ids]
+    return kept_checkpoints, kept_edges
+
+
 def _drop_orphaned_checkpoints(checkpoints, edges):
     """A checkpoint whose only edge got removed by spur pruning is left referencing
     nothing - meaningless (and confusing) for an adjacency-graph consumer. Drop any
@@ -350,10 +381,17 @@ def _populate_neighbors(checkpoints, edges):
 
 def extract_topology(grid, connectivity=8, min_branch_length_m=DEFAULT_MIN_BRANCH_LENGTH_M,
                       doorway_max_width_m=DEFAULT_DOORWAY_MAX_WIDTH_M,
-                      doorway_width_ratio=DEFAULT_DOORWAY_WIDTH_RATIO):
+                      doorway_width_ratio=DEFAULT_DOORWAY_WIDTH_RATIO,
+                      min_checkpoint_clearance_m=0.0):
     """Reduce grid's resolved free space to a small topological checkpoint graph. See
     module docstring for the overall approach and its "derived purely from what's been
-    observed" scope."""
+    observed" scope.
+
+    min_checkpoint_clearance_m > 0 drops checkpoints standing closer than that to an
+    occupied cell (see _drop_narrow_checkpoints) - the fix for spurious junctions/doorways/
+    ends the skeleton threads into the sub-body-width gaps of a ragged, under-observed shelf
+    face. Defaults to 0.0 (off) so direct callers keep the raw skeleton graph; production
+    pipelines pass ~body_radius (DEFAULT_MIN_CHECKPOINT_CLEARANCE_M)."""
     free = grid.log_odds < grid.FREE_THRESHOLD
     occupied = grid.log_odds > grid.OCCUPIED_THRESHOLD
 
@@ -397,6 +435,7 @@ def extract_topology(grid, connectivity=8, min_branch_length_m=DEFAULT_MIN_BRANC
         edges.append(TopologyEdge(a=a_id, b=door_id, length_m=_path_length(first_half, grid.res), path=first_half))
         edges.append(TopologyEdge(a=door_id, b=b_id, length_m=_path_length(second_half, grid.res), path=second_half))
 
+    checkpoints, edges = _drop_narrow_checkpoints(checkpoints, edges, clearance, min_checkpoint_clearance_m)
     checkpoints, edges = _drop_orphaned_checkpoints(checkpoints, edges)
     _populate_neighbors(checkpoints, edges)
     return TopologyGraph(checkpoints=checkpoints, edges=edges)
@@ -430,6 +469,12 @@ def build_parser():
     parser.add_argument("--min-branch-length-m", type=float, default=DEFAULT_MIN_BRANCH_LENGTH_M)
     parser.add_argument("--doorway-max-width-m", type=float, default=DEFAULT_DOORWAY_MAX_WIDTH_M)
     parser.add_argument("--doorway-width-ratio", type=float, default=DEFAULT_DOORWAY_WIDTH_RATIO)
+    parser.add_argument(
+        "--min-checkpoint-clearance-m", type=float, default=DEFAULT_MIN_CHECKPOINT_CLEARANCE_M,
+        help="Drop checkpoints closer than this to an occupied cell (spurious junctions/"
+             "doorways/ends inside a ragged shelf face). Should match the agent's body_radius; "
+             "0 disables.",
+    )
     parser.add_argument("--output-dir", default=os.path.dirname(os.path.abspath(__file__)))
     parser.add_argument("--tag", default="inspect")
     return parser
@@ -444,6 +489,7 @@ if __name__ == "__main__":
     result = extract_topology(
         loaded_grid, connectivity=args.connectivity, min_branch_length_m=args.min_branch_length_m,
         doorway_max_width_m=args.doorway_max_width_m, doorway_width_ratio=args.doorway_width_ratio,
+        min_checkpoint_clearance_m=args.min_checkpoint_clearance_m,
     )
     out_path = save_topology(result, args.output_dir, args.tag)
     kinds_count = {}

@@ -199,6 +199,22 @@ class TestScanToWorldPointsHeightFiltering(unittest.TestCase):
 
         self.assertEqual(len(points), 0, "a hit at/below min_range should not be mapped")
 
+    def test_horizontal_placement_uses_ground_projected_distance_not_slant_range(self):
+        # A downward-angled in-band hit must land at horizontal distance r*cos(v) from the
+        # sensor, NOT the slant range r. The pre-fix code used r, over-placing steep channels
+        # and smearing a shelf face across depth (read as an over-thick, ragged block). With
+        # az=0 and yaw=0 the hit lies straight ahead on +z, so its z-coordinate IS its
+        # horizontal distance from the sensor.
+        v_deg, r = -20.0, 3.0   # height = 3*sin(-20)+1.485 = 0.46m, comfortably in-band
+        scan = self._make_uniform_azimuth_scan([v_deg], r=r)
+
+        points = scan_to_world_points(scan, world_pos=(0.0, 0.9, 0.0), yaw_deg=0.0)
+
+        self.assertEqual(len(points), 1)
+        _wx, wz = points[0]
+        self.assertAlmostEqual(wz, r * math.cos(math.radians(v_deg)), places=6)
+        self.assertLess(wz, r, "ground-projected distance must be strictly less than the slant range")
+
 
 if __name__ == "__main__":
     unittest.main()

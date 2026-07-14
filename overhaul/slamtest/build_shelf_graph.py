@@ -170,6 +170,9 @@ def main():
     graph = extract_topology(
         grid, connectivity=args.connectivity, min_branch_length_m=args.min_branch_length_m,
         doorway_max_width_m=args.doorway_max_width_m, doorway_width_ratio=args.doorway_width_ratio,
+        # Match explore.py: drop checkpoints inside sub-body-width shelf gaps so this
+        # re-extraction reproduces the same graph explore.py saved (see the mismatch warning).
+        min_checkpoint_clearance_m=args.body_radius,
     )
     _warn_if_topology_mismatch(args.output_dir, args.tag, graph)
     base_checkpoints, base_edges = len(graph.checkpoints), len(graph.edges)

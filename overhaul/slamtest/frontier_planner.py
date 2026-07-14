@@ -352,29 +352,74 @@ class FrontierPlanner:
                     candidates.append(cell)
 
         for goal_cell in candidates:
-            w = window
-            t0 = time.perf_counter()
+            path_world = self._try_reach(cur_cell, goal_cell, window, occupied_mask)
+            if path_world is not None:
+                return path_world, goal_cell
+
+        # Fallback: none of the frontier's own cells is reachable. A very common reason is
+        # that the frontier hugs a shelf face - its cells are free (that's why they're
+        # frontiers) but sit inside the body-radius inflation, so A* can't stand ON them,
+        # even though the agent could plainly SEE them from a step back. Rather than declare
+        # the cluster unreachable (which ends the run early with grey pockets left around the
+        # shelves), try to reach a standable cell that has line-of-sight to the cluster - a
+        # scan from there resolves the frontier without ever standing on it.
+        for goal_cell in self._observation_vantages(cluster, occupied_mask, cur_cell):
+            path_world = self._try_reach(cur_cell, goal_cell, window, occupied_mask)
+            if path_world is not None:
+                self._dbg(f"  _plan_to_cluster: reaching cluster via observation vantage {goal_cell}")
+                return path_world, goal_cell
+
+        self._dbg(f"  _plan_to_cluster: no candidate or vantage reachable, giving up on this cluster")
+        return None, None
+
+    def _try_reach(self, cur_cell, goal_cell, window, occupied_mask):
+        """A* from cur_cell to goal_cell, growing the search window up to
+        astar_max_window_cells before giving up, then simplified to line-of-sight
+        waypoints. Returns the world-space waypoint list, or None if unreachable. Shared by
+        the frontier-cell attempts and the observation-vantage fallback in _plan_to_cluster."""
+        w = window
+        path = astar(self.grid, cur_cell, goal_cell, connectivity=self.connectivity,
+                     window_radius=w, occupied_mask=occupied_mask)
+        while path is None and w < self.astar_max_window_cells:
+            w = min(w * 2, self.astar_max_window_cells)
             path = astar(self.grid, cur_cell, goal_cell, connectivity=self.connectivity,
                          window_radius=w, occupied_mask=occupied_mask)
-            self._dbg(f"  astar candidate={goal_cell} window={w:.0f} -> "
-                      f"{'found len=' + str(len(path)) if path is not None else 'None'} "
-                      f"({time.perf_counter() - t0:.3f}s)")
-            while path is None and w < self.astar_max_window_cells:
-                w = min(w * 2, self.astar_max_window_cells)
-                t0 = time.perf_counter()
-                path = astar(self.grid, cur_cell, goal_cell, connectivity=self.connectivity,
-                             window_radius=w, occupied_mask=occupied_mask)
-                self._dbg(f"  astar candidate={goal_cell} window={w:.0f} (grown) -> "
-                          f"{'found len=' + str(len(path)) if path is not None else 'None'} "
-                          f"({time.perf_counter() - t0:.3f}s)")
-            if path is not None:
-                t0 = time.perf_counter()
-                simplified = simplify_path(path, self.grid, occupied_mask=occupied_mask)
-                self._dbg(f"  simplify_path {len(path)} -> {len(simplified)} waypoints "
-                          f"({time.perf_counter() - t0:.3f}s)")
-                return [self.grid.to_world(*c) for c in simplified], goal_cell
-        self._dbg(f"  _plan_to_cluster: no candidate reachable, giving up on this cluster")
-        return None, None
+        if path is None:
+            return None
+        simplified = simplify_path(path, self.grid, occupied_mask=occupied_mask)
+        return [self.grid.to_world(*c) for c in simplified]
+
+    def _observation_vantages(self, cluster, occupied_mask, cur_cell, max_view_m=3.0, max_candidates=6):
+        """Standable cells from which the cluster can be SEEN - the fallback goals for a
+        frontier the agent can observe but not stand on (typically one hugging a shelf: free,
+        so it's a frontier, but inside the body-radius inflation, so A* can't path onto it).
+
+        A candidate must be known-free AND outside the inflation (body-safe to stand at) AND
+        have line-of-sight to the cluster centroid over the raw (un-inflated) occupied mask -
+        i.e. a real scan from there would actually reach the frontier. Returned nearest-to-
+        agent first (cheapest to reach), capped at max_candidates. Searched only within
+        max_view_m of the frontier, so this stays a cheap, bounded pass run only when a
+        cluster is otherwise unreachable (not the common case)."""
+        free = self.grid.log_odds < self.grid.FREE_THRESHOLD
+        raw_occupied = self.grid.log_odds > self.grid.OCCUPIED_THRESHOLD
+        fx, fz = cluster.centroid_cell
+        r = int(round(max_view_m / self.grid.res))
+        cands = []
+        for dx in range(-r, r + 1):
+            for dz in range(-r, r + 1):
+                d2 = dx * dx + dz * dz
+                if d2 == 0 or d2 > r * r:
+                    continue
+                vx, vz = fx + dx, fz + dz
+                if not self.grid.in_bounds(vx, vz):
+                    continue
+                if occupied_mask[vx, vz] or not free[vx, vz]:
+                    continue  # must be known-free and body-safe to stand at
+                if _line_of_sight(self.grid, (vx, vz), (fx, fz), occupied_mask=raw_occupied):
+                    cost = (vx - cur_cell[0]) ** 2 + (vz - cur_cell[1]) ** 2
+                    cands.append((cost, (vx, vz)))
+        cands.sort(key=lambda t: t[0])
+        return [cell for _cost, cell in cands[:max_candidates]]
 
     def _pick_and_plan(self, cur_cell):
         pick_t0 = time.perf_counter()

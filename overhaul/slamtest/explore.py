@@ -262,6 +262,9 @@ def run(args):
             min_branch_length_m=args.topology_min_branch_length_m,
             doorway_max_width_m=args.topology_doorway_max_width_m,
             doorway_width_ratio=args.topology_doorway_width_ratio,
+            # Drop checkpoints the agent's body can't fit at (spurious junctions/doorways/
+            # ends the skeleton threads into a ragged shelf face) - same radius A* plans with.
+            min_checkpoint_clearance_m=args.body_radius,
         )
         topology_path = save_topology(topology, args.output_dir, "final")
         kind_counts = {}
