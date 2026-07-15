@@ -24,7 +24,26 @@ from topology import Checkpoint, TopologyEdge  # noqa: E402
 
 
 MIN_READING_DISTANCE_M = 1
-MAX_READING_DISTANCE_M = 1.5
+MAX_READING_DISTANCE_M = 1.2
+"""How far back from a shelf face a checkpoint is placed - i.e. the VLM's reading distance.
+
+Lowered from 1.5m after measuring what the annotator can actually READ, by stepping the agent in
+at cp067 and re-asking at each distance. 1.5m sat just outside the legible range: variants came
+back mostly null and brand logos were unreadable (the model answered with the product's own name
+instead). At 1.2m variants come back correct ("Mild", "Cheesier", "Original", "Sour Cream &
+Onion") and a product it had missed entirely ("Platos") appears. Closer still (1.0m, 0.78m) reads
+no better, so 1.2m buys the legibility without spending the safety margin.
+
+The floor is NOT this constant - it is explore.py's executor, which refuses to move within
+`safety_margin + min_step` (0.65 + 0.1 = 0.75m) of an obstacle ahead. 1.2m keeps 0.45m of headroom
+over that; 0.8m would leave 0.05m, where LiDAR noise reading 0.74 trips the nudge-then-escape path
+at every shelf and re-creates the Phase-2 wedge dynamics. Verified at 1.2m on the frozen grid: all
+65 shelf checkpoints survive (same count as 1.5m) and 0 fall below the executor's standoff.
+
+Careful when tuning: placement is `min(MAX_READING_DISTANCE_M, dist_to_shelf)` and is then
+REJECTED if it lands below MIN_READING_DISTANCE_M. Lower this below MIN and every shelf checkpoint
+silently vanishes."""
+
 DEFAULT_SHELF_SEARCH_RADIUS_M = 2.0
 """Caps how far the perpendicular shelf-search is allowed to look, so a stretch of open
 floor with no nearby shelf can't reach out and grab an unrelated shelf far across the

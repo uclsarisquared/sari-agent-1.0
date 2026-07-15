@@ -40,6 +40,35 @@ plans/phase3.1_semantic_product_layer.md. In short:
   * HALLUCINATION IS TOLERATED, NOT FOUGHT: the index is re-verified by the agent on arrival, so
     the rules aim at "null over guess" and "general over specific" rather than perfection.
 
+MEASURED - DO NOT RE-ATTEMPT (2026-07, all on cp067 captures):
+  * THERE IS NO `brand` FIELD, on purpose. It used to be its own field; the name/brand SPLIT turned
+    out to be ambiguous, and the model resolved it differently run to run. Three runs on one image:
+    2x "mode A" (name = a generic category - "potato chips" x11 - with the real identity in brand),
+    1x "mode B" (name = "Clover Chips", brand = a redundant "Clover"). Mode A was arguably the model
+    OBEYING the old wording, whose examples ("corn flakes", "instant noodles", "bottled water") were
+    all generic - so `name`, the flat index's ONLY query key, came back unsearchable in most runs
+    while everything looked fine. Folding brand into `name` dissolves the ambiguity: 3/3 runs then
+    returned specific names, zero generic.
+  * Do NOT try to prompt the brand hallucination away. An explicit "null unless you can literally
+    read it; do not infer; repeating the product's name here is wrong" bullet made every axis worse
+    on the identical image: items 9 -> 19 (one entry per FACING) and names collapsed to "chips" x11.
+    It hallucinated regardless ("Mama"). Reverted.
+  * What remains is ACCEPTED, not a bug to fix: an unreadable logo becomes a wrong PREFIX on an
+    otherwise-correct name - "Delight" / "Delightful" / "Dolby's Pancit Canton" across three runs
+    where the truth is "Lucky Me!". The product half is right every time, so the row stays findable,
+    and every legible brand comes back correct (Clover Chips, Tostitos, Pillows, Loaded!, Platos,
+    Criss Cross, Jin Ramen, Cheese Ring, Pringles, Pik-Nik, Oishi Prawn Crackers). The ONLY measured
+    way to do better is a focused single-question pass ("read the brand, or answer UNREADABLE" ->
+    "LuckyMe!" correctly, and it abstains honestly when it genuinely cannot read). That is a task
+    shape, not a sentence - the omnibus form fails at every distance and every wording tried.
+  * Reading distance IS load-bearing for LARGE printed text, and does nothing for small logos.
+    Stepping the agent in at cp067: at 1.54m variants came back mostly null; at 1.20m they came back
+    correct ("Mild", "Cheesier", "Original", "Sour Cream & Onion") and a previously-missed product
+    ("Platos") appeared. The brand logo stayed unreadable throughout. shelf_coverage's
+    MAX_READING_DISTANCE_M was 1.5m - parked just outside the legible range.
+  * Thinking must be OFF (chat_template_kwargs={"enable_thinking": False}). With it on, Qwen3.6
+    spent all 2048 tokens reasoning, fell into a repetition loop, and returned content=None.
+
 CALLER CONTRACT (the prompts below promise these; the client has to deliver them):
   * Image labelling. SYS_INST_ANNOTATE_BASE tells the model it gets a PRIMARY image and,
     optionally, CONTEXT images "each labelled with its angle". Nothing enforces that - the client
@@ -51,9 +80,14 @@ CALLER CONTRACT (the prompts below promise these; the client has to deliver them
 
 OPEN DECISIONS (deliberately not baked in yet):
   * Structured-output enforcement: RESOLVED 2026-07. The server is vLLM serving
-    `Qwen/Qwen3.6-27B` (262k ctx) over Chat Completions at :8000/v1, no key. vLLM supports guided
-    decoding, so the *_SCHEMA dicts below go over the wire as `extra_body={"guided_json": ...}`
-    and the contract is enforced server-side rather than parsed and retried hopefully.
+    `Qwen/Qwen3.6-27B` (262k ctx) over Chat Completions at :8000/v1, no key. Send the *_SCHEMA
+    dicts as `response_format={"type": "json_schema", "json_schema": {"name": ..., "schema": ...,
+    "strict": True}}`. NOT as `guided_json` - this build SILENTLY IGNORES that spelling, which is
+    invisible in normal use because the prompt alone already yields conforming JSON. It only shows
+    up against a negative control: given a schema whose sole legal label was "banana", guided_json
+    returned the model's own "non_shelf" while response_format returned "banana". vLLM's strict
+    mode is also more permissive than OpenAI's - it accepts `sign_text` being absent from
+    `required` alongside `additionalProperties: False`, which OpenAI strict would reject.
   * Neighbour context injection: NOT included. The graph already knows connectivity, and feeding
     it in invites the spatial claims rule 4 forbids. The renderer adds "connects to..." from the
     graph instead. Revisit only if summaries read as too isolated.
@@ -157,8 +191,7 @@ Produce these fields:
     The products on this shelf, taken ONLY from the PRIMARY image. This matters: the context images show other shelves and other aisles that belong to OTHER checkpoints - never take an item from them.
 
     For each distinct product:
-        - "name": REQUIRED. The general product name ("corn flakes", "instant noodles", "bottled water").
-        - "brand": the brand, ONLY if you can genuinely read it on the packaging. Otherwise null.
+        - "name": REQUIRED. What the product is called, as SPECIFICALLY as you can read it off the packaging, brand included: "Lucky Me! Pancit Canton", "Tostitos Original", "Clover Chips". This is the only field anyone will search on later, so a specific name is the whole point. If you cannot read a brand, fall back to naming the product alone ("instant noodles", "potato chips") - a worse answer, but an honest one. Never write a brand you cannot actually read.
         - "variant": size, flavour, or variant, ONLY if legible. Otherwise null.
         - "appearance": a short visual description so someone can spot it again on the shelf ("red box, rooster logo, white lettering"). Describe what it LOOKS like, not what you infer it is - this is used to confirm the right item on arrival.
         - "category": REQUIRED. The ONE value from the list above that this item belongs to. Judge the ITEM ITSELF, not the shelf around it - on a shelf holding two kinds of product, the item beside this one may well belong to the other category.
@@ -167,7 +200,7 @@ Produce these fields:
 
 Output strict JSON only:
 
-{{"semantic_summary": "...", "shelf_type": ["..."], "sign_text": null, "items": [{{"name": "...", "brand": null, "variant": null, "appearance": "...", "category": "..."}}]}}
+{{"semantic_summary": "...", "shelf_type": ["..."], "sign_text": null, "items": [{{"name": "...", "variant": null, "appearance": "...", "category": "..."}}]}}
 """
 
 
@@ -227,8 +260,8 @@ SHELF_ANNOTATION_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
+                    # Brand is folded INTO name, deliberately - see the measured note above.
                     "name": {"type": "string"},
-                    "brand": {"type": ["string", "null"]},
                     "variant": {"type": ["string", "null"]},
                     "appearance": {"type": ["string", "null"]},
                     # Required and non-nullable: it is the flat index's query key, and with a
