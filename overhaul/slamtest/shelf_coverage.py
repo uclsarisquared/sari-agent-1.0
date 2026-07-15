@@ -37,12 +37,18 @@ aggressive). 2.0m was chosen purely to cut overall density (89 -> 45 on that sam
 while Stage 1 of Phase 3's two-stage annotation (see phase3_vlm_annotation_pass.md)
 handles the remaining shelf-vs-wall ambiguity cheaply, per-checkpoint, instead."""
 
-DEFAULT_CHECKPOINT_INTERVAL_M = 2.0
+DEFAULT_CHECKPOINT_INTERVAL_M = 1.0
 """Spacing between consecutive shelf-hugging checkpoints along one side of an aisle.
-Raised from an initial 1.0m for the same reason as DEFAULT_SHELF_SEARCH_RADIUS_M above -
-plain density reduction on a real store layout felt excessive at 1.0m - not yet grounded
-in the sim's actual camera field of view, so revisit if Phase 3 finds real coverage gaps
-between checkpoints."""
+Briefly raised to 2.0m purely to cut density, but the "revisit if Phase 3 finds real coverage
+gaps" this warned about happened first: at 2.0m, shelves alongside short (junction-chopped)
+edges fall between samples entirely - measured on a frozen map, a whole west-wall shelf got 0
+checkpoints because its 2.7m edge sampled only its two endpoints, skipping the shelf's middle,
+while central shelves next to 7-8m edges were densely covered (coverage scaled with edge
+length, not shelf extent). Back to 1.0m for even coverage. The wall-density this trades back
+up is now handled by Phase 3's Stage-1 shelf/wall classifier (see
+phase3_vlm_annotation_pass.md), which filters bare-wall checkpoints at annotation time - so
+denser sampling is no longer the problem it was when this was raised. Paired with the
+round->ceil sampling in sweep_edge_side, which guarantees the spacing never EXCEEDS this."""
 
 DEFAULT_SIMPLIFY_EPSILON_M = 0.3
 """Max deviation for the Douglas-Peucker simplification of an edge's skeleton path before
@@ -255,7 +261,11 @@ def sweep_edge_side(grid, path_cells, side, *,
         if seg_length_m < 1e-9:
             continue
 
-        n_steps = max(1, round(seg_length_m / interval_m))
+        # ceil, not round: round(2.7m / 2.0m) = 1 samples only a 2.7m segment's two endpoints,
+        # skipping its middle - which is exactly how a shelf sitting mid-segment gets 0
+        # checkpoints. ceil makes the actual sample spacing never EXCEED interval_m, so no
+        # shelf longer than interval_m can fall entirely between two consecutive samples.
+        n_steps = max(1, math.ceil(seg_length_m / interval_m))
         first_step = 0 if seg_idx == 0 else 1  # skip resampling the vertex shared with the previous segment
         for step in range(first_step, n_steps + 1):
             t = step / n_steps
