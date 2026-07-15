@@ -28,9 +28,15 @@ plans/phase3.1_semantic_product_layer.md. In short:
     layout and "fast tracking" positions (both of which our checkpoint graph already knows
     deterministically). Asking the VLM for layout invites exactly the spatial hallucination
     NavReasonPlan.md documents as the agent's primary failure mode.
-  * SIGNS ARE READ-ONLY: the VLM reports sign text verbatim and never judges which shelf a sign
-    belongs to - deterministic code decides that. This is what makes a misread faraway sign
-    harmless (it can confirm, never override).
+  * SIGNS ARE DECORATION, NOT EVIDENCE: `shelf_type` comes from the products alone. Sign
+    reconciliation was designed, then dropped on measured evidence. This store's category signs
+    hang from the ceiling; capture varies yaw only from a camera at ~1.485m, so a sign climbs out
+    of frame the CLOSER you stand to it. The only signs legible from a checkpoint are therefore
+    the distant ones - which are, by construction, over a different aisle. Measured at checkpoint
+    67: "Dairies / Soup / 3" read perfectly from a shelf holding Tostitos and Pancit Canton,
+    while the sign actually overhead was clipped down to its bare numeral. There is no scoping
+    that rescues this without a pitch sweep. `sign_text` survives as a nullable observation only;
+    nothing consumes it, and the prompt says so.
   * HALLUCINATION IS TOLERATED, NOT FOUGHT: the index is re-verified by the agent on arrival, so
     the rules aim at "null over guess" and "general over specific" rather than perfection.
 
@@ -44,10 +50,10 @@ CALLER CONTRACT (the prompts below promise these; the client has to deliver them
     topology kind. See that function - the distinction is the entire reason Stage 1 exists.
 
 OPEN DECISIONS (deliberately not baked in yet):
-  * Structured-output enforcement: if the private Qwen server supports guided JSON /
-    response_format=json_schema (vLLM does), pass the *_SCHEMA dicts below and the contract is
-    enforced server-side. If not, the prompts still state the contract and the caller must parse
-    + retry.
+  * Structured-output enforcement: RESOLVED 2026-07. The server is vLLM serving
+    `Qwen/Qwen3.6-27B` (262k ctx) over Chat Completions at :8000/v1, no key. vLLM supports guided
+    decoding, so the *_SCHEMA dicts below go over the wire as `extra_body={"guided_json": ...}`
+    and the contract is enforced server-side rather than parsed and retried hopefully.
   * Neighbour context injection: NOT included. The graph already knows connectivity, and feeding
     it in invites the spatial claims rule 4 forbids. The renderer adds "connects to..." from the
     graph instead. Revisit only if summaries read as too isolated.
@@ -140,12 +146,12 @@ Produce these fields:
     One to three sentences, in natural language, describing this spot as a store guide would: what this shelf holds, plus anything navigationally useful you can SEE from here (an aisle opening, a checkout, a corner). Follow rule 4 - do not describe how this shelf relates to other shelves.
 
 "shelf_type"
-    Exactly ONE value from this list, based on the products you can actually see:
+    What this shelf holds overall: ONE value from this list, or TWO if it genuinely holds two kinds - a shelf split between chips and instant noodles, say. Put the dominant one first. Never more than two; if it holds more than two, give the two largest.
 {categories}
-    If the shelf holds products from several of these, pick the one that describes most of what you see.
+    Judge this from the products themselves. Do not use signs.
 
 "sign_text"
-    If a category or aisle sign is legible anywhere in the PRIMARY image - including at its edges - copy its text verbatim. Otherwise null. Do NOT try to work out whether that sign belongs to this shelf; just report what it says. Something else decides that.
+    If a category or aisle sign is legible anywhere in the PRIMARY image - including at its edges - copy its text verbatim. Otherwise null. This is a plain observation, nothing more: do NOT let it influence "shelf_type", and do NOT assume the sign refers to the shelf you are facing. In this store a visible sign usually belongs to a different aisle.
 
 "items"
     The products on this shelf, taken ONLY from the PRIMARY image. This matters: the context images show other shelves and other aisles that belong to OTHER checkpoints - never take an item from them.
@@ -155,13 +161,13 @@ Produce these fields:
         - "brand": the brand, ONLY if you can genuinely read it on the packaging. Otherwise null.
         - "variant": size, flavour, or variant, ONLY if legible. Otherwise null.
         - "appearance": a short visual description so someone can spot it again on the shelf ("red box, rooster logo, white lettering"). Describe what it LOOKS like, not what you infer it is - this is used to confirm the right item on arrival.
-        - "category": leave this null - the shelf's own type already covers it. Set it, to a value from the list above, ONLY for an item that clearly does not belong with the rest of the shelf: a promotional display of something unrelated, say.
+        - "category": REQUIRED. The ONE value from the list above that this item belongs to. Judge the ITEM ITSELF, not the shelf around it - on a shelf holding two kinds of product, the item beside this one may well belong to the other category.
 
     List each distinct product once. If the shelf is empty, or you cannot make out any products, return an empty list - that is a valid, correct answer, not a failure.
 
 Output strict JSON only:
 
-{{"semantic_summary": "...", "shelf_type": "...", "sign_text": null, "items": [{{"name": "...", "brand": null, "variant": null, "appearance": "...", "category": null}}]}}
+{{"semantic_summary": "...", "shelf_type": ["..."], "sign_text": null, "items": [{{"name": "...", "brand": null, "variant": null, "appearance": "...", "category": "..."}}]}}
 """
 
 
@@ -206,7 +212,15 @@ SHELF_ANNOTATION_SCHEMA = {
     "type": "object",
     "properties": {
         "semantic_summary": {"type": "string"},
-        "shelf_type": {"type": "string", "enum": CATEGORY_ENUM},
+        # 1-2 values, dominant first. Real shelves are mixed more often than not (a measured
+        # example: one shelf interleaving Tostitos/Pringles/Clover with Pancit Canton/Jin Ramen
+        # row by row), so forcing a single label was lossy on a coin-flip basis.
+        "shelf_type": {
+            "type": "array",
+            "items": {"type": "string", "enum": CATEGORY_ENUM},
+            "minItems": 1,
+            "maxItems": 2,
+        },
         "sign_text": {"type": ["string", "null"]},
         "items": {
             "type": "array",
@@ -217,11 +231,12 @@ SHELF_ANNOTATION_SCHEMA = {
                     "brand": {"type": ["string", "null"]},
                     "variant": {"type": ["string", "null"]},
                     "appearance": {"type": ["string", "null"]},
-                    # Nullable by design: null means "inherits the shelf's type" (the normal
-                    # path). Only an odd-one-out sets it.
-                    "category": {"type": ["string", "null"], "enum": CATEGORY_ENUM + [None]},
+                    # Required and non-nullable: it is the flat index's query key, and with a
+                    # 1-2 value shelf_type there is no single value left to default it to.
+                    # Asking per item is also what makes a mixed shelf's rows correct.
+                    "category": {"type": "string", "enum": CATEGORY_ENUM},
                 },
-                "required": ["name"],
+                "required": ["name", "category"],
                 "additionalProperties": False,
             },
         },
