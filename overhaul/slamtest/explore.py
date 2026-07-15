@@ -710,10 +710,4 @@ if __name__ == "__main__":
     # event loop can leave a non-daemon thread alive - either can silently block normal
     # interpreter shutdown even though all real work (files saved, plot closed) is done.
     # All output is already written to disk above, so skipping normal cleanup here is safe.
-    # Flush first, though: os._exit() does NOT flush Python's stdio buffers, so when stdout
-    # is a pipe/file (block-buffered, not a line-buffered TTY) the final buffer of step logs
-    # would be lost - only touches the stdio buffers, not the asyncio/matplotlib threads the
-    # hard exit exists to skip.
-    sys.stdout.flush()
-    sys.stderr.flush()
     os._exit(0)
