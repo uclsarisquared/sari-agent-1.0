@@ -53,14 +53,22 @@ MEASURED - DO NOT RE-ATTEMPT (2026-07, all on cp067 captures):
     read it; do not infer; repeating the product's name here is wrong" bullet made every axis worse
     on the identical image: items 9 -> 19 (one entry per FACING) and names collapsed to "chips" x11.
     It hallucinated regardless ("Mama"). Reverted.
-  * What remains is ACCEPTED, not a bug to fix: an unreadable logo becomes a wrong PREFIX on an
-    otherwise-correct name - "Delight" / "Delightful" / "Dolby's Pancit Canton" across three runs
-    where the truth is "Lucky Me!". The product half is right every time, so the row stays findable,
-    and every legible brand comes back correct (Clover Chips, Tostitos, Pillows, Loaded!, Platos,
-    Criss Cross, Jin Ramen, Cheese Ring, Pringles, Pik-Nik, Oishi Prawn Crackers). The ONLY measured
-    way to do better is a focused single-question pass ("read the brand, or answer UNREADABLE" ->
-    "LuckyMe!" correctly, and it abstains honestly when it genuinely cannot read). That is a task
-    shape, not a sentence - the omnibus form fails at every distance and every wording tried.
+  * NAME POLICY (adopted 2026-07 after a user review of a real pass): a name must be TEXT READ OFF
+    THE LABEL; an item whose label can't be read is OMITTED, never named by description or grouped.
+    This SUPERSEDES the earlier "fall back to a generic product name" clause, which was producing
+    exactly the junk the review flagged - grouping rows ("assorted soda bottles", "bottled water
+    (assorted brands)") and appearance rows ("green chip bag", "canned goods (gold lid)"). Crucially
+    it does NOT re-trigger the mode-flip in the bullet above: that flip happened because a generic
+    name ("potato chips") was an available escape hatch; forbidding generic/description names removes
+    the hatch, so the model's only moves are "read the label" or "omit the item" - no generic bucket
+    to flee into. Validated on the two reviewed captures: cp015 10->8 items (both "assorted" rows
+    gone, 8 real brands kept), cp017 9->2 (seven description rows gone, Tostitos + Mackerel kept),
+    zero generic names in either. The cost is RECALL: an unreadable label is now a missing row, not a
+    described one - which is the point (a described row was never findable anyway); the fix for a
+    genuinely-wanted-but-unreadable item is resolution (tiling / closer), not a looser name rule. The
+    focused single-question pass still reads a brand the omnibus form can't ("read the brand, or
+    answer UNREADABLE" -> "LuckyMe!"); that remains the only measured way to raise recall on hard
+    labels without inventing.
   * Reading distance IS load-bearing for LARGE printed text, and does nothing for small logos.
     Stepping the agent in at cp067: at 1.54m variants came back mostly null; at 1.20m they came back
     correct ("Mild", "Cheesier", "Original", "Sour Cream & Onion") and a previously-missed product
@@ -161,7 +169,7 @@ What you are given:
 
 Rules that apply to everything you write:
     1. Report only what you can actually see, and never guess. Where a field below tells you to use null or an empty list when you cannot tell, use it - a "don't know" recorded honestly is a correct and useful answer here; an invented one is not.
-    2. Prefer general over specific. "cereal boxes" is a safe observation; "Kellogg's Corn Flakes 500g" is a guess unless you can genuinely read it.
+    2. Never invent detail you cannot see. Reading "corn flakes" off a box is an observation; calling it "Kellogg's Corn Flakes 500g" without reading the brand and weight is a guess. Report what you can read, not what you assume. (For product names the "items" rules below are stricter still.)
     3. Describe only what is visible FROM THIS SPOT. Do not speculate about what lies beyond view.
     4. Do NOT describe how shelves or aisles relate to one another - what is "behind", "opposite", or "next to" what. The map already knows the layout exactly; your spatial guesses would corrupt it. Stick to what is in front of you.
     5. Output strict JSON matching the shape shown at the end of these instructions. No prose outside the JSON, no markdown fences.
@@ -191,12 +199,14 @@ Produce these fields:
     The products on this shelf, taken ONLY from the PRIMARY image. This matters: the context images show other shelves and other aisles that belong to OTHER checkpoints - never take an item from them.
 
     For each distinct product:
-        - "name": REQUIRED. What the product is called, as SPECIFICALLY as you can read it off the packaging, brand included: "Lucky Me! Pancit Canton", "Tostitos Original", "Clover Chips". This is the only field anyone will search on later, so a specific name is the whole point. If you cannot read a brand, fall back to naming the product alone ("instant noodles", "potato chips") - a worse answer, but an honest one. Never write a brand you cannot actually read.
+        - "name": REQUIRED, and it must be the text PRINTED ON THE ITEM'S LABEL - the brand and product name as actually written on the packaging ("Lucky Me! Pancit Canton", "Coca-Cola", "Tostitos"). Read it off the label. Do NOT name an item from its shape, its colour, or your sense of what it probably is - this is the only field anyone searches on later, so it has to be the real printed name.
+          ONLY include an item whose label you can read. If a label is turned away, too small, or too blurred to make out, LEAVE THAT ITEM OUT. Do not add it under a description like "green chip bag", "canned goods", or "bottled water" - an item you can only describe, not read, is not a usable entry, and omitting it is the correct choice, not a failure.
+          ONE entry is ONE product. Never merge several items into a single row and never generalise: "assorted soda bottles", "various cans", "bottled water (assorted brands)", "mixed chips" are all forbidden. If five distinct bottles are legible, that is five entries; the bottles you cannot read are simply left out.
         - "variant": size, flavour, or variant, ONLY if legible. Otherwise null.
         - "appearance": a short visual description so someone can spot it again on the shelf ("red box, rooster logo, white lettering"). Describe what it LOOKS like, not what you infer it is - this is used to confirm the right item on arrival.
         - "category": REQUIRED. The ONE value from the list above that this item belongs to. Judge the ITEM ITSELF, not the shelf around it - on a shelf holding two kinds of product, the item beside this one may well belong to the other category.
 
-    List each distinct product once. If the shelf is empty, or you cannot make out any products, return an empty list - that is a valid, correct answer, not a failure.
+    A short list of products you could genuinely read beats a long list padded with descriptions. If you cannot read any label, or the shelf is empty, return an empty list - that is a valid, correct answer, not a failure.
 
 Output strict JSON only:
 
