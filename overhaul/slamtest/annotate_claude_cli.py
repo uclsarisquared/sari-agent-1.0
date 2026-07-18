@@ -92,22 +92,23 @@ class ClaudeCliError(RuntimeError):
 
 
 def annotate(image_path, system, schema, *, model=DEFAULT_MODEL, effort=DEFAULT_EFFORT,
-             timeout=DEFAULT_TIMEOUT_S, context_images=None):
+             timeout=DEFAULT_TIMEOUT_S, extra_views=None):
     """Run one annotation through `claude -p` and return (result_dict, envelope).
 
     result_dict is the schema-shaped annotation (from the envelope's structured_output). envelope
     is the full result JSON - carries usage, total_cost_usd (equivalent, not billed on Max), and
     timing. Raises ClaudeCliError on any failure.
 
-    context_images: optional extra image paths (the Stage-2 contextual set). Each is named in the
-    prompt as a CONTEXT image so the model can use them for surroundings only - the prompt already
-    forbids taking item content from them. The PRIMARY image is always image_path.
+    extra_views: optional [(label, path)] of ADDITIONAL views of the same shelf from the same spot
+    - e.g. [("DOWN", ...), ("UP", ...)] from capture_walk's pitch captures. `image_path` is the
+    STRAIGHT view. These are NOT "context": every view is item-bearing, because they are one shelf
+    at different tilts and the DOWN view reaches rows the STRAIGHT view clips. The prompt tells the
+    model to enumerate across all of them and de-duplicate the overlap.
     """
     claude = shutil.which("claude") or "claude"
-    primary = os.path.abspath(image_path)
-    lines = [f"PRIMARY image: {primary}"]
-    for i, ctx in enumerate(context_images or [], 1):
-        lines.append(f"CONTEXT image {i}: {os.path.abspath(ctx)}")
+    lines = [f"STRAIGHT view: {os.path.abspath(image_path)}"]
+    for label, path in (extra_views or []):
+        lines.append(f"{label} view: {os.path.abspath(path)}")
     prompt = "\n".join(lines)
 
     cmd = [
@@ -165,8 +166,9 @@ def _build_request(args):
 
 def main():
     p = argparse.ArgumentParser(description="Annotate one capture via `claude -p` (rides the claude.ai / Max-plan login).")
-    p.add_argument("image", help="PRIMARY image (a PNG from the capture walk)")
-    p.add_argument("--context", nargs="*", default=None, help="Extra CONTEXT images (Stage-2 surroundings)")
+    p.add_argument("image", help="STRAIGHT view (a PNG from the capture walk)")
+    p.add_argument("--down", default=None, help="DOWN-pitch view of the same shelf (cp<id>_down.png)")
+    p.add_argument("--up", default=None, help="UP-pitch view of the same shelf (cp<id>_up.png)")
     p.add_argument("--classify", action="store_true", help="Run Stage 1 (shelf/non_shelf) instead of Stage 2")
     p.add_argument("--kind", default="shelf", help="Stage-2 effective kind: shelf | junction | end | doorway | non_shelf")
     p.add_argument("--model", default=DEFAULT_MODEL, help="claude model or alias (default: sonnet)")
@@ -177,9 +179,10 @@ def main():
     system, schema, label = _build_request(args)
     print(f"[claude-cli] {label}  model={args.model} effort={args.effort}  {os.path.basename(args.image)}")
     try:
+        views = [(lbl, pth) for lbl, pth in (("DOWN", args.down), ("UP", args.up)) if pth]
         result, envelope = annotate(args.image, system, schema, model=args.model,
                                     effort=args.effort, timeout=args.timeout,
-                                    context_images=args.context)
+                                    extra_views=views)
     except ClaudeCliError as e:
         print(f"[claude-cli] FAILED: {e}")
         if e.stderr:

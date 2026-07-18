@@ -164,8 +164,8 @@ Output strict JSON only, no prose and no markdown fences, using exactly one of t
 SYS_INST_ANNOTATE_BASE = """You are a store-map annotator. You are annotating ONE fixed checkpoint in a store's navigation map. Another system already chose where this checkpoint is and drove the agent to it - you never decide where to go, and you are never asked to navigate.
 
 What you are given:
-    - A PRIMARY image: the main view from this checkpoint. If this checkpoint faces a shelf, the PRIMARY image looks straight at that shelf.
-    - Optionally, CONTEXT images: the view at other angles from the SAME spot, each labelled with its angle. These are for surroundings only.
+    - One or more images taken from this ONE checkpoint, each labelled with its view: STRAIGHT (camera level), DOWN (camera tilted down), UP (camera tilted up).
+    - Every view looks at the SAME thing from the SAME spot - only the camera's tilt differs. They OVERLAP: the lower rows of the STRAIGHT view are the upper rows of the DOWN view, so the same object can appear in two images.
 
 Rules that apply to everything you write:
     1. Report only what you can actually see, and never guess. Where a field below tells you to use null or an empty list when you cannot tell, use it - a "don't know" recorded honestly is a correct and useful answer here; an invented one is not.
@@ -196,13 +196,18 @@ Produce these fields:
     If a category or aisle sign is legible anywhere in the PRIMARY image - including at its edges - copy its text verbatim. Otherwise null. This is a plain observation, nothing more: do NOT let it influence "shelf_type", and do NOT assume the sign refers to the shelf you are facing. In this store a visible sign usually belongs to a different aisle.
 
 "items"
-    The products on this shelf, taken ONLY from the PRIMARY image. This matters: the context images show other shelves and other aisles that belong to OTHER checkpoints - never take an item from them.
+    The products on this shelf, taken from ALL the views you were given. They are one shelf at different tilts, and each reaches rows the others cut off - the DOWN view in particular reaches the bottom rows the STRAIGHT view clips off. Enumerate across every view; a product is no less real for appearing in only one of them.
+
+    The views OVERLAP, so list each distinct product EXACTLY ONCE however many views show it. The same box seen in two views is one entry, not two.
+
+    Only THIS shelf counts. If a neighbouring shelf or aisle intrudes at the edge of a frame, its products belong to a different checkpoint - leave them out.
 
     For each distinct product:
         - "name": REQUIRED, and it must be the text PRINTED ON THE ITEM'S LABEL - the brand and product name as actually written on the packaging ("Lucky Me! Pancit Canton", "Coca-Cola", "Tostitos"). Read it off the label. Do NOT name an item from its shape, its colour, or your sense of what it probably is - this is the only field anyone searches on later, so it has to be the real printed name.
           ONLY include an item whose label you can read. If a label is turned away, too small, or too blurred to make out, LEAVE THAT ITEM OUT. Do not add it under a description like "green chip bag", "canned goods", or "bottled water" - an item you can only describe, not read, is not a usable entry, and omitting it is the correct choice, not a failure.
           ONE entry is ONE product. Never merge several items into a single row and never generalise: "assorted soda bottles", "various cans", "bottled water (assorted brands)", "mixed chips" are all forbidden. If five distinct bottles are legible, that is five entries; the bottles you cannot read are simply left out.
         - "variant": size, flavour, or variant, ONLY if legible. Otherwise null.
+        - "price": the number printed on THIS product's shelf price tag, copied exactly as shown ("29.95"). The tags sit in a row along the shelf edge, each under the product it belongs to. Use null if you cannot read the digits, and ALSO use null if you cannot tell which tag is this product's - a price paired with the wrong product is worse than no price.
         - "appearance": a short visual description so someone can spot it again on the shelf ("red box, rooster logo, white lettering"). Describe what it LOOKS like, not what you infer it is - this is used to confirm the right item on arrival.
         - "category": REQUIRED. The ONE value from the list above that this item belongs to. Judge the ITEM ITSELF, not the shelf around it - on a shelf holding two kinds of product, the item beside this one may well belong to the other category.
 
@@ -210,7 +215,7 @@ Produce these fields:
 
 Output strict JSON only:
 
-{{"semantic_summary": "...", "shelf_type": ["..."], "sign_text": null, "items": [{{"name": "...", "variant": null, "appearance": "...", "category": "..."}}]}}
+{{"semantic_summary": "...", "shelf_type": ["..."], "sign_text": null, "items": [{{"name": "...", "variant": null, "price": null, "appearance": "...", "category": "..."}}]}}
 """
 
 
@@ -273,6 +278,10 @@ SHELF_ANNOTATION_SCHEMA = {
                     # Brand is folded INTO name, deliberately - see the measured note above.
                     "name": {"type": "string"},
                     "variant": {"type": ["string", "null"]},
+                    # String, not number: the tag may read "29.95", "29", or partially. Kept
+                    # nullable and NOT required - a mis-paired price is worse than a missing one,
+                    # and the catalog's pricePHP gives a ground truth to score these against.
+                    "price": {"type": ["string", "null"]},
                     "appearance": {"type": ["string", "null"]},
                     # Required and non-nullable: it is the flat index's query key, and with a
                     # 1-2 value shelf_type there is no single value left to default it to.

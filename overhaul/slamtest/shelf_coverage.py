@@ -24,25 +24,34 @@ from topology import Checkpoint, TopologyEdge  # noqa: E402
 
 
 MIN_READING_DISTANCE_M = 1
-MAX_READING_DISTANCE_M = 1.2
+MAX_READING_DISTANCE_M = 1.0
 """How far back from a shelf face a checkpoint is placed - i.e. the VLM's reading distance.
 
-Lowered from 1.5m after measuring what the annotator can actually READ, by stepping the agent in
-at cp067 and re-asking at each distance. 1.5m sat just outside the legible range: variants came
-back mostly null and brand logos were unreadable (the model answered with the product's own name
-instead). At 1.2m variants come back correct ("Mild", "Cheesier", "Original", "Sour Cream &
-Onion") and a product it had missed entirely ("Platos") appears. Closer still (1.0m, 0.78m) reads
-no better, so 1.2m buys the legibility without spending the safety margin.
+Measured history (stepping the agent in at cp067 and re-asking the annotator at each distance):
+1.5m sat just outside the legible range - variants came back mostly null and brand logos were
+unreadable (the model answered with the product's own name instead). At 1.2m variants came back
+correct ("Mild", "Cheesier", "Original", "Sour Cream & Onion") and a product it had missed
+entirely ("Platos") appeared. On THAT shelf, 1.0m read no better than 1.2m - dry goods with large
+flat labels are already legible at 1.2m. 1.0m is set anyway for the harder cases (small curved
+labels, product behind fridge glass) where the extra pixels may matter, and because Phase 3
+measured near-zero recall on the refrigerated categories (Juice 0/16, Dairies 2/20).
 
 The floor is NOT this constant - it is explore.py's executor, which refuses to move within
-`safety_margin + min_step` (0.65 + 0.1 = 0.75m) of an obstacle ahead. 1.2m keeps 0.45m of headroom
-over that; 0.8m would leave 0.05m, where LiDAR noise reading 0.74 trips the nudge-then-escape path
-at every shelf and re-creates the Phase-2 wedge dynamics. Verified at 1.2m on the frozen grid: all
-65 shelf checkpoints survive (same count as 1.5m) and 0 fall below the executor's standoff.
+`safety_margin + min_step` (0.65 + 0.1 = 0.75m) of an obstacle ahead. 1.0m leaves only 0.25m of
+headroom over that, and it is not free: measured on the frozen grid, 1.2m put ZERO shelf
+checkpoints below the executor's standoff, while 1.0m puts a couple of them at ~0.64m clearance -
+i.e. nodes the navigator may refuse to reach. 0.8m would leave 0.05m, where LiDAR noise reading
+0.74 trips the nudge-then-escape path at every shelf and re-creates the Phase-2 wedge dynamics.
+
+Closer also costs VERTICAL framing: the camera sits at ~1.485m and capture varies yaw only, so the
+nearer you stand the more of a tall shelf falls outside the frame (the bottom rows first). The
+intended mitigation is a pitched capture (straight + angled down) rather than backing off - that
+capability does not exist yet.
 
 Careful when tuning: placement is `min(MAX_READING_DISTANCE_M, dist_to_shelf)` and is then
-REJECTED if it lands below MIN_READING_DISTANCE_M. Lower this below MIN and every shelf checkpoint
-silently vanishes."""
+REJECTED if it lands below MIN_READING_DISTANCE_M. With MAX == MIN == 1.0 there is zero tolerance -
+any shelf whose path distance is even slightly under 1.0m loses its checkpoint outright. Lower this
+below MIN and every shelf checkpoint silently vanishes."""
 
 DEFAULT_SHELF_SEARCH_RADIUS_M = 2.0
 """Caps how far the perpendicular shelf-search is allowed to look, so a stretch of open
@@ -56,18 +65,35 @@ aggressive). 2.0m was chosen purely to cut overall density (89 -> 45 on that sam
 while Stage 1 of Phase 3's two-stage annotation (see phase3_vlm_annotation_pass.md)
 handles the remaining shelf-vs-wall ambiguity cheaply, per-checkpoint, instead."""
 
-DEFAULT_CHECKPOINT_INTERVAL_M = 1.0
+DEFAULT_CHECKPOINT_INTERVAL_M = 2.0
 """Spacing between consecutive shelf-hugging checkpoints along one side of an aisle.
-Briefly raised to 2.0m purely to cut density, but the "revisit if Phase 3 finds real coverage
-gaps" this warned about happened first: at 2.0m, shelves alongside short (junction-chopped)
-edges fall between samples entirely - measured on a frozen map, a whole west-wall shelf got 0
-checkpoints because its 2.7m edge sampled only its two endpoints, skipping the shelf's middle,
-while central shelves next to 7-8m edges were densely covered (coverage scaled with edge
-length, not shelf extent). Back to 1.0m for even coverage. The wall-density this trades back
-up is now handled by Phase 3's Stage-1 shelf/wall classifier (see
-phase3_vlm_annotation_pass.md), which filters bare-wall checkpoints at annotation time - so
-denser sampling is no longer the problem it was when this was raised. Paired with the
-round->ceil sampling in sweep_edge_side, which guarantees the spacing never EXCEEDS this."""
+
+History matters here, because this value has been 2.0 -> 1.0 -> 2.0 and the round trip is NOT a
+flip-flop - the sampling bug underneath it got fixed in between:
+
+  * It was 2.0m with `round` sampling in sweep_edge_side. That combination lost whole shelves: a
+    2.7m edge gave round(2.7/2.0) = 1 step, i.e. only its two ENDPOINTS, skipping the shelf's
+    middle. A west-wall shelf measured 0 checkpoints while central shelves next to 7-8m edges
+    were densely covered - coverage scaled with EDGE length, not shelf extent.
+  * The fix for that was two changes at once: round -> ceil (so the spacing can never EXCEED the
+    interval - the same 2.7m edge now gives ceil(2.7/2.0) = 2 steps = 3 sample points), AND
+    dropping to 1.0m. Only the first was load-bearing; the second was belt-and-braces.
+  * 1.0m then measurably OVER-sampled. Phase 3's real annotation run showed adjacent checkpoints
+    re-reading the same products: "Pepero" appeared at 9 checkpoints, "Pringles" at 9, on a store
+    with ~9 shelf units total. That duplication is wasted VLM calls and a noisy product index.
+
+So: back to 2.0m, which is safe now that `ceil` guarantees the endpoints-only failure can't
+recur. Measured on the frozen grid: 65 checkpoints at 1.0m -> 39 at 2.0m.
+
+Do NOT expect this knob to thin the graph much further - node count is floored by the NUMBER of
+shelf-adjacent skeleton edges (each contributes at least its endpoints), not by spacing: 1.5m
+gives 41, 2.0m gives 39, 2.5m gives 33. Getting to the ~16 that the store's actual shelf count
+implies needs per-shelf-face consolidation (merging the nodes that sit on one physical face),
+which is an algorithm change, not a value change.
+
+Whenever this changes, eyeball shelf_graph_<tag>.png before trusting it - the failure mode this
+constant guards against (a whole shelf face with no checkpoint) is obvious in the picture and
+invisible in the count."""
 
 DEFAULT_SIMPLIFY_EPSILON_M = 0.3
 """Max deviation for the Douglas-Peucker simplification of an edge's skeleton path before

@@ -27,8 +27,15 @@ so the same safety properties hold, and shelf corners/dead ends behave the way e
 
 Requires the sim in Play mode. Requires NO model server. Reads a frozen map; never re-maps.
 
+Captures are STANDING + CROUCHED, not yaw-swept: at each checkpoint the agent faces the shelf,
+shoots level from standing height, crouches (halving the view height) and shoots level again, then
+stands back up. Both views look at the SAME shelf face - they are not a "surroundings" set. This
+exists because the camera sits at ~1.485m: at a 1.0m reading distance a tall shelf no longer fits
+in one frame, and the bottom rows - real product - fall outside it. Crouching beats tilting down,
+which sees those rows only from above (cans show their lids, labels foreshorten away).
+
     python slamtest/capture_walk.py slamtest/output --limit 5
-    python slamtest/capture_walk.py slamtest/output --ids 42 43 --angles 8
+    python slamtest/capture_walk.py slamtest/output --ids 42 43 --angles 2
 """
 import argparse
 import json
@@ -44,7 +51,7 @@ for _p in (_OVERHAUL_DIR, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from env import TransformAgent, SetHandsActive, RequestScreenshot  # noqa: E402
+from env import TransformAgent, SetHandsActive, SetCrouch, RequestScreenshot  # noqa: E402
 
 from occupancy_grid import OccupancyGrid  # noqa: E402
 from lidar_client import RequestLidarScan  # noqa: E402
@@ -165,6 +172,42 @@ def face(args, pos, rot, world_yaw):
     return pos, rot
 
 
+PITCH_LEVEL_DEG = 0.0
+DEFAULT_PITCH_STEP_DEG = 20.0
+
+
+def pitch_to(args, rot, target_pitch_deg):
+    """Tilt the camera to an ABSOLUTE pitch: 0 = level, POSITIVE = down, NEGATIVE = up.
+
+    The sign convention is env.py's, not a choice made here - see `_TILT_DOWN_`/`_TILT_UP_`, which
+    are TransformAgent((0,0,0), (+2.5,0,0)) and (-2.5,0,0). So rotation's X axis is pitch, applied
+    as a delta exactly like yaw; no new websocket command is needed for any of this.
+
+    Absolute rather than relative on purpose: pitching by a delta from wherever we happen to be
+    lets rounding drift accumulate across a long walk. Reading the live pitch back and correcting
+    to the target keeps every capture at the same angle, and makes returning to level exact."""
+    delta = normalize_deg(target_pitch_deg - rot[0])
+    pos, rot, _ = step_agent((0, 0, 0), (delta, 0, 0), args.uri)
+    return pos, rot
+
+
+def capture_plan(n_angles):
+    """Which (label, crouched) captures to take, given --angles. 1 -> standing only.
+    2 -> standing + crouched. The camera is LEVEL for both.
+
+    Crouching rather than tilting down, measured: a down-pitched camera looks at the lower rows
+    from above, so cans present their LIDS and the labels foreshorten away - it proves a row exists
+    without letting you read it. Crouching halves the view height (Unity's CurrentLocalViewHeight)
+    and keeps the camera level, so the same rows are seen face-on and their labels stay readable.
+
+    There is no up shot: measured at cp050, a +20 deg up frame was ~65% ceiling tiles and its only
+    product row was already covered by the standing view."""
+    plan = [("primary", False)]
+    if n_angles >= 2:
+        plan.append(("crouch", True))
+    return plan
+
+
 def capture(args, out_path):
     """Grab the agent's current view. save_image=False so we own the filename/location rather
     than letting env.py drop it in its own screenshots folder."""
@@ -223,17 +266,28 @@ def run(args):
             if cp.get("shelf_cell"):
                 yaw = perpendicular_yaw(cp)
                 pos, rot = face(args, pos, rot, yaw)
-                shots.append(capture(args, os.path.join(
-                    args.capture_dir, f"cp{cp['id']:03d}_primary.png")))
-            # Extra angles are the Stage-2 contextual set; the primary above is the one that
-            # carries item content (see the primary-vs-contextual split in the phase3 doc).
-            for i in range(1, args.angles):
-                pos, rot = face(args, pos, rot, normalize_deg(rot[1] + 360.0 / args.angles))
-                shots.append(capture(args, os.path.join(
-                    args.capture_dir, f"cp{cp['id']:03d}_a{int(round(rot[1])):+04d}.png")))
+                try:
+                    # Level the camera before shooting. Not paranoia: the agent was found sitting
+                    # at 16.1 deg pitch from an earlier manual-control session, which would have
+                    # silently tilted every "straight" capture of the run.
+                    pos, rot = pitch_to(args, rot, PITCH_LEVEL_DEG)
+                    # Both views look at THIS shelf from the same spot and yaw - one standing, one
+                    # crouched. Neither is "surroundings"; both are item-bearing.
+                    for label, crouched in capture_plan(args.angles):
+                        SetCrouch(crouched, uri=args.uri)
+                        shots.append(capture(args, os.path.join(
+                            args.capture_dir, f"cp{cp['id']:03d}_{label}.png")))
+                finally:
+                    # Stand back up and re-level before ANY further movement, even if a capture
+                    # threw. This is a safety property, not tidiness: goto() gates every step on
+                    # swept_clearance_ahead, and a LiDAR scan taken while crouched or pitched
+                    # reports the floor as an obstacle ahead - the executor would either wedge or,
+                    # worse, clear a step that isn't actually clear.
+                    SetCrouch(False, uri=args.uri)
+                    pos, rot = pitch_to(args, rot, PITCH_LEVEL_DEG)
 
             print(f"[capture_walk] id={cp['id']:3d} at ({pos[0]:.2f},{pos[2]:.2f}) "
-                  f"yaw={rot[1]:.0f} -> {len(shots)} shot(s)")
+                  f"yaw={rot[1]:.0f} pitch={rot[0]:.1f} -> {len(shots)} shot(s)")
     finally:
         if args.stow_hands:
             SetHandsActive(True, uri=args.uri)
@@ -255,10 +309,11 @@ def build_parser():
     parser.add_argument("--ids", type=int, nargs="*", default=None, help="Only these checkpoint ids")
     parser.add_argument("--limit", type=int, default=5,
                         help="Sample this many checkpoints, spread across the graph (0 = all)")
-    parser.add_argument("--angles", type=int, default=1,
-                        help="Captures per checkpoint: 1 = primary/perpendicular only (the "
-                             "pre-flight case); 8 = primary + 7 more at 45deg increments (the "
-                             "Stage-2 contextual set)")
+    parser.add_argument("--angles", type=int, default=1, choices=[1, 2],
+                        help="Captures per checkpoint, both level and facing the same shelf: "
+                             "1 = standing only; 2 = standing + crouched. The crouched view halves "
+                             "the camera height to see the lower rows face-on. "
+                             "Files are cp<id>_primary.png / cp<id>_crouch.png")
     parser.add_argument("--resolution", type=float, default=0.1)
     parser.add_argument("--connectivity", type=int, default=8, choices=[4, 8])
     parser.add_argument("--arrival-radius", type=float, default=0.3,

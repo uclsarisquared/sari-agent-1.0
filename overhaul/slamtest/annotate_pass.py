@@ -60,11 +60,20 @@ def primary_path(capture_dir, cp_id):
     return os.path.join(capture_dir, f"cp{cp_id:03d}_primary.png")
 
 
-def context_paths(capture_dir, cp_id):
-    """The Stage-2 contextual set: cp<id>_a<angle>.png. Sorted for determinism. The primary is
-    excluded (it's matched separately) - these are the surroundings-only angles."""
-    pattern = os.path.join(capture_dir, f"cp{cp_id:03d}_a*.png")
-    return sorted(glob.glob(pattern))
+def view_paths(capture_dir, cp_id):
+    """The extra PITCH views of the same shelf: [(label, path)] for whichever of down/up exist.
+
+    These are NOT context images - capture_walk shoots them at the same spot and yaw as the
+    primary, just lower, so they show THIS shelf's bottom rows face-on (which a standing frame
+    clips at a 1.0m reading distance). Every one is item-bearing; annotate() and the prompt both
+    treat them that way. Missing files are simply skipped, so an --angles 1 capture set still
+    annotates fine."""
+    views = []
+    for label, suffix in (("CROUCHED", "crouch"),):
+        p = os.path.join(capture_dir, f"cp{cp_id:03d}_{suffix}.png")
+        if os.path.exists(p):
+            views.append((label, p))
+    return views
 
 
 def select_checkpoints(topology, args):
@@ -88,11 +97,13 @@ def classify(primary, args):
     return result.get("label")
 
 
-def annotate_checkpoint(cp, primary, contexts, args):
+def annotate_checkpoint(cp, primary, views, args):
     """Full two-stage annotation for one checkpoint. Returns the sidecar record dict."""
     topo_kind = cp.get("kind", "?")
 
     # Stage 1 only runs on shelf-kind checkpoints (the only ones with shelf-vs-wall ambiguity).
+    # It uses the STRAIGHT view alone - shelf-vs-wall is obvious at a level frame, and the extra
+    # views would only add cost to a binary the classifier already gets right.
     label = None
     if topo_kind == SHELF_KIND and not args.skip_classify:
         label = classify(primary, args)
@@ -102,17 +113,21 @@ def annotate_checkpoint(cp, primary, contexts, args):
     schema = schema_for(ekind)
 
     result, env = annotate(primary, system, schema, model=args.model, effort=args.effort,
-                           timeout=args.timeout, context_images=contexts)
+                           timeout=args.timeout, extra_views=views)
 
     return {
         "id": cp["id"],
         "topology_kind": topo_kind,
         "classify_label": label,          # None = classify skipped or not applicable
         "effective_kind": ekind,
+        # Straight from the topology, never from the VLM - the graph owns connectivity, and Phase 4
+        # needs it here so an agent reading one checkpoint's record can see where it can go next
+        # without loading the whole graph.
+        "neighbors": cp.get("neighbors", []),
         "model": args.model,
         "effort": args.effort,
         "cost_equiv_usd": env.get("total_cost_usd"),
-        "n_context_images": len(contexts),
+        "views": ["STRAIGHT"] + [lbl for lbl, _ in views],
         "annotation": result,             # the schema-shaped VLM output
     }
 
@@ -131,6 +146,7 @@ def flatten_products(annotations):
             products.append({
                 "name": item.get("name"),
                 "variant": item.get("variant"),
+                "price": item.get("price"),
                 "appearance": item.get("appearance"),
                 # category is required per-item now; fall back to the shelf's dominant type, then
                 # "other", so a malformed item never lands in the index without a category.
@@ -169,7 +185,7 @@ def render_semantic_map(annotations, topology):
 
 def run(args):
     topo_path = os.path.join(args.output_dir, f"topology_{args.topology_tag}.json")
-    with open(topo_path) as f:
+    with open(topo_path, encoding="utf-8") as f:
         topology = json.load(f)
 
     capture_dir = args.capture_dir or os.path.join(args.output_dir, "captures")
@@ -179,7 +195,7 @@ def run(args):
 
     annotations = {}
     if args.resume and os.path.exists(ann_path):
-        with open(ann_path) as f:
+        with open(ann_path, encoding="utf-8") as f:
             annotations = json.load(f)
         print(f"[annotate_pass] resuming - {len(annotations)} checkpoint(s) already annotated")
 
@@ -199,9 +215,9 @@ def run(args):
             skipped += 1
             continue
 
-        contexts = context_paths(capture_dir, cp["id"])
+        views = view_paths(capture_dir, cp["id"])
         try:
-            rec = annotate_checkpoint(cp, primary, contexts, args)
+            rec = annotate_checkpoint(cp, primary, views, args)
         except ClaudeCliError as e:
             print(f"[annotate_pass] id={cp['id']:3d} FAILED: {e}")
             failed += 1
@@ -209,7 +225,7 @@ def run(args):
 
         annotations[cid] = rec
         # Write after every checkpoint so an interrupted pass keeps its progress and --resume works.
-        with open(ann_path, "w") as f:
+        with open(ann_path, "w", encoding="utf-8") as f:
             json.dump(annotations, f, indent=2, ensure_ascii=False)
 
         ann = rec["annotation"]
@@ -225,7 +241,7 @@ def run(args):
 
     # Derived outputs - rebuilt in full each run from the (possibly resumed) annotations.
     products = flatten_products(annotations)
-    with open(prod_path, "w") as f:
+    with open(prod_path, "w", encoding="utf-8") as f:
         json.dump(products, f, indent=2, ensure_ascii=False)
     with open(map_path, "w", encoding="utf-8") as f:
         f.write(render_semantic_map(annotations, topology))
