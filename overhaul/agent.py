@@ -3,6 +3,8 @@ from typing import List, Dict, Any, Optional, Literal
 from dataclasses import dataclass, field
 import os
 import base64
+import json
+import time
 from io import BytesIO
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -26,6 +28,15 @@ from actions_str import (
 )
 
 from depth import estimate_depth
+
+
+def _extract_json(pattern, text: str) -> str:
+    """Extract JSON string using regex, falling back to raw text if no code block found."""
+    match = re.search(pattern, text)
+    if match:
+        return match[1]
+    # Model returned raw dict/JSON without a code block wrapper
+    return text.strip()
 
 
 @dataclass
@@ -57,6 +68,9 @@ def _build_content(*parts) -> list:
 
 
 class BaseAgent(ABC):
+    _MAX_RETRIES = 5
+    _RETRY_DELAYS = [5, 10, 20, 40, 60]  # seconds between attempts
+
     @abstractmethod
     def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
         self.config = config or OpenRouterConfig()
@@ -64,6 +78,29 @@ class BaseAgent(ABC):
     @property
     def extractable_json_structured_output(self):
         return re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
+
+    def _api_call_with_retry(self, client: OpenAI, messages: list) -> str:
+        """Call the OpenRouter API with exponential-ish backoff on transient failures."""
+        last_err = None
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                resp = client.chat.completions.create(
+                    model=self.config.model_id,
+                    messages=messages,
+                    temperature=self.config.temperature,
+                )
+                return resp.choices[0].message.content
+            except (json.JSONDecodeError, Exception) as e:
+                last_err = e
+                delay = self._RETRY_DELAYS[min(attempt, len(self._RETRY_DELAYS) - 1)]
+                logger.warning(
+                    f"[API] Attempt {attempt + 1}/{self._MAX_RETRIES} failed "
+                    f"({type(e).__name__}: {e}). Retrying in {delay}s..."
+                )
+                time.sleep(delay)
+        raise RuntimeError(
+            f"[API] All {self._MAX_RETRIES} attempts failed. Last error: {last_err}"
+        )
 
 
 class SemanticEpisodicAssociativeLearner(BaseAgent):
@@ -76,15 +113,11 @@ class SemanticEpisodicAssociativeLearner(BaseAgent):
 
     def generate_content(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
         content = _build_content(image, text) if image else [{"type": "text", "text": text}]
-        resp = self.client.chat.completions.create(
-            model=self.config.model_id,
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": content},
-            ],
-            temperature=self.config.temperature,
-        )
-        return resp.choices[0].message.content
+        messages = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": content},
+        ]
+        return self._api_call_with_retry(self.client, messages)
 
 
 class VLMAgent(BaseAgent):
@@ -104,15 +137,11 @@ class VLMAgent(BaseAgent):
 
     def send_message(self, content: list) -> str:
         self.history.append({"role": "user", "content": content})
-        resp = self.client.chat.completions.create(
-            model=self.config.model_id,
-            messages=[
-                {"role": "system", "content": SYS_INST_VLM_LEAN},
-                *self.history,
-            ],
-            temperature=self.config.temperature,
-        )
-        reply = resp.choices[0].message.content
+        messages = [
+            {"role": "system", "content": SYS_INST_VLM_LEAN},
+            *self.history,
+        ]
+        reply = self._api_call_with_retry(self.client, messages)
         self.history.append({"role": "assistant", "content": reply})
         return reply
 
@@ -208,11 +237,10 @@ class EmbodiedAgent:
             )
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response_text}")
 
-            semantic_response = re.search(
+            semantic_response = ast.literal_eval(_extract_json(
                 self.associative_learner.extractable_json_structured_output,
                 semantic_response_text
-            )[1]
-            semantic_response = ast.literal_eval(semantic_response)
+            ))
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
@@ -245,18 +273,16 @@ class EmbodiedAgent:
             response_text = self.vlm_agent.send_message(vlm_content)
             print(f"VLMAgent RESPONSE: {response_text}")
 
-            response_json = re.search(
+            response_json = ast.literal_eval(_extract_json(
                 self.vlm_agent.extractable_json_structured_output,
                 response_text
-            )[1]
-            response_json = ast.literal_eval(response_json)
+            ))
 
             episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = re.search(
+            episodic_response = ast.literal_eval(_extract_json(
                 self.associative_learner.extractable_json_structured_output,
                 episodic_response_text
-            )[1]
-            episodic_response = ast.literal_eval(episodic_response)
+            ))
 
             episodic_memory = (f"@ timestep {timestep}:\n"
                                f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
@@ -274,11 +300,10 @@ class EmbodiedAgent:
             semantic_response_text = self._call_associative(
                 SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
             )
-            semantic_response = re.search(
+            semantic_response = ast.literal_eval(_extract_json(
                 self.associative_learner.extractable_json_structured_output,
                 semantic_response_text
-            )[1]
-            semantic_response = ast.literal_eval(semantic_response)
+            ))
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
@@ -310,18 +335,16 @@ class EmbodiedAgent:
             vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
             response_text = self.vlm_agent.send_message(vlm_content)
 
-            response_json = re.search(
+            response_json = ast.literal_eval(_extract_json(
                 self.vlm_agent.extractable_json_structured_output,
                 response_text
-            )[1]
-            response_json = ast.literal_eval(response_json)
+            ))
 
             episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = re.search(
+            episodic_response = ast.literal_eval(_extract_json(
                 self.associative_learner.extractable_json_structured_output,
                 episodic_response_text
-            )[1]
-            episodic_response = ast.literal_eval(episodic_response)
+            ))
 
             episodic_memory = (f"@ timestep {timestep}:\n"
                                f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"

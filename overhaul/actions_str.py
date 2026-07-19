@@ -25,6 +25,10 @@ NAVIGATION_ACTIONS = ("move_forward: Move forward 0.1 meters. This will move in 
                       "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n")
 
 PERCEPTION_ACTIONS = (
+    "pan_left: Pan left 2.5 degrees. Maximum 15 steps per action.\n"
+    "pan_right: Pan right 2.5 degrees. Maximum 15 steps per action.\n"
+    "tilt_up: Tilt up 2.5 degrees. Maximum 10 steps per action.\n"
+    "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n"
     "center_object_on_screen: Center the agent's body on the target object in the frame.\n"
     # "retrieve_item: Approach the target object, grab it with the agent's hand, and read it.\n"
 )

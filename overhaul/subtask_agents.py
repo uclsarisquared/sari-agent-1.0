@@ -149,7 +149,8 @@ def generate_findings_summary(
 # Action dispatch
 # ---------------------------------------------------------------------------
 
-def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None) -> None:
+def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None) -> dict:
+    """Execute one action. Returns a result dict; grab actions include a 'gripped' key."""
     if action in NAVIGATION_ACTIONS_REF:
         action_ref = NAVIGATION_ACTIONS_REF[action]
     elif action in PERCEPTION_ACTIONS_REF:
@@ -158,7 +159,7 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         action_ref = MANIPULATION_ACTIONS_REF[action]
     else:
         print(f"[WARN] Unknown action skipped: {action}")
-        return
+        return {}
 
     main_goal = notes.get('main_goal', '')
     sub_goals = notes.get('sub_goal', '')
@@ -167,14 +168,17 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
 
     if action == "center_object_on_screen":
         target_info = f"main_goal={main_goal}\nsub_goals={sub_goals}\nkey_info={key_info}\nchecklist={checklist}"
-        action_ref(target_info)
+        return action_ref(target_info) or {}
     elif action in ("retrieve_item", "approach_object"):
-        action_ref(main_goal)
+        return action_ref(main_goal) or {}
     elif action in ("grab_item_in_view_right", "grab_item_in_view_left"):
         item_name = notes.get('item_name', '') or inline_arg or main_goal
-        action_ref(item_name)
+        result = action_ref(item_name) or {}
+        if not result.get('gripped', False):
+            print(f"[GRAB] Grab failed for '{item_name}' — agent should reposition.")
+        return result
     else:
-        action_ref(time_units)
+        return action_ref(time_units) or {}
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +212,7 @@ def _fresh_agent_state() -> dict:
         "leftGrippedState": False,
         "rightHoveredObject": "None",
         "rightGrippedState": False,
+        "last_grab_failed": False,
         "mode": "perception",
     }
     for k, v in {**agent_pos, **hands_pos}.items():
@@ -311,13 +316,18 @@ def run_subtask(
         print(f"[STEP {time_step}] mode={agent_mode} actions={list(zip(actions, times))}")
         time_step += 1
 
+        grab_failed = False
         for action, t in zip(actions, times):
             raw_action = action.strip()
             inline_arg = None
             inline_match = re.match(r'^(\w+)\([\'"]?(.*?)[\'"]?\)$', raw_action)
             if inline_match:
                 raw_action, inline_arg = inline_match.group(1), inline_match.group(2)
-            dispatch_action(raw_action, int(t), notes, inline_arg=inline_arg)
+            result = dispatch_action(raw_action, int(t), notes, inline_arg=inline_arg)
+            if raw_action in ("grab_item_in_view_right", "grab_item_in_view_left"):
+                if not result.get('gripped', False):
+                    grab_failed = True
+        current_state['last_grab_failed'] = grab_failed
 
         # Refresh state from the environment after all actions have executed
         updated_agent = TransformAgent((0, 0, 0), (0, 0, 0))

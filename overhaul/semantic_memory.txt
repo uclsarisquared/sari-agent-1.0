@@ -46,4 +46,7 @@ This semantic memory outlines the store's environment, detailing its layout, ite
 - Shelf 16 has the target position -> translation: (6.16, 1.36, 6.04), rotation: (0.0, 358.83, 0.0)
 - Shelf 17 has the target position -> translation: (7.76, 1.36, 6.08), rotation: (0.0, 358.83, 0.0)
 
-@ timestep 1: The agent is currently near the self-checkout counter, facing Shelves 9, 10, and 11. Canned goods are known to be located on Shelves 5 and 6.
+@ timestep 1: The agent is currently facing Shelf 1 and Shelf 3. To reach Shelf 5, the agent must navigate to the aisle behind Shelf 1, where Shelf 2 and Shelf 5 are located.
+@ timestep 2: The agent is currently facing an aisle with Shelf 10 and 11 on the left, and a snack shelf on the right. An intersecting aisle is visible ahead on the right, located between the current right-hand shelf and Shelf 7, which leads towards Shelf 5.
+@ timestep 3: The agent is currently in the aisle between Shelf 5 on the left, which displays various canned goods, and Shelf 2 on the right, which contains cereals and snacks. The agent is facing the +x direction.
+@ timestep 4: Shelf 5 contains various canned goods. A stack of white cans, which are likely Libby's Vienna Sausage, is located on the top shelf, slightly to the right of the center.

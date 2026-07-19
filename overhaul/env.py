@@ -83,6 +83,32 @@ def TransformAgent(translation: Tuple[float],
     }
     return agent_state
 
+def SetCrouch(active: bool, uri: str = "ws://localhost:8080/commands") -> str:
+    """Crouch (True) or stand (False). Crouching halves the agent's view height, so a level camera
+    looks straight at the shelf's lower rows instead of down at them from standing height.
+
+    This is the command form of the LeftControl key in Unity's own agent controller - the two are
+    OR'd together agent-side, so this never fights a human holding the key. Applied immediately, so
+    a RequestScreenshot right after this call already sees the lowered viewpoint.
+    """
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "SetCrouch", "active": active
+    }, uri))
+    return result
+
+def SetHandsActive(active: bool, side: str = None, uri: str = "ws://localhost:8080/commands") -> str:
+    """Enable/disable the hand prefab(s) so they can't clip shelf items while navigating.
+
+    `side`: None/omitted disables both hands, or pass "Left"/"Right" for one hand only
+    (e.g. keep a hand active mid-grab while the other is stowed for travel).
+    """
+    command = {"command": "SetHandsActive", "active": active}
+    if side:
+        command["side"] = side
+    result = asyncio.get_event_loop().run_until_complete(SendCommand(command, uri))
+    return result
+
+
 def TransformHands(leftTranslation: Tuple[float],
                    leftRotation: Tuple[float],
                    rightTranslation: Tuple[float],
