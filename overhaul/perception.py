@@ -14,11 +14,15 @@ load_dotenv('../api.env')
 
 GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to grab
 
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
-MODEL_NAME = "google/gemini-2.5-pro-preview-05-06"
+# Agent runtime = UCL qwen (user directive 2026-07-19; OpenRouter retired on 402). This is
+# the bounding-box/centering client - qwen-VL replaces Gemini here, identically in BOTH A/B
+# arms; bbox quality vs Gemini is unmeasured and shared, so it cannot skew the arms.
+from agent import _ucl_creds
+_UCL_HOST, _UCL_KEY = _ucl_creds()
+MODEL_NAME = "Qwen/Qwen3.6-27B"
 CLIENT = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
+    base_url=f"http://{_UCL_HOST}:8000/v1",
+    api_key=_UCL_KEY,
 )
 ORIGINAL_WIDTH = 1920
 ORIGINAL_HEIGHT = 1080
@@ -82,6 +86,8 @@ def find_most_similar_bbox_to_target_name(target_name, ocr_result):
         model=MODEL_NAME,
         messages=[{"role": "user", "content": f"{FIND_MOST_SIMILAR_OCR_BBOX_PROMPT}\n\ntarget_name={target_name}\n\n{bboxes}"}],
         temperature=0.5,
+        max_tokens=400,
+        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
     )
     annotated_bbox = resp.choices[0].message.content
 
@@ -125,6 +131,8 @@ def center_object_on_screen(target_info):
             {"type": "text", "text": f"{PERCEPTION_PROMPT}\n\ntarget_info={target_info}\n\n"},
         ]}],
         temperature=0.5,
+        max_tokens=400,
+        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
     )
     annotated_bbox = resp.choices[0].message.content
     print(f"[DETECT OBJECT IN FRAME] Response: {annotated_bbox}")
@@ -159,12 +167,8 @@ def detect_object_via_gemini(target_name):
     import dotenv
     dotenv.load_dotenv('api.env')
 
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.getenv("OPENROUTER_API_KEY"),
-    )
-
-    model_name = "google/gemini-2.5-pro-preview-05-06"
+    client = CLIENT  # UCL qwen (name kept for call sites; Gemini retired with OpenRouter)
+    model_name = MODEL_NAME
     original_width = 1920
     original_height = 1080
     RequestScreenshot(save_image=True)
@@ -185,6 +189,8 @@ def detect_object_via_gemini(target_name):
             {"type": "text", "text": prompt},
         ]}],
         temperature=0.5,
+        max_tokens=400,
+        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
     )
     annotated_bbox = resp.choices[0].message.content
 
@@ -288,22 +294,11 @@ def approach_target(target_name, annotate=False):
     item = detect_object_via_moondream(target_name)
     box = item["box"]
 
-    try:
-        depth_img = request_rgbd_image()
-        steps = estimate_steps_from_depth(box, depth_img)
-    except Exception as e:
-        from depth import estimate_depth
-        from env import _REQUEST_SCREENSHOT_
-        from io import BytesIO
-        import base64
-
-        imagebytes = _REQUEST_SCREENSHOT_()['image']
-        imageb64 = base64.b64encode(imagebytes).decode('utf-8')
-        imageb64 = imageb64.encode('utf-8')
-        screenshot = base64.b64decode(imageb64)
-        screenshot = BytesIO(screenshot)
-        _, depth_array = estimate_depth(screenshot)
-        steps = estimate_steps_from_depth(box, depth_array)
+    # depth.py (local monocular fallback) was REMOVED in Phase 4.2 - navigation distance is
+    # LiDAR's job now, and the manipulation phase owns choosing a replacement for
+    # distance-to-item (see phase4.2 plan, REMOVED #3). Only the remote API path remains here.
+    depth_img = request_rgbd_image()
+    steps = estimate_steps_from_depth(box, depth_img)
 
     x_center_before = (box["xmin"] + box["xmax"]) / 2
     y_center_before = (box["ymin"] + box["ymax"]) / 2
@@ -355,15 +350,9 @@ def retrieve_item(target_name, cardinal_deg=None, annotate=False):
         print("[RETRIEVE] Target not detected in current view. Navigate closer.")
         return None
 
-    try:
-        depth_img = request_rgbd_image()
-        steps = estimate_steps_from_depth(item["box"], depth_img)
-    except Exception:
-        from depth import estimate_depth
-        from env import _REQUEST_SCREENSHOT_
-        imagebytes = BytesIO(base64.b64decode(base64.b64encode(_REQUEST_SCREENSHOT_()['image'])))
-        _, depth_array = estimate_depth(imagebytes)
-        steps = estimate_steps_from_depth(item["box"], depth_array)
+    # depth.py fallback removed (Phase 4.2) - see approach_target's note.
+    depth_img = request_rgbd_image()
+    steps = estimate_steps_from_depth(item["box"], depth_img)
     est_distance = steps * 0.1
     if est_distance > GRAB_DISTANCE_THRESHOLD:
         print(f"[RETRIEVE] Too far to grab: {est_distance:.2f} units (threshold={GRAB_DISTANCE_THRESHOLD}). Navigate closer first.")

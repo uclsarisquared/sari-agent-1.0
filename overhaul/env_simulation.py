@@ -21,6 +21,10 @@ from actions import (
 
 MAIN_TASK = sys.argv[1]
 RUN_ENTRY = sys.argv[2] if len(sys.argv) > 2 else None
+# Phase 4.2 A/B arm: 'vlm' (control - the old VLM-driven navigation) or 'graph' (navigation
+# dispatched to the slamtest resolver + goto_checkpoint; VLM never sees nav actions).
+NAV_MODE = sys.argv[3] if len(sys.argv) > 3 else 'vlm'
+assert NAV_MODE in ('vlm', 'graph'), f"nav mode must be vlm|graph, got {NAV_MODE!r}"
 ON_PLAY = True
 
 at_init_state = True
@@ -58,24 +62,20 @@ print(CURRENT_AGENT_STATE)
 print("=" * 100)
 
 # ====== Initialize Embodied Agent ======
-from agent import EmbodiedAgent, OpenRouterConfig
+from agent import EmbodiedAgent, ucl_qwen_config
 
-vlm_config = OpenRouterConfig(
-    model_id='google/gemini-3.1-pro-preview',
-    temperature=0.5,
-    mode='lean'
-)
-associative_config = OpenRouterConfig(
-    model_id='google/gemini-3.1-pro-preview',
-    temperature=0.3,
-    mode='lean'
-)
+# Agent runtime = UCL qwen vLLM (user directive 2026-07-19; OpenRouter retired on 402).
+# The ANNOTATOR is unaffected: always `claude -p` sonnet/medium (see CLAUDE.md).
+vlm_config = ucl_qwen_config(temperature=0.5)
+associative_config = ucl_qwen_config(temperature=0.3)
 
 embodied_agent = EmbodiedAgent(
     vlm_config=vlm_config,
     associative_config=associative_config,
-    mode='lean'
+    mode='lean',
+    nav_mode=NAV_MODE,
 )
+print(f"[env_simulation] navigation arm: {NAV_MODE}")
 # ========================================
 
 while ON_PLAY:

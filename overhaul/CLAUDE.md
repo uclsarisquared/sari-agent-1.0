@@ -14,7 +14,9 @@ the ground-truth product catalog; this repo is the agent/mapping side.
 > **The graph owns spatial truth. The VLM only judges what is directly in front of it. The agent
 > verifies on arrival.**
 
-`NavReasonPlan.md` documents open-ended VLM navigation as this agent's primary failure mode — it
+The navigation-failure diagnosis (formerly `NavReasonPlan.md`, removed 2026-07-19 — its
+load-bearing quote survives verbatim in `slamtest/plans/phase4.1_navigation_ablation.md`, and the
+file itself is in git history) documents open-ended VLM navigation as this agent's primary failure mode — it
 collides with walls and burns its budget on global path planning it cannot do from a first-person
 view. So: navigation and geometry are deterministic (A*, LiDAR, the skeleton graph); the VLM is
 scoped to "what is on this shelf"; anything it can't resolve at build time is left for the agent to
@@ -46,6 +48,11 @@ the sim. Prefer that over re-capturing.
 - **`claude -p` bills the claude.ai subscription** (`claude auth login`, defaults to `--claudeai`).
   The `anthropic` SDK path bills API credits instead — a different account. Don't switch silently.
   Never pass `--bare` to `claude -p` here: it forces `ANTHROPIC_API_KEY` and refuses the OAuth login.
+- **The ANNOTATOR is pinned: `claude -p`, sonnet, medium effort — always** (user directive
+  2026-07-19). The AGENT RUNTIME (per-step VLM/learner calls) runs on the UCL vLLM server
+  (`$UCL_BASE_URL:8000/v1`, bearer `$UCL_API`, `Qwen/Qwen3.6-27B`) — OpenRouter was retired for
+  agent calls when its credits ran out. Do not cross these: annotation quality is measured and
+  frozen on sonnet; agent runtime is measured on qwen.
 - **Map quality bar:** a good `grid_final.png` has **no grey holes** in the store interior.
 
 ## How to work here — this matters more than it sounds

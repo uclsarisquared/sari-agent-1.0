@@ -27,9 +27,6 @@ from actions_str import (
     MANIPULATION_ACTIONS,
 )
 
-from depth import estimate_depth
-
-
 def _extract_json(pattern, text: str) -> str:
     """Extract JSON string using regex, falling back to raw text if no code block found."""
     match = re.search(pattern, text)
@@ -45,6 +42,43 @@ class OpenRouterConfig:
     temperature: float = 0.5
     mode: Literal['base', 'lean'] = 'base'
     api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
+    base_url: str = "https://openrouter.ai/api/v1"
+    max_tokens: Optional[int] = None
+    extra_body: Optional[dict] = None
+
+
+def _ucl_creds():
+    """UCL vLLM host + bearer key. Env vars first; conda-meta/state fallback because invoking
+    sari_env_old's python.exe DIRECTLY (no `conda activate`) does not run the env-var hooks -
+    measured: the vars live only in that env's conda config."""
+    host, key = os.getenv("UCL_BASE_URL"), os.getenv("UCL_API")
+    if not (host and key):
+        try:
+            with open(r"C:/Sari/sari_env_old/conda-meta/state", encoding="utf-8") as f:
+                sv = json.load(f).get("env_vars", {})
+            host, key = host or sv.get("UCL_BASE_URL"), key or sv.get("UCL_API")
+        except OSError:
+            pass
+    return host, key
+
+
+def ucl_qwen_config(temperature=0.5, mode='lean'):
+    """Agent-runtime default since 2026-07-19 (user directive): the UCL vLLM server, replacing
+    OpenRouter (retired for agent calls when its credits ran out - 402). The ANNOTATOR is
+    unaffected and stays pinned to `claude -p` sonnet/medium - see CLAUDE.md."""
+    host, key = _ucl_creds()
+    if not host:
+        raise RuntimeError("UCL_BASE_URL/UCL_API not found (env or sari_env_old conda state)")
+    # enable_thinking=False is LOAD-BEARING, not a tweak. MEASURED 2026-07-19: with the
+    # default chat template this server thinks before answering - 245 completion tokens /
+    # 6.2s for a trivial one-JSON ask vs 7 tokens / 0.3s with thinking off (35x), and the
+    # full agent prompts ballooned to ~10 MINUTES per step. Same trap the annotation probe
+    # measured ("spent its whole budget thinking, looped"). max_tokens caps runaway output;
+    # the agent's JSON replies run ~500-700 tokens.
+    return OpenRouterConfig(model_id='Qwen/Qwen3.6-27B', temperature=temperature, mode=mode,
+                            api_key=key, base_url=f"http://{host}:8000/v1",
+                            max_tokens=1536,
+                            extra_body={"chat_template_kwargs": {"enable_thinking": False}})
 
 
 def _encode_image(image: Image.Image) -> dict:
@@ -88,6 +122,8 @@ class BaseAgent(ABC):
                     model=self.config.model_id,
                     messages=messages,
                     temperature=self.config.temperature,
+                    max_tokens=self.config.max_tokens,
+                    extra_body=self.config.extra_body,
                 )
                 return resp.choices[0].message.content
             except (json.JSONDecodeError, Exception) as e:
@@ -107,7 +143,7 @@ class SemanticEpisodicAssociativeLearner(BaseAgent):
     def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
         super().__init__(config)
         self.client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
+            base_url=self.config.base_url,
             api_key=self.config.api_key,
         )
 
@@ -124,7 +160,7 @@ class VLMAgent(BaseAgent):
     def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
         super().__init__(config)
         self.client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
+            base_url=self.config.base_url,
             api_key=self.config.api_key,
         )
         self.history: List[Dict[str, Any]] = []
@@ -161,10 +197,22 @@ class VLMAgent(BaseAgent):
 class EmbodiedAgent:
     def __init__(self, vlm_config: Optional[OpenRouterConfig] = None,
                  associative_config: Optional[OpenRouterConfig] = None,
-                 mode: Literal['base', 'lean'] = 'base') -> None:
+                 mode: Literal['base', 'lean'] = 'base',
+                 nav_mode: Literal['vlm', 'graph'] = 'vlm') -> None:
 
         self.vlm_agent = VLMAgent(vlm_config)
         self.mode = mode
+        # Phase 4.2 A/B switch. 'vlm': navigation mode hands the VLM its old action set
+        # (the control arm). 'graph': navigation mode dispatches to resolver+goto_checkpoint
+        # and the VLM NEVER sees a navigation action - it wakes up in front of shelves.
+        # The swap lives HERE, in the mode router, not in the VLM's action list, so the VLM
+        # cannot mix strategies and contaminate the arms (phase4.2 plan, "the one rule").
+        self.nav_mode = nav_mode
+        self._graph_nav = None          # lazy: needs the sim up
+        self._nav_candidates = []       # resolver output for the current task, in visit order
+        self._nav_visited = set()
+        self._nav_task = None
+        self._hands_active = None       # None = unknown; set on first _set_hands call
 
         if mode == 'lean':
             self.associative_learner = SemanticEpisodicAssociativeLearner(associative_config)
@@ -178,20 +226,92 @@ class EmbodiedAgent:
         self.vlm_agent.episodic_memory = episodic_memory
         logger.info(f"Episodic memory updated: {episodic_memory}")
 
-    def _compute_depth_hint(self, main_task: str, depth_array) -> str:
-        try:
-            from perception import detect_object_via_moondream, estimate_steps_from_depth
-            item = detect_object_via_moondream(main_task)
-            if item is None:
-                return ""
-            steps = estimate_steps_from_depth(item["box"], depth_array)
-            return f"## ESTIMATED HAND STEPS TO TARGET: {steps}\n"
-        except Exception as e:
-            logger.warning(f"Could not compute depth hint for manipulation: {e}")
-            return ""
+    # _compute_depth_hint was REMOVED with depth.py (Phase 4.2): the monocular hand-steps hint
+    # is gone from BOTH arms identically; the manipulation phase owns picking a replacement
+    # (LiDAR forward range or hoveredObject proximity - see phase4.2 plan, REMOVED #3).
 
-    def _call_associative(self, system_instruction: str, image: Optional[Image.Image], depth_map: Optional[Image.Image], text: str) -> str:
-        content = _build_content(image, "## CURRENT OBSERVATION\n", depth_map, "## CURRENT DEPTH MAP\n", text)
+    def _set_hands(self, active: bool):
+        """Hands are visible/active ONLY in manipulation mode (user directive 2026-07-19):
+        outside it they fill the camera and add nothing. State-tracked so the websocket call
+        fires only on transitions, not every step. Both A/B arms share this identically."""
+        if self._hands_active == active:
+            return
+        from env import SetHandsActive
+        SetHandsActive(active)
+        self._hands_active = active
+
+    # ---- Phase 4.2 graph-navigation dispatcher -------------------------------------------
+
+    def _graph_nav_session(self):
+        """Lazy StoreMap+NavSession+resolver backend - constructed on first navigation
+        dispatch because NavSession needs the sim live."""
+        if self._graph_nav is None:
+            from store_map import StoreMap, NavSession
+            sm = StoreMap()
+            nav = NavSession(sm, stow_hands=False)  # hands managed per-leg, not per-session
+            self._graph_nav = (sm, nav)
+        return self._graph_nav
+
+    def _graph_navigate(self, main_task: str):
+        """Execute one navigation-mode entry deterministically. Returns an arrival note for
+        the VLM's next (perception) step, plus a FRESH screenshot - the one captured before
+        the drive shows the wrong place.
+
+        Resolver runs ONCE per task (cached); each navigation entry drives to the next
+        unvisited candidate (goto_product's retry loop realised as mode-machine behaviour).
+        No verifier LLM here - arm B is goto+face+ordinary perception, per the 4.2 plan."""
+        import locate_task
+        from env import SetHandsActive, RequestScreenshot
+        from explore import step_agent
+
+        sm, nav = self._graph_nav_session()
+
+        if self._nav_task != main_task:
+            resolution, _ = locate_task.resolve(
+                lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im), sm, main_task)
+            self._nav_task = main_task
+            self._nav_visited = set()
+            self._nav_resolution = resolution
+            cands = resolution.get("candidates") or []
+            self._nav_candidates = [c for c in cands if c in sm.by_id]
+            logger.info(f"[graph-nav] resolved {resolution.get('target_name')!r} "
+                        f"tier={resolution.get('tier')} candidates={self._nav_candidates}")
+            if not self._nav_candidates:
+                return ("## NAVIGATOR: could not resolve the target to any known location. "
+                        "Proceed by exploring visually.\n", None)
+
+        remaining = [c for c in self._nav_candidates if c not in self._nav_visited]
+        if not remaining:
+            # Candidates exhausted: allow revisits rather than stranding the agent, but say so.
+            logger.warning("[graph-nav] all candidates visited; restarting candidate list")
+            self._nav_visited = set()
+            remaining = list(self._nav_candidates)
+
+        # Pose desync landmine (phase4.2 plan): VLM/manipulation actions moved the agent
+        # behind NavSession's back - resync before planning.
+        nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+        x, z = nav.pos[0], nav.pos[2]
+        target = min(remaining, key=lambda c: sm.hops(sm.nearest_checkpoint((x, z)), c) or 99)
+        self._nav_visited.add(target)
+
+        self._set_hands(False)   # off for the drive; the mode toggle re-enables at manipulation
+        ok = nav.goto(target)
+
+        info = sm.checkpoint(target)
+        fresh = RequestScreenshot(save_image=False, uri=nav.args.uri)["image"]
+        if not ok:
+            note = (f"## NAVIGATOR: could not reach checkpoint {target} (path blocked). "
+                    f"You are at ({nav.pos[0]:.2f}, {nav.pos[2]:.2f}). Assess visually.\n")
+        else:
+            holds = ", ".join(info["holds"]) if info["holds"] else "unknown goods"
+            note = (f"## ARRIVED VIA NAVIGATOR: checkpoint {target}, facing a shelf holding "
+                    f"{holds}. {info['summary'] or ''} If the target is not visible here, "
+                    f"choose *navigation* mode again and you will be taken to the next "
+                    f"candidate location.\n")
+        return note, fresh
+
+    def _call_associative(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
+        content = _build_content(image, "## CURRENT OBSERVATION\n", text)
         resp = self.associative_learner.client.chat.completions.create(
             model=self.associative_learner.config.model_id,
             messages=[
@@ -199,6 +319,8 @@ class EmbodiedAgent:
                 {"role": "user", "content": content},
             ],
             temperature=self.associative_learner.config.temperature,
+            max_tokens=self.associative_learner.config.max_tokens,
+            extra_body=self.associative_learner.config.extra_body,
         )
         return resp.choices[0].message.content
 
@@ -210,6 +332,8 @@ class EmbodiedAgent:
                 {"role": "user", "content": history_text},
             ],
             temperature=self.associative_learner.config.temperature,
+            max_tokens=self.associative_learner.config.max_tokens,
+            extra_body=self.associative_learner.config.extra_body,
         )
         return resp.choices[0].message.content
 
@@ -221,8 +345,6 @@ class EmbodiedAgent:
         imagebytes = BytesIO(screenshot)
         screenshot = Image.open(imagebytes).convert('RGB')
 
-        depth_image, depth_array = estimate_depth(imagebytes)
-
         new_semantic_memory = ""
         recall = ""
 
@@ -233,7 +355,7 @@ class EmbodiedAgent:
                         f"## STATE: {state}\n")
 
             semantic_response_text = self._call_associative(
-                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
+                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, user_msg
             )
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response_text}")
 
@@ -244,6 +366,19 @@ class EmbodiedAgent:
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
+
+            nav_note = ""
+            if agent_mode == "navigation" and self.nav_mode == "graph":
+                # Arm B: navigation executes deterministically; the VLM resumes in perception
+                # at the new location, with a note and a FRESH frame (the screenshot captured
+                # before the drive shows the wrong place).
+                nav_note, _fresh_png = self._graph_navigate(main_task)
+                if _fresh_png is not None:
+                    screenshot = Image.open(BytesIO(_fresh_png)).convert('RGB')
+                agent_mode = "perception"
+
+            # Hands only exist for manipulation (both arms; see _set_hands).
+            self._set_hands(agent_mode == "manipulation")
 
             if agent_mode == "perception":
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"
@@ -260,16 +395,15 @@ class EmbodiedAgent:
 
             self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
 
-            depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}"
-                        f"{depth_hint}")
+                        f"{nav_note}")
 
-            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
+            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n" + user_msg)
             response_text = self.vlm_agent.send_message(vlm_content)
             print(f"VLMAgent RESPONSE: {response_text}")
 
@@ -298,7 +432,7 @@ class EmbodiedAgent:
                         f"## STATE: {state}\n")
 
             semantic_response_text = self._call_associative(
-                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, depth_image, user_msg
+                SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, user_msg
             )
             semantic_response = ast.literal_eval(_extract_json(
                 self.associative_learner.extractable_json_structured_output,
@@ -310,6 +444,19 @@ class EmbodiedAgent:
 
             self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
+
+            nav_note = ""
+            if agent_mode == "navigation" and self.nav_mode == "graph":
+                # Arm B: navigation executes deterministically; the VLM resumes in perception
+                # at the new location, with a note and a FRESH frame (the screenshot captured
+                # before the drive shows the wrong place).
+                nav_note, _fresh_png = self._graph_navigate(main_task)
+                if _fresh_png is not None:
+                    screenshot = Image.open(BytesIO(_fresh_png)).convert('RGB')
+                agent_mode = "perception"
+
+            # Hands only exist for manipulation (both arms; see _set_hands).
+            self._set_hands(agent_mode == "manipulation")
 
             if agent_mode == "perception":
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"
@@ -323,16 +470,15 @@ class EmbodiedAgent:
                     'text': "STOP action received, terminating execution..."
                 }
 
-            depth_hint = self._compute_depth_hint(main_task, depth_array) if agent_mode == "manipulation" else ""
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
                         f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}"
-                        f"{depth_hint}")
+                        f"{nav_note}")
 
-            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n", depth_image, "## CURRENT DEPTH MAP\n" + user_msg)
+            vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n" + user_msg)
             response_text = self.vlm_agent.send_message(vlm_content)
 
             response_json = ast.literal_eval(_extract_json(
@@ -359,6 +505,7 @@ class EmbodiedAgent:
 
         return {
             'halt': False,
+            'nav_note': nav_note,  # non-empty iff the graph dispatcher drove this step
             'text': response_text,
             'agent_mode': agent_mode,
         }

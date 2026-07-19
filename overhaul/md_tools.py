@@ -1,6 +1,21 @@
+"""Grab-time item pointing. REEVALUATED 2026-07-19 (user request), verdict:
+
+KEEP moondream as PRIMARY. Pointing ("point at <name>" -> pixel) is exactly the primitive
+hand-aiming needs, moondream is purpose-built for it, and it is measured-working - swapping
+the detector now would change grab quality mid-Phase-4.2, in machinery both A/B arms are
+supposed to share frozen. The full replace-or-keep decision belongs to the manipulation
+phase, made with a measured moondream-vs-qwen pointing comparison.
+
+BUT it is now the runtime's ONLY non-self-hosted dependency (cloud API, $MDREAM_API_KEY) -
+the same failure class that killed OpenRouter mid-run (402). So: on moondream ERROR (API
+down, no key - NOT a legitimate "no points" answer), fall back to qwen-VL on the UCL server
+(bbox -> center point). Resilience, not improvement; the fallback logs loudly so a run that
+silently degraded to qwen pointing cannot masquerade as a moondream run."""
 import os
 import asyncio
 import io
+import json as _json
+import re as _re
 import moondream as md
 from PIL import Image
 
@@ -11,12 +26,38 @@ _model = md.vl(api_key=os.environ.get("MDREAM_API_KEY"))
 _URI = "ws://localhost:8080/commands"
 
 
+def _point_via_qwen(image: Image.Image, name: str):
+    """Fallback pointer: qwen bbox -> center, normalized 0-1 like moondream's points."""
+    from perception import CLIENT, MODEL_NAME, _encode_image
+    prompt = (f"Detect the {name} in the image. Reply with ONLY a JSON object "
+              '{"box_2d": [ymin, xmin, ymax, xmax]} normalized to 0-1000. '
+              "If the item is not visible, reply {\"box_2d\": null}.")
+    resp = CLIENT.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[{"role": "user", "content": [_encode_image(image),
+                                               {"type": "text", "text": prompt}]}],
+        temperature=0.0, max_tokens=200,
+        extra_body={'chat_template_kwargs': {'enable_thinking': False}})
+    text = resp.choices[0].message.content
+    mt = _re.search(r"\{[\s\S]*\}", text)
+    box = _json.loads(mt.group(0)).get("box_2d") if mt else None
+    if not box:
+        return []
+    ymin, xmin, ymax, xmax = box
+    return [{"x": (xmin + xmax) / 2000.0, "y": (ymin + ymax) / 2000.0}]
+
+
 def reach_item_in_view(name: str, use_right_hand: bool) -> dict:
     screenshot = RequestScreenshot()
     image = Image.open(io.BytesIO(screenshot["image"]))
 
-    result = _model.point(image, name)
-    points = result.get("points", [])
+    try:
+        result = _model.point(image, name)
+        points = result.get("points", [])
+    except Exception as e:
+        print(f"[md_tools] moondream FAILED ({type(e).__name__}: {e}) - "
+              f"falling back to qwen pointing (logged, not silent)")
+        points = _point_via_qwen(image, name)
 
     if not points:
         return {"reached": False, "reason": f"No points found for '{name}'"}

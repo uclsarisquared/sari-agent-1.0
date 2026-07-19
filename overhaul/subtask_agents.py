@@ -45,7 +45,7 @@ from actions import (
 )
 from agent import EmbodiedAgent, OpenRouterConfig
 
-ORCHESTRATOR_MODEL = "google/gemini-3.1-pro-preview"
+ORCHESTRATOR_MODEL = "Qwen/Qwen3.6-27B"  # UCL qwen (OpenRouter retired 2026-07-19)
 EXTRACTABLE_JSON = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
 VLM_CONFIG = OpenRouterConfig(
@@ -65,10 +65,9 @@ ASSOCIATIVE_CONFIG = OpenRouterConfig(
 # ---------------------------------------------------------------------------
 
 def _llm_client() -> OpenAI:
-    return OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.getenv('OPENROUTER_API_KEY'),
-    )
+    from agent import _ucl_creds
+    host, key = _ucl_creds()
+    return OpenAI(base_url=f"http://{host}:8000/v1", api_key=key)
 
 
 def _llm_call(client: OpenAI, system: str, user: str) -> str:
