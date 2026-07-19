@@ -37,12 +37,13 @@ from topology import (  # noqa: E402
     DEFAULT_MIN_BRANCH_LENGTH_M, DEFAULT_DOORWAY_MAX_WIDTH_M, DEFAULT_DOORWAY_WIDTH_RATIO,
 )
 from shelf_coverage import (  # noqa: E402
-    splice_shelf_checkpoints,
+    splice_shelf_checkpoints, splice_landmark_checkpoints,
     DEFAULT_CHECKPOINT_INTERVAL_M, DEFAULT_SHELF_SEARCH_RADIUS_M,
     MIN_READING_DISTANCE_M, MAX_READING_DISTANCE_M,
 )
 
-_KIND_COLORS = {"junction": "red", "end": "dodgerblue", "doorway": "limegreen"}
+_KIND_COLORS = {"junction": "red", "end": "dodgerblue", "doorway": "limegreen",
+                "landmark": "gold"}
 _SHELF_SIDE_COLORS = {"left": "orange", "right": "magenta"}
 
 
@@ -158,6 +159,8 @@ def build_parser():
     parser.add_argument("--max-reading-distance-m", type=float, default=MAX_READING_DISTANCE_M)
     parser.add_argument("--body-radius", type=float, default=0.3)
     parser.add_argument("--no-ladder-rungs", action="store_true", help="Disable cross-aisle rung adjacency")
+    parser.add_argument("--no-landmarks", action="store_true",
+                        help="Skip the landmark pass (unobserved free-standing structures such as the checkout counter)")
     parser.add_argument("--no-plot", action="store_true", help="Skip the PNG visualization")
     return parser
 
@@ -183,6 +186,13 @@ def main():
         min_reading_distance_m=args.min_reading_distance_m, max_reading_distance_m=args.max_reading_distance_m,
         body_radius=args.body_radius, add_ladder_rungs=not args.no_ladder_rungs,
     )
+
+    landmarks = []
+    if not args.no_landmarks:
+        landmarks = splice_landmark_checkpoints(grid, graph, body_radius=args.body_radius)
+        for cp in landmarks:
+            print(f"[build_shelf_graph] landmark cp{cp.id} at {cp.cell} facing {cp.shelf_cell} "
+                  f"({cp.reading_distance_m:.2f}m) -> anchored to cp{cp.neighbors[0]}")
 
     out_path = save_topology(graph, args.output_dir, out_tag)
 

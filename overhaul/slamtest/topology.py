@@ -84,6 +84,10 @@ class Checkpoint:
     shelf_side: str = None          # "left" | "right"
     reading_distance_m: float = None
     shelf_cell: tuple = None        # (cx, cz) of the shelf face this checkpoint reads
+    # Landmark-only (see shelf_coverage.find_landmark_checkpoints): where to stand to REACH the
+    # structure, as opposed to `world_xz`, which is where to stand to LOOK at it. Deliberately
+    # inside the executor's standoff, so getting here is a docking move, not a normal goto().
+    interaction_xz: tuple = None    # (x, z) world
 
 
 @dataclass
@@ -441,6 +445,48 @@ def extract_topology(grid, connectivity=8, min_branch_length_m=DEFAULT_MIN_BRANC
     return TopologyGraph(checkpoints=checkpoints, edges=edges)
 
 
+def route_hints(neighbors_by_id, origin_id, is_interesting, max_hops=8):
+    """For each neighbour of `origin_id`, what is the nearest INTERESTING checkpoint reachable
+    through it, and how many hops away? Returns {neighbour_id: (target_id, hops) or None}.
+
+    This is the answer to "standing at a junction, which way is worth going?" - and it is answered
+    by the graph rather than by a camera, deliberately. A checkpoint that faces a blank wall or an
+    open corridor has nothing to describe, and 11 of this store's 55 checkpoints have no
+    interesting NEIGHBOUR either, so their whole adjacency list reads as "(not annotated)". Four
+    photographs per junction would not fix that: a camera sees a corridor, while the graph knows
+    that corridor reaches the noodles aisle in 3 hops around a corner, out of any line of sight -
+    and knows when a branch is a dead end, which no image can show without walking it.
+
+    `is_interesting(id) -> bool` is supplied by the caller because "interesting" depends on
+    annotations (a shelf that the classifier rejected as a bare wall is not a destination), and
+    this module knows only geometry.
+
+    BFS, not Dijkstra: hop count is the useful unit here ("two checkpoints away"), and every edge
+    is roughly one checkpoint spacing anyway. Never routes back through the origin, so the hint
+    describes what is genuinely THROUGH that neighbour rather than what is behind you.
+    """
+    from collections import deque
+
+    hints = {}
+    for via in neighbors_by_id.get(origin_id, ()):
+        seen = {origin_id, via}
+        queue = deque([(via, 1)])
+        found = None
+        while queue and found is None:
+            node, hops = queue.popleft()
+            if is_interesting(node):
+                found = (node, hops)
+                break
+            if hops >= max_hops:
+                continue
+            for nxt in neighbors_by_id.get(node, ()):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    queue.append((nxt, hops + 1))
+        hints[via] = found
+    return hints
+
+
 def save_topology(topology, output_dir, tag):
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, f"topology_{tag}.json")
@@ -449,7 +495,8 @@ def save_topology(topology, output_dir, tag):
             {"id": c.id, "cell": list(c.cell), "world_xz": list(c.world_xz), "kind": c.kind,
              "neighbors": list(c.neighbors), "shelf_side": c.shelf_side,
              "reading_distance_m": c.reading_distance_m,
-             "shelf_cell": list(c.shelf_cell) if c.shelf_cell is not None else None}
+             "shelf_cell": list(c.shelf_cell) if c.shelf_cell is not None else None,
+             "interaction_xz": list(c.interaction_xz) if c.interaction_xz is not None else None}
             for c in topology.checkpoints
         ],
         "edges": [{"a": e.a, "b": e.b, "length_m": e.length_m} for e in topology.edges],

@@ -54,6 +54,66 @@ from annotator_sys_inst import (  # noqa: E402
     build_annotation_instructions, schema_for, effective_kind,
 )
 from annotate_claude_cli import annotate, ClaudeCliError, DEFAULT_MODEL, DEFAULT_EFFORT  # noqa: E402
+from topology import route_hints  # noqa: E402
+
+
+INTERESTING_KINDS = ("shelf", "landmark")
+
+
+def add_route_hints(annotations, topology):
+    """Annotate each record with what lies THROUGH each of its neighbours.
+
+    Runs after the whole pass, not per-checkpoint, because a hint depends on how every OTHER
+    checkpoint was classified - a shelf the classifier rejected as a bare wall is not a destination
+    worth routing toward, and that verdict may not exist yet while the pass is still walking.
+
+    This is what makes a non-shelf checkpoint navigable. 11 of this store's 55 checkpoints have no
+    interesting neighbour at all, so their adjacency reads as a list of blanks; the hint replaces
+    each blank with the nearest real destination through it, or marks it a dead end. Taken from the
+    graph, never from an image - a camera at a junction sees a corridor, while the graph knows what
+    the corridor reaches and how far."""
+    neighbors_by_id = {c["id"]: c.get("neighbors", []) for c in topology["checkpoints"]}
+    kind_by_id = {c["id"]: c.get("kind") for c in topology["checkpoints"]}
+
+    def effective(cp_id):
+        rec = annotations.get(str(cp_id))
+        return rec["effective_kind"] if rec else kind_by_id.get(cp_id)
+
+    interesting = lambda i: effective(i) in INTERESTING_KINDS
+    for cid, rec in annotations.items():
+        hints = {}
+        for via, hit in route_hints(neighbors_by_id, int(cid), interesting).items():
+            if hit is None:
+                hints[str(via)] = None          # dead end - nothing reachable that way
+                continue
+            tid, hops = hit
+            trec = annotations.get(str(tid))
+            hints[str(via)] = {
+                "to": tid,
+                "hops": hops,
+                "kind": effective(tid),
+                "holds": (trec or {}).get("annotation", {}).get("shelf_type") or [],
+            }
+        rec["route_hints"] = hints
+    return annotations
+
+
+def refresh_graph_fields(annotations, topology):
+    """Re-copy the graph-owned fields into every record, including resumed ones.
+
+    `neighbors` is cached in the record so Phase 4 can read one checkpoint without loading the whole
+    graph - but a cache diverges. Splicing the checkout-counter landmark in gave cp32 a new
+    neighbour, and a --resume pass skips the record holding the old list, so the rendered map (which
+    reads the graph) said "connects to 3, 6, 54" while the record still said "3, 6". An agent
+    trusting the record would not have known the counter was one hop away - exactly the thing the
+    landmark exists to prevent.
+
+    So the copy is refreshed here, alongside the other derived outputs, instead of only at
+    annotation time. The graph owns connectivity; anything cached from it is rebuilt every run."""
+    nb_by_id = {c["id"]: c.get("neighbors", []) for c in topology["checkpoints"]}
+    for cid, rec in annotations.items():
+        rec["neighbors"] = nb_by_id.get(int(cid), [])
+    return annotations
 
 
 def primary_path(capture_dir, cp_id):
@@ -79,7 +139,8 @@ def view_paths(capture_dir, cp_id):
 def select_checkpoints(topology, args):
     cps = topology["checkpoints"]
     if args.kind != "all":
-        cps = [c for c in cps if c.get("kind") == args.kind]
+        kinds = {k.strip() for k in args.kind.split(",")}
+        cps = [c for c in cps if c.get("kind") in kinds]
     if args.ids:
         wanted = set(args.ids)
         cps = [c for c in cps if c["id"] in wanted]
@@ -240,6 +301,10 @@ def run(args):
         done += 1
 
     # Derived outputs - rebuilt in full each run from the (possibly resumed) annotations.
+    refresh_graph_fields(annotations, topology)
+    add_route_hints(annotations, topology)
+    with open(ann_path, "w", encoding="utf-8") as f:
+        json.dump(annotations, f, indent=2, ensure_ascii=False)
     products = flatten_products(annotations)
     with open(prod_path, "w", encoding="utf-8") as f:
         json.dump(products, f, indent=2, ensure_ascii=False)
@@ -261,7 +326,10 @@ def build_parser():
     p.add_argument("--capture-dir", default=None, help="Where the cp<id>_primary.png live (default: <output_dir>/captures)")
     p.add_argument("--topology-tag", default="final_shelf")
     p.add_argument("--out-tag", default="final_shelf", help="Suffix for the output files")
-    p.add_argument("--kind", default="shelf", help="Which checkpoint kind to annotate (default: shelf; 'all' for every kind)")
+    p.add_argument("--kind", default="shelf,landmark",
+                   help="Comma-separated kinds to annotate (default: shelf,landmark; 'all' for every kind). "
+                        "A landmark gets the non-shelf overlay, which describes the place instead of "
+                        "enumerating products - right for a checkout counter.")
     p.add_argument("--ids", type=int, nargs="*", default=None, help="Only these checkpoint ids")
     p.add_argument("--limit", type=int, default=0, help="At most this many checkpoints (0 = all)")
     p.add_argument("--resume", action="store_true", help="Skip checkpoints already in annotations_<tag>.json")

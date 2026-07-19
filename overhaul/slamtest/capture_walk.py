@@ -218,9 +218,12 @@ def capture(args, out_path):
 
 
 def select_checkpoints(topology, args):
-    cps = [c for c in topology["checkpoints"] if c.get("kind") == args.kind]
-    if args.kind == "shelf":
-        cps = [c for c in cps if c.get("shelf_cell")]  # only these carry a perpendicular
+    kinds = {k.strip() for k in args.kind.split(",")}
+    cps = [c for c in topology["checkpoints"] if c.get("kind") in kinds]
+    # A perpendicular is what makes a checkpoint capturable. Shelf AND landmark nodes both carry
+    # shelf_cell (a landmark faces its structure the same way a shelf faces its face), so the same
+    # facing code serves both; structural nodes have none and are dropped.
+    cps = [c for c in cps if c.get("shelf_cell")]
     if args.ids:
         wanted = set(args.ids)
         cps = [c for c in cps if c["id"] in wanted]
@@ -304,8 +307,9 @@ def build_parser():
     parser.add_argument("--topology-tag", default="final_shelf")
     parser.add_argument("--capture-dir", default=None,
                         help="Where to write PNGs (default: <output_dir>/captures)")
-    parser.add_argument("--kind", default="shelf",
-                        help="Checkpoint kind to walk (default: shelf - the only kind with a perpendicular)")
+    parser.add_argument("--kind", default="shelf,landmark",
+                        help="Comma-separated checkpoint kinds to walk (default: shelf,landmark - "
+                             "the kinds that carry a perpendicular to face)")
     parser.add_argument("--ids", type=int, nargs="*", default=None, help="Only these checkpoint ids")
     parser.add_argument("--limit", type=int, default=5,
                         help="Sample this many checkpoints, spread across the graph (0 = all)")

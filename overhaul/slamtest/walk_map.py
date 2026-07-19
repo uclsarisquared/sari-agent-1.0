@@ -34,6 +34,7 @@ for _p in (_OVERHAUL_DIR, _THIS_DIR):
 from env import SetHandsActive  # noqa: E402
 from explore import step_agent  # noqa: E402
 from frontier_planner import _inflate_occupied  # noqa: E402
+from topology import route_hints  # noqa: E402
 import capture_walk  # noqa: E402
 from capture_walk import load_grid, perpendicular_yaw, goto, face  # noqa: E402
 
@@ -113,6 +114,15 @@ def wrap(text, width=72, indent="   "):
     return "\n".join(out)
 
 
+def effective_kind_of(cp_id, by_id, annotations):
+    """What a checkpoint IS, after the classifier's verdict. Falls back to the topology kind for
+    structural nodes, which are never annotated."""
+    rec = annotations.get(str(cp_id))
+    if rec:
+        return rec.get("effective_kind")
+    return by_id[cp_id].get("kind") if cp_id in by_id else None
+
+
 def show(cp, rec, by_id, annotations):
     """The arrival report: what am I looking at, and where can I go from here."""
     wx = cp.get("world_xz") or (0, 0)
@@ -136,6 +146,9 @@ def show(cp, rec, by_id, annotations):
 
     print(THIN)
     print(" Adjacent:")
+    neighbors_by_id = {c["id"]: c.get("neighbors", []) for c in by_id.values()}
+    interesting = lambda i: effective_kind_of(i, by_id, annotations) in ("shelf", "landmark")
+    hints = route_hints(neighbors_by_id, cp["id"], interesting)
     for nid in cp.get("neighbors", []):
         n = by_id.get(nid)
         if n is None:
@@ -144,7 +157,22 @@ def show(cp, rec, by_id, annotations):
         nwx = n.get("world_xz") or (0, 0)
         d = math.hypot(nwx[0] - wx[0], nwx[1] - wx[1])
         nrec = annotations.get(str(nid))
-        print(f"   [{nid:>3}]  {n.get('kind','?'):<9} {d:4.1f}m   {snippet(nrec)}")
+        if interesting(nid):
+            detail = snippet(nrec)
+        else:
+            # Nothing to see AT this neighbour - so say what lies THROUGH it instead of the
+            # useless "(not annotated)". This is graph truth, not a guess from an image.
+            hit = hints.get(nid)
+            if hit is None:
+                detail = "-> dead end"
+            else:
+                tid, hops = hit
+                trec = annotations.get(str(tid))
+                what = (trec or {}).get("annotation", {}).get("shelf_type") or []
+                kind = effective_kind_of(tid, by_id, annotations)
+                label = ", ".join(what) if what else (kind or "?")
+                detail = f"-> {label} ({hops} hop{'s' if hops != 1 else ''}, cp{tid})"
+        print(f"   [{nid:>3}]  {n.get('kind','?'):<9} {d:4.1f}m   {detail}")
     print(RULE)
 
 
