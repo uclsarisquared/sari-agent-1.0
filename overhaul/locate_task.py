@@ -31,6 +31,14 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Repo-root api.env (overhaul/ -> repo root is two parents up), resolved from __file__ so the
+# qwen backend's UCL creds load when this is run standalone (agent.py loads its own copy when it
+# imports this module for graph-nav, so this is a harmless no-op in that path).
+load_dotenv(Path(__file__).resolve().parent.parent / "api.env")
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _SLAM_DIR = os.path.join(_THIS_DIR, "slamtest")
@@ -198,7 +206,8 @@ def qwen_json(system, prompt, schema, image_paths=(), model="Qwen/Qwen3.6-27B", 
     $UCL_BASE_URL."""
     import requests
     host = base_url or os.environ.get("UCL_BASE_URL")
-    key = api_key or os.environ.get("UCL_API")
+    # UCL_API_KEY first (api.env's spelling) then UCL_API (legacy env / conda state).
+    key = api_key or os.environ.get("UCL_API_KEY") or os.environ.get("UCL_API")
     if not host:
         raise RuntimeError("qwen backend needs --base-url or $UCL_BASE_URL "
                            "(it lives in the sari_env_old conda env)")

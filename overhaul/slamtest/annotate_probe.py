@@ -29,6 +29,15 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Repo-root api.env (overhaul/slamtest/ -> repo root is three parents up), resolved from
+# __file__ so the UCL creds load regardless of CWD - this module is the shared UCL resolver for
+# the slamtest tools (vlm_planner, explore_vlm import resolve_api_key/resolve_base_url from here),
+# and several of them are run standalone without agent.py's loader ever executing.
+load_dotenv(Path(__file__).resolve().parent.parent.parent / "api.env")
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
@@ -61,13 +70,18 @@ def resolve_api_key(explicit=None):
     """The qwen server REQUIRES a bearer key since 2026-07 (measured: /v1/models returns 401
     without it - the old "vLLM ignores it" era is over). $UCL_API first; conda-meta/state
     fallback because invoking sari_env_old's python.exe directly skips the env-var hooks.
-    Resolved at call time, never hardcoded, so a rotated key is picked up automatically."""
-    key = explicit if explicit not in (None, "", "none") else os.environ.get("UCL_API")
+    Resolved at call time, never hardcoded, so a rotated key is picked up automatically.
+    Read as UCL_API_KEY first (api.env's spelling) then UCL_API (legacy env / conda state)."""
+    if explicit not in (None, "", "none"):
+        key = explicit
+    else:
+        key = os.environ.get("UCL_API_KEY") or os.environ.get("UCL_API")
     if not key:
         try:
             import json as _json
             with open(r"C:/Sari/sari_env_old/conda-meta/state", encoding="utf-8") as f:
-                key = _json.load(f).get("env_vars", {}).get("UCL_API")
+                ev = _json.load(f).get("env_vars", {})
+            key = ev.get("UCL_API_KEY") or ev.get("UCL_API")
         except OSError:
             pass
     return key or "none"

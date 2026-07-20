@@ -130,14 +130,18 @@ class PipelineApp:
             caf, textvariable=self.angles, values=["1", "2"], state="readonly", width=5))
         self.limit = tk.StringVar(value="0")
         self._row(caf, 1, "Capture limit (0 = all)", ttk.Entry(caf, textvariable=self.limit, width=8))
+        self.ann_backend = tk.StringVar(value="claude-cli")
+        self._row(caf, 2, "Annotator backend", ttk.Combobox(
+            caf, textvariable=self.ann_backend, values=["claude-cli", "qwen"],
+            state="readonly", width=12))
         self.ann_model = tk.StringVar(value="sonnet")
-        self._row(caf, 2, "Annotator model (PINNED)", ttk.Entry(caf, textvariable=self.ann_model, width=12))
+        self._row(caf, 3, "Model (claude only)", ttk.Entry(caf, textvariable=self.ann_model, width=12))
         self.ann_effort = tk.StringVar(value="medium")
-        self._row(caf, 3, "Annotator effort (PINNED)", ttk.Combobox(
+        self._row(caf, 4, "Effort (claude only)", ttk.Combobox(
             caf, textvariable=self.ann_effort, values=["low", "medium", "high"], state="readonly", width=8))
-        ttk.Label(caf, text="Annotator is pinned to sonnet/medium (2026-07-19);\n"
-                            "change only with an explicit decision + A/B.",
-                  foreground="grey").grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Label(caf, text="claude-cli = measured baseline (sonnet/medium). qwen = self-hosted,\n"
+                            "no subscription; model/effort fields ignored. A/B before trusting qwen.",
+                  foreground="grey").grid(row=5, column=0, columnspan=2, sticky="w")
 
         # --- run controls ---
         ctl = ttk.Frame(left)
@@ -228,9 +232,12 @@ class PipelineApp:
                                           "--uri", self.uri.get()]))
 
         if self.stage_vars["annotate"].get():
-            cmds.append(("Annotate", py + [os.path.join(_THIS_DIR, "annotate_pass.py"), out,
-                                           "--model", self.ann_model.get(),
-                                           "--effort", self.ann_effort.get()]))
+            backend = self.ann_backend.get()
+            ann = py + [os.path.join(_THIS_DIR, "annotate_pass.py"), out, "--backend", backend]
+            if backend == "claude-cli":
+                # model/effort apply to claude only; qwen uses its own default (Qwen/Qwen3.6-27B).
+                ann += ["--model", self.ann_model.get(), "--effort", self.ann_effort.get()]
+            cmds.append(("Annotate", ann))
         return cmds
 
     def start(self):

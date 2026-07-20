@@ -48,11 +48,15 @@ the sim. Prefer that over re-capturing.
 - **`claude -p` bills the claude.ai subscription** (`claude auth login`, defaults to `--claudeai`).
   The `anthropic` SDK path bills API credits instead — a different account. Don't switch silently.
   Never pass `--bare` to `claude -p` here: it forces `ANTHROPIC_API_KEY` and refuses the OAuth login.
-- **The ANNOTATOR is pinned: `claude -p`, sonnet, medium effort — always** (user directive
-  2026-07-19). The AGENT RUNTIME (per-step VLM/learner calls) runs on the UCL vLLM server
-  (`$UCL_BASE_URL:8000/v1`, bearer `$UCL_API`, `Qwen/Qwen3.6-27B`) — OpenRouter was retired for
-  agent calls when its credits ran out. Do not cross these: annotation quality is measured and
-  frozen on sonnet; agent runtime is measured on qwen.
+- **The ANNOTATOR defaults to `claude -p`, sonnet, medium effort** — the measured/frozen quality
+  baseline. It is no longer *locked* to claude: as of 2026-07-20 (user directive) `annotate_pass.py`
+  takes `--backend {claude-cli,qwen}`, and the pipeline app exposes the choice. claude-cli stays the
+  DEFAULT (unchanged baseline); `qwen` (the same UCL server, `annotate_qwen.py`) is selectable for a
+  fully self-hosted run or to A/B annotation quality on identical captures. If you switch the
+  annotator to qwen for a real pass, A/B qwen-vs-sonnet on the reviewed captures (cp015/cp017/cp067)
+  first — quality was only ever measured on sonnet. The AGENT RUNTIME (per-step VLM/learner calls)
+  runs on the UCL vLLM server (`$UCL_BASE_URL:8000/v1`, bearer `$UCL_API_KEY` or legacy `$UCL_API`,
+  `Qwen/Qwen3.6-27B`) — OpenRouter was retired for agent calls when its credits ran out.
 - **Map quality bar:** a good `grid_final.png` has **no grey holes** in the store interior.
 
 ## How to work here — this matters more than it sounds

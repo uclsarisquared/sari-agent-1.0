@@ -53,11 +53,28 @@ from annotator_sys_inst import (  # noqa: E402
     SYS_INST_CLASSIFY, CLASSIFY_SCHEMA, SHELF_KIND,
     build_annotation_instructions, schema_for, effective_kind,
 )
-from annotate_claude_cli import annotate, ClaudeCliError, DEFAULT_MODEL, DEFAULT_EFFORT  # noqa: E402
+from annotate_claude_cli import (  # noqa: E402
+    annotate as annotate_claude, ClaudeCliError,
+    DEFAULT_MODEL as CLAUDE_DEFAULT_MODEL, DEFAULT_EFFORT,
+)
+from annotate_qwen import (  # noqa: E402
+    annotate as annotate_qwen, QwenAnnotateError, DEFAULT_MODEL as QWEN_DEFAULT_MODEL,
+)
 from topology import route_hints  # noqa: E402
 
 
 INTERESTING_KINDS = ("shelf", "landmark")
+
+# Annotator backends. claude-cli is the DEFAULT: annotation quality was measured/frozen on sonnet,
+# so the baseline is unchanged unless the user opts in. qwen was un-pinned as a CHOICE 2026-07-20
+# (user directive) - selectable for a fully self-hosted run (no claude.ai subscription / no CLI) or
+# to A/B annotation quality on identical captures. Both expose the same annotate() signature.
+ANNOTATE_BACKENDS = {
+    "claude-cli": (annotate_claude, CLAUDE_DEFAULT_MODEL),
+    "qwen": (annotate_qwen, QWEN_DEFAULT_MODEL),
+}
+# One "backend call failed for this checkpoint" signal, whichever backend raised it.
+AnnotateError = (ClaudeCliError, QwenAnnotateError)
 
 
 def add_route_hints(annotations, topology):
@@ -150,16 +167,19 @@ def select_checkpoints(topology, args):
     return cps
 
 
-def classify(primary, args):
+def classify(primary, args, annotate_fn):
     """Stage 1: shelf vs non_shelf from the primary image. Returns the label string, or None if
     the call failed (caller falls back to trusting the geometry)."""
-    result, _env = annotate(primary, SYS_INST_CLASSIFY, CLASSIFY_SCHEMA,
-                            model=args.model, effort=args.effort, timeout=args.timeout)
+    result, _env = annotate_fn(primary, SYS_INST_CLASSIFY, CLASSIFY_SCHEMA,
+                               model=args.model, effort=args.effort, timeout=args.timeout)
     return result.get("label")
 
 
-def annotate_checkpoint(cp, primary, views, args):
-    """Full two-stage annotation for one checkpoint. Returns the sidecar record dict."""
+def annotate_checkpoint(cp, primary, views, args, annotate_fn):
+    """Full two-stage annotation for one checkpoint. Returns the sidecar record dict.
+
+    `annotate_fn` is the selected backend's annotate() (claude-cli or qwen); both share one
+    signature so this body is backend-agnostic."""
     topo_kind = cp.get("kind", "?")
 
     # Stage 1 only runs on shelf-kind checkpoints (the only ones with shelf-vs-wall ambiguity).
@@ -167,14 +187,14 @@ def annotate_checkpoint(cp, primary, views, args):
     # views would only add cost to a binary the classifier already gets right.
     label = None
     if topo_kind == SHELF_KIND and not args.skip_classify:
-        label = classify(primary, args)
+        label = classify(primary, args, annotate_fn)
 
     ekind = effective_kind(topo_kind, label)
     system = build_annotation_instructions(ekind)
     schema = schema_for(ekind)
 
-    result, env = annotate(primary, system, schema, model=args.model, effort=args.effort,
-                           timeout=args.timeout, extra_views=views)
+    result, env = annotate_fn(primary, system, schema, model=args.model, effort=args.effort,
+                              timeout=args.timeout, extra_views=views)
 
     return {
         "id": cp["id"],
@@ -185,8 +205,9 @@ def annotate_checkpoint(cp, primary, views, args):
         # needs it here so an agent reading one checkpoint's record can see where it can go next
         # without loading the whole graph.
         "neighbors": cp.get("neighbors", []),
+        "backend": args.backend,
         "model": args.model,
-        "effort": args.effort,
+        "effort": args.effort if args.backend == "claude-cli" else None,
         "cost_equiv_usd": env.get("total_cost_usd"),
         "views": ["STRAIGHT"] + [lbl for lbl, _ in views],
         "annotation": result,             # the schema-shaped VLM output
@@ -245,6 +266,17 @@ def render_semantic_map(annotations, topology):
 
 
 def run(args):
+    # Resolve the backend: its annotate() and its default model. --model overrides the default,
+    # so `--backend qwen` without --model uses Qwen/Qwen3.6-27B, not sonnet.
+    annotate_fn, default_model = ANNOTATE_BACKENDS[args.backend]
+    if not args.model:
+        args.model = default_model
+    if args.backend == "qwen" and args.base_url:
+        # Only the qwen backend accepts base_url; inject it so classify/annotate_checkpoint stay
+        # backend-agnostic (they call annotate_fn with the shared signature only).
+        _base_fn = annotate_fn
+        annotate_fn = lambda *a, **k: _base_fn(*a, base_url=args.base_url, **k)
+
     topo_path = os.path.join(args.output_dir, f"topology_{args.topology_tag}.json")
     with open(topo_path, encoding="utf-8") as f:
         topology = json.load(f)
@@ -261,8 +293,9 @@ def run(args):
         print(f"[annotate_pass] resuming - {len(annotations)} checkpoint(s) already annotated")
 
     targets = select_checkpoints(topology, args)
+    eff = args.effort if args.backend == "claude-cli" else "n/a"
     print(f"[annotate_pass] {len(targets)} target checkpoint(s); captures from {capture_dir}; "
-          f"model={args.model} effort={args.effort}")
+          f"backend={args.backend} model={args.model} effort={eff}")
 
     done = skipped = failed = 0
     for cp in targets:
@@ -278,8 +311,8 @@ def run(args):
 
         views = view_paths(capture_dir, cp["id"])
         try:
-            rec = annotate_checkpoint(cp, primary, views, args)
-        except ClaudeCliError as e:
+            rec = annotate_checkpoint(cp, primary, views, args, annotate_fn)
+        except AnnotateError as e:
             print(f"[annotate_pass] id={cp['id']:3d} FAILED: {e}")
             failed += 1
             continue
@@ -312,9 +345,11 @@ def run(args):
         f.write(render_semantic_map(annotations, topology))
 
     total_cost = sum(r.get("cost_equiv_usd") or 0 for r in annotations.values())
+    cost_note = ("subscription-covered on Max" if args.backend == "claude-cli"
+                 else "self-hosted qwen - no per-call billing")
     print(f"[annotate_pass] done: {done} annotated, {skipped} skipped, {failed} failed")
     print(f"[annotate_pass] {len(annotations)} checkpoints, {len(products)} products, "
-          f"~${total_cost:.2f} equiv (subscription-covered on Max)")
+          f"~${total_cost:.2f} equiv ({cost_note})")
     print(f"[annotate_pass]   {ann_path}")
     print(f"[annotate_pass]   {prod_path}")
     print(f"[annotate_pass]   {map_path}")
@@ -334,8 +369,16 @@ def build_parser():
     p.add_argument("--limit", type=int, default=0, help="At most this many checkpoints (0 = all)")
     p.add_argument("--resume", action="store_true", help="Skip checkpoints already in annotations_<tag>.json")
     p.add_argument("--skip-classify", action="store_true", help="Skip Stage 1; treat every shelf-kind checkpoint as a real shelf")
-    p.add_argument("--model", default=DEFAULT_MODEL, help="claude model or alias (default: sonnet)")
-    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=["low", "medium", "high", "xhigh", "max"])
+    p.add_argument("--backend", choices=list(ANNOTATE_BACKENDS), default="claude-cli",
+                   help="Annotation model backend. claude-cli (default): `claude -p` sonnet, the "
+                        "measured/frozen quality baseline. qwen: the self-hosted vLLM server - no "
+                        "claude.ai subscription or `claude` CLI needed. Un-pinned 2026-07-20.")
+    p.add_argument("--model", default=None,
+                   help="Model or alias. Default depends on --backend: 'sonnet' for claude-cli, "
+                        f"'{QWEN_DEFAULT_MODEL}' for qwen.")
+    p.add_argument("--effort", default=DEFAULT_EFFORT, choices=["low", "medium", "high", "xhigh", "max"],
+                   help="claude-cli only; ignored by the qwen backend.")
+    p.add_argument("--base-url", default=None, help="qwen backend host (default $UCL_BASE_URL:8000/v1)")
     p.add_argument("--timeout", type=float, default=240.0)
     return p
 
