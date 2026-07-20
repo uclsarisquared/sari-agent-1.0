@@ -1,0 +1,60 @@
+[project]
+name = "sari-agent"
+version = "1.0.0"
+description = "Virtual embodied agent operating in a 3D convenience store environment"
+readme = "README.md"
+# Pinned by .python-version (3.10.13). numpy<2 and the measured runtime were both established
+# on 3.10; do not widen without re-measuring.
+requires-python = ">=3.10,<3.11"
+
+# Derived from actual imports, NOT from overhaul/requirements.txt — that file is a whole-
+# environment `pip freeze` (100+ entries incl. torch==2.2.1+cu121, transformers, opencv,
+# scipy, scikit-image). None of those are imported anywhere in this repo, and the +cu121
+# torch pin cannot resolve off Windows/CUDA at all.
+dependencies = [
+    # --- Agent runtime -----------------------------------------------------------
+    "openai>=1.79.0",          # UCL vLLM server client (OpenAI-compatible)
+    "python-dotenv>=1.1.0",    # api.env. NB: not the `dotenv` package — see [tool.uv] note
+    "loguru>=0.7.3",
+    # --- Unity sim bridge --------------------------------------------------------
+    "websockets>=15.0",
+    "requests>=2.32.3",
+    # --- Perception / mapping ----------------------------------------------------
+    # CONFLICT, resolved deliberately: both requirements.txt files pin pillow==11.2.1, but
+    # moondream (every version, incl. latest 1.3.0) requires pillow<11.0.0 — and moondream is
+    # NOT in either requirements file, so that env had an unresolved conflict pip never
+    # surfaced. moondream is measured-working and deliberately retained (see md_tools.py), so
+    # pillow yields. The repo only uses stable Image open/save/crop/draw APIs.
+    "pillow>=10.4.0,<11",
+    "numpy>=1.26.4,<2",        # 1.26.4 is the measured pin; 2.x is untested here
+    "matplotlib>=3.10.3",      # slamtest grid/topology renders
+    # Grab-time pointing; top-level import in md_tools.py. >=1.2 is load-bearing: moondream
+    # 0.1.x caps pillow<11, which conflicts with the pillow 11.2.1 the rest of the repo was
+    # measured on. It was unpinned in both requirements.txt files, so no pin is being broken.
+    "moondream>=1.2",
+    # --- Legacy root stack -------------------------------------------------------
+    "litserve>=0.2.9",         # server.py
+    "google-genai>=1.14.0",    # functions.py, comprehension.py
+    "pynput>=1.7",             # keyboard_control.py, slamtest/manual_map.py
+]
+
+[project.optional-dependencies]
+# PaddleOCR is lazy-imported inside perception._get_ocr(), so the agent runs without it.
+# Kept optional because paddlepaddle wheels are large and unreliable on Apple Silicon.
+#   uv sync --extra ocr
+ocr = [
+    "paddleocr>=2.8.0",
+    "paddlepaddle>=3.0.0rc1",
+]
+
+[tool.uv]
+# Not an installable package — a collection of scripts run in place. Without this, uv would
+# try to build and install the project itself and fail (no package layout).
+package = false
+
+# The `dotenv` distribution on PyPI is NOT what `from dotenv import load_dotenv` resolves to;
+# that comes from `python-dotenv`. Both are listed in the old requirements.txt files, which is
+# how the confusion started. Never add `dotenv` here.
+
+[dependency-groups]
+dev = []

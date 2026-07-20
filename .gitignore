@@ -1,4 +1,5 @@
 api.env
+.venv/
 __pycache__/
 client.py
 base_semantic_memory.txt

@@ -18,15 +18,63 @@ product catalog; this repo is the agent/mapping side.
 
 ---
 
-## Prerequisites
+## Setup
 
-- **Python 3.x**, `pip install -r requirements.txt` (the `overhaul/` stack has its own
-  `overhaul/requirements.txt`)
+Dependencies are managed with [uv](https://docs.astral.sh/uv/). Python 3.10.13 is pinned in
+`.python-version`; uv fetches it automatically.
+
+```bash
+uv sync                 # create .venv and install everything
+cp api.env.example api.env    # then fill it in — see Configuration
+```
+
+Run anything through `uv run`, which activates the environment for you:
+
+```bash
+uv run python run.py "your task"
+```
+
+Optional extra — PaddleOCR is lazy-imported inside `perception._get_ocr()`, so the agent runs
+without it. Paddle wheels are large and unreliable on Apple Silicon, hence opt-in:
+
+```bash
+uv sync --extra ocr
+```
+
+### Prerequisites
+
 - **The Unity sim running in Play mode**, exposing its WebSocket command server at
   `ws://localhost:8080/commands`. Nothing that touches the environment works without it.
-- **Windows.** Both entry points `import winsound` at module top level, so they fail at import on
-  macOS/Linux regardless of configuration.
 - **`api.env` at the repo root** — see [Configuration](#configuration).
+- **The map artifacts** in `overhaul/slamtest/output/`. These are gitignored, so a fresh clone
+  does not have them; without `topology_final_shelf.json` the agent fails at import. Check with
+  `ls overhaul/slamtest/output`.
+- `ClientGUI.py` needs system Tk (`tkinter`); nothing else does.
+
+Runs on macOS, Linux, and Windows. The run-completion chime is platform-dispatched in `chime.py`
+(`winsound` on Windows, `afplay` on macOS, terminal bell elsewhere) and never raises.
+
+### Dependency notes
+
+`pyproject.toml` is derived from actual imports, not from the two `requirements.txt` files — those
+are whole-environment `pip freeze` dumps. `overhaul/requirements.txt` alone lists 100+ packages
+including `torch==2.2.1+cu121`, `transformers`, `opencv`, `scipy`, and `scikit-image`, **none of
+which are imported anywhere in this repo**, and the `+cu121` torch pin cannot resolve off
+Windows/CUDA at all. The requirements files are kept for reference; `pyproject.toml` is the source
+of truth.
+
+Two things worth knowing about the resolution:
+
+- **`pillow` is held at `<11`.** Both requirements files pin `pillow==11.2.1`, but moondream —
+  every published version, including the latest 1.3.0 — requires `pillow<11.0.0`. moondream is in
+  neither requirements file, so that environment carried an unresolved conflict pip never
+  surfaced. moondream is measured-working and deliberately retained (see `md_tools.py`), so pillow
+  yields; the repo only uses stable `Image` open/save/crop/draw APIs.
+- **`torch` still gets installed**, transitively via `moondream → kestrel → torch`, even though
+  nothing here imports it and `md_tools.py` uses moondream's *cloud* API. It is a hard dependency
+  of the package; the download is large.
+- `from dotenv import load_dotenv` comes from **`python-dotenv`**, not the unrelated `dotenv`
+  distribution on PyPI. Both appear in the old requirements files. Don't add `dotenv`.
 
 ## Configuration
 
@@ -68,7 +116,7 @@ to run the mapping pipeline first.
 
 ```bash
 cd overhaul
-python subagent_run.py "find and pick up Pepero"
+uv run python subagent_run.py "find and pick up Pepero"
 ```
 
 `subagent_run.py` is the orchestrator: it decomposes the task into subtasks, runs each through an
@@ -87,8 +135,8 @@ The original two-process setup. `server.py` uses OpenRouter, which is retired fo
 this path is likely dead — kept for reference.
 
 ```bash
-python server.py inf_base      # LitServe on :8005 (or inf_super)
-python run.py "your task"      # polls the sim, posts to /predict
+uv run python server.py inf_base      # LitServe on :8005 (or inf_super)
+uv run python run.py "your task"      # polls the sim, posts to /predict
 ```
 
 ---
@@ -102,11 +150,11 @@ Run from `overhaul/`. 🎮 = needs the sim in Play mode; the rest are offline.
 
 | # | Phase | Command | Produces |
 |---|---|---|---|
-| 1 | Map 🎮 | `python slamtest/explore.py` | `grid_final.npy/.png`, `topology_final.json` |
-| 2 | Shelf graph | `python slamtest/build_shelf_graph.py slamtest/output` | `topology_final_shelf.json` + graph PNG |
-| 3 | Reachability | `python slamtest/audit_standability.py slamtest/output --topology-tag final_shelf` | prints |
-| 4 | Capture 🎮 | `python slamtest/capture_walk.py slamtest/output --limit 0 --angles 2` | `captures/cp<id>_primary.png`, `_crouch.png` |
-| 5 | Annotate | `python slamtest/annotate_pass.py slamtest/output` | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
+| 1 | Map 🎮 | `uv run python slamtest/explore.py` | `grid_final.npy/.png`, `topology_final.json` |
+| 2 | Shelf graph | `uv run python slamtest/build_shelf_graph.py slamtest/output` | `topology_final_shelf.json` + graph PNG |
+| 3 | Reachability | `uv run python slamtest/audit_standability.py slamtest/output --topology-tag final_shelf` | prints |
+| 4 | Capture 🎮 | `uv run python slamtest/capture_walk.py slamtest/output --limit 0 --angles 2` | `captures/cp<id>_primary.png`, `_crouch.png` |
+| 5 | Annotate | `uv run python slamtest/annotate_pass.py slamtest/output` | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
 
 **Current state:** phases 1–2 are shipped. `topology_final_shelf.json` holds **55 checkpoints** —
 39 shelf nodes, 15 base junction/end/doorway nodes, and 1 landmark (the checkout counter).
@@ -138,6 +186,8 @@ Other standing constraints:
 | `overhaul/env.py`, `actions.py` | Unity WebSocket bridge and the action vocabulary. |
 | `overhaul/CLAUDE.md` | **Design rationale, measured findings, and open threads. Read before changing anything.** |
 | `run.py`, `server.py`, `openrouter.py` | Legacy root stack. |
+| `chime.py`, `overhaul/chime.py` | Cross-platform completion beep. Duplicated on purpose — both stacks define their own `env.py`/`actions.py`, so sharing one copy via `sys.path` would shadow `overhaul`'s modules with the root's. |
+| `pyproject.toml` | Dependency source of truth (uv). The `requirements.txt` files are legacy freezes. |
 
 ## Working conventions
 
