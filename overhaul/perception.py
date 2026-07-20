@@ -2,6 +2,7 @@ import ast
 import random
 import os
 import base64
+from pathlib import Path
 from dotenv import load_dotenv
 
 from openai import OpenAI
@@ -10,7 +11,8 @@ from io import BytesIO
 import requests
 import ast
 import re
-load_dotenv('../api.env')
+# Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
+load_dotenv(Path(__file__).resolve().parent.parent / 'api.env')
 
 GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to grab
 
@@ -164,9 +166,7 @@ def center_object_on_screen(target_info):
 
 
 def detect_object_via_gemini(target_name):
-    import dotenv
-    dotenv.load_dotenv('api.env')
-
+    # api.env is loaded once at module import; the redundant CWD-relative reload here was a no-op.
     client = CLIENT  # UCL qwen (name kept for call sites; Gemini retired with OpenRouter)
     model_name = MODEL_NAME
     original_width = 1920

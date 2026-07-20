@@ -1,8 +1,13 @@
 import os
+from pathlib import Path
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from operator import itemgetter
+
+# Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
+# (load_dotenv was imported but never called here; GEMINI_API_KEY below relied on ambient env.)
+load_dotenv(Path(__file__).resolve().parent / 'api.env')
 
 
 # Define the function declaration for the model

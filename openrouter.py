@@ -4,6 +4,7 @@ import ast
 import base64
 import math
 from io import BytesIO
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Literal, List, Dict, Any
 
@@ -14,7 +15,8 @@ from loguru import logger
 
 from reference import SYSTEM_INSTRUCTIONS_REF, BASE_SEMANTIC_MEMORY
 
-load_dotenv('api.env')
+# Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
+load_dotenv(Path(__file__).resolve().parent / 'api.env')
 
 
 @dataclass

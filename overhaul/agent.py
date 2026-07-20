@@ -6,6 +6,7 @@ import base64
 import json
 import time
 from io import BytesIO
+from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 import re
@@ -13,7 +14,8 @@ from PIL import Image
 from loguru import logger
 import ast
 
-load_dotenv('C:\\Sari\\sari-agent-1.0\\api.env')
+# Repo-root api.env, resolved from __file__ so it loads regardless of CWD or checkout location.
+load_dotenv(Path(__file__).resolve().parent.parent / 'api.env')
 
 from sys_inst import (
     SYS_INST_ASSOCIATIVE_SEMANTIC,

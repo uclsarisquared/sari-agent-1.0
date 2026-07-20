@@ -23,10 +23,13 @@ import time
 import winsound
 from datetime import datetime
 
+from pathlib import Path
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv('../api.env')
+# Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
+load_dotenv(Path(__file__).resolve().parent.parent / 'api.env')
 
 from hand_reset import reset_hands_in_front2
 from env import (
