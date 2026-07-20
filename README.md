@@ -31,8 +31,12 @@ cp api.env.example api.env    # then fill it in — see Configuration
 Run anything through `uv run`, which activates the environment for you:
 
 ```bash
-uv run python run.py "your task"
+cd overhaul
+uv run python subagent_run.py "your task"
 ```
+
+Note that the entrypoint is `overhaul/subagent_run.py`, **not** the root `run.py` — see
+[Running the agent](#running-the-agent).
 
 Optional extra — PaddleOCR is lazy-imported inside `perception._get_ocr()`, so the agent runs
 without it. Paddle wheels are large and unreliable on Apple Silicon, hence opt-in:
@@ -111,8 +115,19 @@ credits — different accounts. Don't switch silently.
 
 ## Running the agent
 
-The current stack lives in `overhaul/`. **The map is already built and frozen** — you do not need
-to run the mapping pipeline first.
+There are two stacks in this repo. **Only the `overhaul/` one is live**; the root `run.py` /
+`server.py` pair is deprecated and receives no further development.
+
+| | Entrypoint | Status |
+|---|---|---|
+| **Current agent** (map-based) | `cd overhaul && uv run python subagent_run.py "<task>"` | Live — all development happens here |
+| **Legacy agent** (open-ended VLM) | `uv run python server.py inf_base` + `uv run python run.py "<task>"` | **Deprecated**, kept for reference only |
+
+### Current agent
+
+Lives in `overhaul/`. It navigates on the frozen checkpoint graph with deterministic A*, and calls
+the VLM only for local judgements. **The map is already built and frozen** — you do not need to run
+the mapping pipeline first.
 
 ```bash
 cd overhaul
@@ -129,10 +144,15 @@ Before a run, sanity-check that the map artifacts are present:
 ls overhaul/slamtest/output
 ```
 
-### Legacy root stack
+### Legacy root stack — deprecated
 
-The original two-process setup. `server.py` uses OpenRouter, which is retired for agent calls, so
-this path is likely dead — kept for reference.
+**`run.py` at the repo root does *not* run the current agent.** It is the original two-process
+setup: `run.py` polls the sim and POSTs to `server.py` (LitServe on `:8005`), which asks a VLM for
+raw `MOVE_FWD` / `PAN_LEFT` / `GRIP_*` actions with durations. It has no map, no checkpoint graph
+and no A* — it is precisely the open-ended VLM navigation the overhaul replaced.
+
+It is also likely non-functional: `server.py` calls OpenRouter, which is retired for agent calls.
+Kept for reference and comparison only; do not build on it.
 
 ```bash
 uv run python server.py inf_base      # LitServe on :8005 (or inf_super)
@@ -185,7 +205,7 @@ Other standing constraints:
 | `overhaul/slamtest/` | Mapping + annotation pipeline (LiDAR, occupancy grid, topology, capture, annotate). |
 | `overhaul/env.py`, `actions.py` | Unity WebSocket bridge and the action vocabulary. |
 | `overhaul/CLAUDE.md` | **Design rationale, measured findings, and open threads. Read before changing anything.** |
-| `run.py`, `server.py`, `openrouter.py` | Legacy root stack. |
+| `run.py`, `server.py`, `openrouter.py` | **Deprecated** legacy root stack — open-ended VLM, no map. Not the current agent. |
 | `chime.py`, `overhaul/chime.py` | Cross-platform completion beep. Duplicated on purpose — both stacks define their own `env.py`/`actions.py`, so sharing one copy via `sys.path` would shadow `overhaul`'s modules with the root's. |
 | `pyproject.toml` | Dependency source of truth (uv). The `requirements.txt` files are legacy freezes. |
 
