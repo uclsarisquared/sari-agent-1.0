@@ -190,12 +190,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", choices=["vlm", "graph"], required=True)
     ap.add_argument("--tasks", type=int, nargs="*", default=None, help="task indices to run")
+    ap.add_argument("--task", default=None,
+                    help="Run ONE ad-hoc task instead of the built-in TASKS list.")
+    ap.add_argument("--match", default=None,
+                    help="Comma-separated keywords that count as success for --task (substring "
+                         "match on the gripped/hovered object name). If omitted, success stays "
+                         "False but the picked-up item is still reported.")
     ap.add_argument("--max-steps", type=int, default=12)
     ap.add_argument("--max-minutes", type=float, default=8.0)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    todo = [TASKS[i] for i in args.tasks] if args.tasks else TASKS
+    if args.task:
+        kw = tuple(k.strip().lower() for k in args.match.split(",")) if args.match else ()
+        todo = [(args.task, kw)]
+    else:
+        todo = [TASKS[i] for i in args.tasks] if args.tasks else TASKS
     # Agent runtime = UCL qwen (user directive 2026-07-19; OpenRouter retired on 402).
     agent = EmbodiedAgent(
         vlm_config=ucl_qwen_config(temperature=0.5),

@@ -207,7 +207,8 @@ class EmbodiedAgent:
     def __init__(self, vlm_config: Optional[OpenRouterConfig] = None,
                  associative_config: Optional[OpenRouterConfig] = None,
                  mode: Literal['base', 'lean'] = 'base',
-                 nav_mode: Literal['vlm', 'graph'] = 'vlm') -> None:
+                 nav_mode: Literal['vlm', 'graph'] = 'vlm',
+                 resolver_backend: Literal['qwen', 'claude-cli'] = 'qwen') -> None:
 
         self.vlm_agent = VLMAgent(vlm_config)
         self.mode = mode
@@ -217,6 +218,13 @@ class EmbodiedAgent:
         # The swap lives HERE, in the mode router, not in the VLM's action list, so the VLM
         # cannot mix strategies and contaminate the arms (phase4.2 plan, "the one rule").
         self.nav_mode = nav_mode
+        # Which backend resolves the target -> candidate checkpoints in the graph arm.
+        # DEFAULT 'qwen' since 2026-07-20 (user directive): a variance eval found qwen at
+        # parity-to-better vs claude (overall 0.848 vs 0.815), and running it on qwen makes the
+        # whole runtime self-hosted AND removes the graph arm's Claude-shaped planner advantage,
+        # so the phase-4.2 A/B isolates navigation rather than planner model. 'claude-cli' stays
+        # available for comparison.
+        self.resolver_backend = resolver_backend
         self._graph_nav = None          # lazy: needs the sim up
         self._nav_candidates = []       # resolver output for the current task, in visit order
         self._nav_visited = set()
@@ -276,8 +284,13 @@ class EmbodiedAgent:
         sm, nav = self._graph_nav_session()
 
         if self._nav_task != main_task:
-            resolution, _ = locate_task.resolve(
-                lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im), sm, main_task)
+            # Resolver backend is selectable; default qwen (see __init__). Both return
+            # (result_dict, envelope) with the same (system, prompt, schema, images) call shape.
+            if self.resolver_backend == "claude-cli":
+                _resolve_call = lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im)
+            else:
+                _resolve_call = lambda s, p, sc, im=(): locate_task.qwen_json(s, p, sc, im)
+            resolution, _ = locate_task.resolve(_resolve_call, sm, main_task)
             self._nav_task = main_task
             self._nav_visited = set()
             self._nav_resolution = resolution
