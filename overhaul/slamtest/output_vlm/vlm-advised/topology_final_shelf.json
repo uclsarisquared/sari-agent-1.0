@@ -1,0 +1,1907 @@
+{
+  "checkpoints": [
+    {
+      "id": 0,
+      "cell": [
+        245,
+        268
+      ],
+      "world_xz": [
+        -5.449999999999999,
+        -3.1499999999999986
+      ],
+      "kind": "junction",
+      "neighbors": [
+        22
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 1,
+      "cell": [
+        259,
+        340
+      ],
+      "world_xz": [
+        -4.049999999999997,
+        4.050000000000004
+      ],
+      "kind": "junction",
+      "neighbors": [
+        23,
+        25,
+        26,
+        27,
+        29
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 2,
+      "cell": [
+        247,
+        347
+      ],
+      "world_xz": [
+        -5.25,
+        4.75
+      ],
+      "kind": "junction",
+      "neighbors": [
+        24
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 3,
+      "cell": [
+        337,
+        341
+      ],
+      "world_xz": [
+        3.75,
+        4.149999999999999
+      ],
+      "kind": "junction",
+      "neighbors": [
+        30,
+        33,
+        34,
+        36
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 4,
+      "cell": [
+        266,
+        263
+      ],
+      "world_xz": [
+        -3.349999999999998,
+        -3.6499999999999986
+      ],
+      "kind": "junction",
+      "neighbors": [
+        17,
+        5,
+        13
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 5,
+      "cell": [
+        263,
+        273
+      ],
+      "world_xz": [
+        -3.6499999999999986,
+        -2.6499999999999986
+      ],
+      "kind": "junction",
+      "neighbors": [
+        4,
+        22,
+        40
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 6,
+      "cell": [
+        288,
+        258
+      ],
+      "world_xz": [
+        -1.1499999999999986,
+        -4.149999999999999
+      ],
+      "kind": "junction",
+      "neighbors": [
+        18,
+        41,
+        43,
+        44
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 7,
+      "cell": [
+        293,
+        342
+      ],
+      "world_xz": [
+        -0.6499999999999986,
+        4.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        35,
+        39,
+        46,
+        47
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 8,
+      "cell": [
+        339,
+        302
+      ],
+      "world_xz": [
+        3.950000000000003,
+        0.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        32,
+        33,
+        49,
+        52,
+        55,
+        60
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 9,
+      "cell": [
+        277,
+        342
+      ],
+      "world_xz": [
+        -2.25,
+        4.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        28,
+        29,
+        46,
+        48
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 10,
+      "cell": [
+        261,
+        313
+      ],
+      "world_xz": [
+        -3.849999999999998,
+        1.3500000000000014
+      ],
+      "kind": "junction",
+      "neighbors": [
+        20,
+        25,
+        26,
+        62
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 11,
+      "cell": [
+        262,
+        291
+      ],
+      "world_xz": [
+        -3.75,
+        -0.8499999999999979
+      ],
+      "kind": "junction",
+      "neighbors": [
+        21,
+        40,
+        64
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 12,
+      "cell": [
+        301,
+        257
+      ],
+      "world_xz": [
+        0.15000000000000213,
+        -4.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        19,
+        45,
+        59,
+        61
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 13,
+      "cell": [
+        268,
+        258
+      ],
+      "world_xz": [
+        -3.1499999999999986,
+        -4.149999999999999
+      ],
+      "kind": "junction",
+      "neighbors": [
+        4,
+        42,
+        43
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 14,
+      "cell": [
+        262,
+        302
+      ],
+      "world_xz": [
+        -3.75,
+        0.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        51,
+        54,
+        63,
+        64
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 15,
+      "cell": [
+        244,
+        291
+      ],
+      "world_xz": [
+        -5.549999999999997,
+        -0.8499999999999979
+      ],
+      "kind": "end",
+      "neighbors": [
+        21
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 16,
+      "cell": [
+        244,
+        313
+      ],
+      "world_xz": [
+        -5.549999999999997,
+        1.3500000000000014
+      ],
+      "kind": "end",
+      "neighbors": [
+        20
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 17,
+      "cell": [
+        278,
+        272
+      ],
+      "world_xz": [
+        -2.1499999999999986,
+        -2.75
+      ],
+      "kind": "doorway",
+      "neighbors": [
+        4
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 18,
+      "cell": [
+        288,
+        272
+      ],
+      "world_xz": [
+        -1.1499999999999986,
+        -2.75
+      ],
+      "kind": "doorway",
+      "neighbors": [
+        6
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 19,
+      "cell": [
+        301,
+        272
+      ],
+      "world_xz": [
+        0.15000000000000213,
+        -2.75
+      ],
+      "kind": "doorway",
+      "neighbors": [
+        12
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 20,
+      "cell": [
+        245,
+        313
+      ],
+      "world_xz": [
+        -5.449999999999999,
+        1.3500000000000014
+      ],
+      "kind": "doorway",
+      "neighbors": [
+        10,
+        16
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 21,
+      "cell": [
+        245,
+        291
+      ],
+      "world_xz": [
+        -5.449999999999999,
+        -0.8499999999999979
+      ],
+      "kind": "doorway",
+      "neighbors": [
+        11,
+        15
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 22,
+      "cell": [
+        249,
+        266
+      ],
+      "world_xz": [
+        -5.049999999999997,
+        -3.349999999999998
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        0,
+        5
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        243,
+        274
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 23,
+      "cell": [
+        256,
+        345
+      ],
+      "world_xz": [
+        -4.349999999999998,
+        4.550000000000004
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        24,
+        1
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        258,
+        355
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 24,
+      "cell": [
+        251,
+        345
+      ],
+      "world_xz": [
+        -4.849999999999998,
+        4.550000000000004
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        23,
+        2
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        254,
+        355
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 25,
+      "cell": [
+        269,
+        326
+      ],
+      "world_xz": [
+        -3.049999999999997,
+        2.6499999999999986
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        1,
+        10,
+        26
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        279,
+        326
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 26,
+      "cell": [
+        254,
+        326
+      ],
+      "world_xz": [
+        -4.549999999999997,
+        2.6499999999999986
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        1,
+        10,
+        25
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        244,
+        326
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 27,
+      "cell": [
+        262,
+        345
+      ],
+      "world_xz": [
+        -3.75,
+        4.550000000000004
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        28,
+        1
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        260,
+        355
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 28,
+      "cell": [
+        275,
+        345
+      ],
+      "world_xz": [
+        -2.4499999999999993,
+        4.550000000000004
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        27,
+        9,
+        29
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        273,
+        355
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 29,
+      "cell": [
+        277,
+        339
+      ],
+      "world_xz": [
+        -2.25,
+        3.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        1,
+        9,
+        28
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        279,
+        329
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 30,
+      "cell": [
+        349,
+        339
+      ],
+      "world_xz": [
+        4.950000000000003,
+        3.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        31,
+        3
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        359,
+        339
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 31,
+      "cell": [
+        349,
+        321
+      ],
+      "world_xz": [
+        4.950000000000003,
+        2.1499999999999986
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        30,
+        32,
+        33
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        359,
+        321
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 32,
+      "cell": [
+        349,
+        303
+      ],
+      "world_xz": [
+        4.950000000000003,
+        0.3500000000000014
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        31,
+        8
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        359,
+        303
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 33,
+      "cell": [
+        330,
+        321
+      ],
+      "world_xz": [
+        3.0500000000000043,
+        2.1499999999999986
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        3,
+        8,
+        31
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        320,
+        321
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 34,
+      "cell": [
+        308,
+        339
+      ],
+      "world_xz": [
+        0.8500000000000014,
+        3.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        35,
+        3,
+        38
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        308,
+        329
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 35,
+      "cell": [
+        294,
+        339
+      ],
+      "world_xz": [
+        -0.5499999999999972,
+        3.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        34,
+        7,
+        39
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        294,
+        329
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 36,
+      "cell": [
+        335,
+        349
+      ],
+      "world_xz": [
+        3.5500000000000043,
+        4.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        37,
+        3
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        335,
+        359
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 37,
+      "cell": [
+        321,
+        349
+      ],
+      "world_xz": [
+        2.1499999999999986,
+        4.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        36,
+        38
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        321,
+        359
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 38,
+      "cell": [
+        308,
+        345
+      ],
+      "world_xz": [
+        0.8500000000000014,
+        4.550000000000004
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        37,
+        39,
+        34
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        308,
+        355
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 39,
+      "cell": [
+        294,
+        346
+      ],
+      "world_xz": [
+        -0.5499999999999972,
+        4.649999999999999
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        38,
+        7,
+        35
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        294,
+        356
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 40,
+      "cell": [
+        253,
+        274
+      ],
+      "world_xz": [
+        -4.649999999999999,
+        -2.549999999999997
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        5,
+        11
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        243,
+        274
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 41,
+      "cell": [
+        287,
+        250
+      ],
+      "world_xz": [
+        -1.25,
+        -4.949999999999999
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        42,
+        6,
+        43
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        287,
+        240
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 42,
+      "cell": [
+        269,
+        250
+      ],
+      "world_xz": [
+        -3.049999999999997,
+        -4.949999999999999
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        41,
+        13
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        269,
+        240
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 43,
+      "cell": [
+        287,
+        266
+      ],
+      "world_xz": [
+        -1.25,
+        -3.349999999999998
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        6,
+        13,
+        41
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        287,
+        276
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 44,
+      "cell": [
+        289,
+        250
+      ],
+      "world_xz": [
+        -1.0499999999999972,
+        -4.949999999999999
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        45,
+        6
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        289,
+        240
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 45,
+      "cell": [
+        300,
+        250
+      ],
+      "world_xz": [
+        0.05000000000000071,
+        -4.949999999999999
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        44,
+        12
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        300,
+        240
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 46,
+      "cell": [
+        292,
+        339
+      ],
+      "world_xz": [
+        -0.75,
+        3.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        7,
+        9,
+        47
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        292,
+        329
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 47,
+      "cell": [
+        292,
+        349
+      ],
+      "world_xz": [
+        -0.75,
+        4.950000000000003
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        48,
+        7,
+        46
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        292,
+        359
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 48,
+      "cell": [
+        278,
+        345
+      ],
+      "world_xz": [
+        -2.1499999999999986,
+        4.550000000000004
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        47,
+        9
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        278,
+        355
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 49,
+      "cell": [
+        319,
+        294
+      ],
+      "world_xz": [
+        1.9500000000000028,
+        -0.5499999999999972
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        50,
+        8,
+        52
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        319,
+        284
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 50,
+      "cell": [
+        300,
+        294
+      ],
+      "world_xz": [
+        0.05000000000000071,
+        -0.5499999999999972
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        49,
+        51,
+        53
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        300,
+        284
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 51,
+      "cell": [
+        282,
+        294
+      ],
+      "world_xz": [
+        -1.75,
+        -0.5499999999999972
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        50,
+        14,
+        54
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        282,
+        284
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 52,
+      "cell": [
+        319,
+        310
+      ],
+      "world_xz": [
+        1.9500000000000028,
+        1.0500000000000007
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        53,
+        8,
+        49
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        319,
+        320
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 53,
+      "cell": [
+        300,
+        310
+      ],
+      "world_xz": [
+        0.05000000000000071,
+        1.0500000000000007
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        52,
+        54,
+        50
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        300,
+        320
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 54,
+      "cell": [
+        282,
+        310
+      ],
+      "world_xz": [
+        -1.75,
+        1.0500000000000007
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        53,
+        14,
+        51
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        282,
+        320
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 55,
+      "cell": [
+        349,
+        301
+      ],
+      "world_xz": [
+        4.950000000000003,
+        0.15000000000000213
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        56,
+        8
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        359,
+        301
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 56,
+      "cell": [
+        349,
+        287
+      ],
+      "world_xz": [
+        4.950000000000003,
+        -1.25
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        55,
+        57
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        359,
+        287
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 57,
+      "cell": [
+        349,
+        259
+      ],
+      "world_xz": [
+        4.950000000000003,
+        -4.049999999999997
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        56,
+        58
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        359,
+        259
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 58,
+      "cell": [
+        320,
+        250
+      ],
+      "world_xz": [
+        2.0500000000000043,
+        -4.949999999999999
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        57,
+        59,
+        60
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        321,
+        240
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 59,
+      "cell": [
+        302,
+        250
+      ],
+      "world_xz": [
+        0.25,
+        -4.949999999999999
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        58,
+        12,
+        61
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        303,
+        240
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 60,
+      "cell": [
+        320,
+        265
+      ],
+      "world_xz": [
+        2.0500000000000043,
+        -3.4499999999999993
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        61,
+        8,
+        58
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        319,
+        275
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 61,
+      "cell": [
+        302,
+        265
+      ],
+      "world_xz": [
+        0.25,
+        -3.4499999999999993
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        60,
+        12,
+        59
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        301,
+        275
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 62,
+      "cell": [
+        253,
+        311
+      ],
+      "world_xz": [
+        -4.649999999999999,
+        1.1500000000000021
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        63,
+        10
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        243,
+        310
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 63,
+      "cell": [
+        253,
+        301
+      ],
+      "world_xz": [
+        -4.649999999999999,
+        0.15000000000000213
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        62,
+        14
+      ],
+      "shelf_side": "right",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        243,
+        300
+      ],
+      "interaction_xz": null
+    },
+    {
+      "id": 64,
+      "cell": [
+        254,
+        301
+      ],
+      "world_xz": [
+        -4.549999999999997,
+        0.15000000000000213
+      ],
+      "kind": "shelf",
+      "neighbors": [
+        11,
+        14
+      ],
+      "shelf_side": "left",
+      "reading_distance_m": 1.0,
+      "shelf_cell": [
+        244,
+        301
+      ],
+      "interaction_xz": null
+    }
+  ],
+  "edges": [
+    {
+      "a": 17,
+      "b": 4,
+      "length_m": 1.4142135623730951
+    },
+    {
+      "a": 18,
+      "b": 6,
+      "length_m": 1.3
+    },
+    {
+      "a": 19,
+      "b": 12,
+      "length_m": 1.4000000000000001
+    },
+    {
+      "a": 4,
+      "b": 5,
+      "length_m": 0.6414213562373094
+    },
+    {
+      "a": 4,
+      "b": 13,
+      "length_m": 0.2
+    },
+    {
+      "a": 10,
+      "b": 20,
+      "length_m": 1.5000000000000002
+    },
+    {
+      "a": 20,
+      "b": 16,
+      "length_m": 0.1
+    },
+    {
+      "a": 11,
+      "b": 21,
+      "length_m": 1.6000000000000003
+    },
+    {
+      "a": 21,
+      "b": 15,
+      "length_m": 0.1
+    },
+    {
+      "a": 0,
+      "b": 22,
+      "length_m": 0.44721359549995954
+    },
+    {
+      "a": 22,
+      "b": 5,
+      "length_m": 1.5652475842498512
+    },
+    {
+      "a": 1,
+      "b": 23,
+      "length_m": 0.5830951894845304
+    },
+    {
+      "a": 23,
+      "b": 24,
+      "length_m": 0.5
+    },
+    {
+      "a": 24,
+      "b": 2,
+      "length_m": 0.4472135954999579
+    },
+    {
+      "a": 1,
+      "b": 25,
+      "length_m": 1.72046505340853
+    },
+    {
+      "a": 25,
+      "b": 10,
+      "length_m": 1.5264337522473728
+    },
+    {
+      "a": 1,
+      "b": 26,
+      "length_m": 1.486606874731856
+    },
+    {
+      "a": 26,
+      "b": 10,
+      "length_m": 1.4764823060233372
+    },
+    {
+      "a": 25,
+      "b": 26,
+      "length_m": 1.5
+    },
+    {
+      "a": 1,
+      "b": 27,
+      "length_m": 0.5830951894845285
+    },
+    {
+      "a": 27,
+      "b": 28,
+      "length_m": 1.3000000000000007
+    },
+    {
+      "a": 28,
+      "b": 9,
+      "length_m": 0.36055512754640207
+    },
+    {
+      "a": 1,
+      "b": 29,
+      "length_m": 1.802775637731992
+    },
+    {
+      "a": 29,
+      "b": 9,
+      "length_m": 0.29999999999999716
+    },
+    {
+      "a": 28,
+      "b": 29,
+      "length_m": 0.632455532033677
+    },
+    {
+      "a": 3,
+      "b": 30,
+      "length_m": 1.216552506059646
+    },
+    {
+      "a": 30,
+      "b": 31,
+      "length_m": 1.8000000000000043
+    },
+    {
+      "a": 31,
+      "b": 32,
+      "length_m": 1.7999999999999972
+    },
+    {
+      "a": 32,
+      "b": 8,
+      "length_m": 1.0049875621120892
+    },
+    {
+      "a": 3,
+      "b": 33,
+      "length_m": 2.1189620100417077
+    },
+    {
+      "a": 33,
+      "b": 8,
+      "length_m": 2.102379604162862
+    },
+    {
+      "a": 31,
+      "b": 33,
+      "length_m": 1.8999999999999986
+    },
+    {
+      "a": 3,
+      "b": 34,
+      "length_m": 2.906888370749725
+    },
+    {
+      "a": 34,
+      "b": 35,
+      "length_m": 1.3999999999999986
+    },
+    {
+      "a": 35,
+      "b": 7,
+      "length_m": 0.31622776601683567
+    },
+    {
+      "a": 3,
+      "b": 36,
+      "length_m": 0.8246211251235352
+    },
+    {
+      "a": 36,
+      "b": 37,
+      "length_m": 1.4000000000000057
+    },
+    {
+      "a": 37,
+      "b": 38,
+      "length_m": 1.3601470508735412
+    },
+    {
+      "a": 38,
+      "b": 39,
+      "length_m": 1.4035668847618181
+    },
+    {
+      "a": 39,
+      "b": 7,
+      "length_m": 0.412310562561765
+    },
+    {
+      "a": 34,
+      "b": 38,
+      "length_m": 0.6000000000000014
+    },
+    {
+      "a": 35,
+      "b": 39,
+      "length_m": 0.6999999999999957
+    },
+    {
+      "a": 5,
+      "b": 40,
+      "length_m": 1.0049875621120892
+    },
+    {
+      "a": 40,
+      "b": 11,
+      "length_m": 1.9235384061671332
+    },
+    {
+      "a": 6,
+      "b": 41,
+      "length_m": 0.8062257748298558
+    },
+    {
+      "a": 41,
+      "b": 42,
+      "length_m": 1.7999999999999972
+    },
+    {
+      "a": 42,
+      "b": 13,
+      "length_m": 0.8062257748298558
+    },
+    {
+      "a": 6,
+      "b": 43,
+      "length_m": 0.8062257748298558
+    },
+    {
+      "a": 43,
+      "b": 13,
+      "length_m": 2.0615528128088294
+    },
+    {
+      "a": 41,
+      "b": 43,
+      "length_m": 1.6000000000000014
+    },
+    {
+      "a": 6,
+      "b": 44,
+      "length_m": 0.8062257748298558
+    },
+    {
+      "a": 44,
+      "b": 45,
+      "length_m": 1.0999999999999979
+    },
+    {
+      "a": 45,
+      "b": 12,
+      "length_m": 0.707106781186547
+    },
+    {
+      "a": 7,
+      "b": 46,
+      "length_m": 0.31622776601683567
+    },
+    {
+      "a": 46,
+      "b": 9,
+      "length_m": 1.529705854077835
+    },
+    {
+      "a": 7,
+      "b": 47,
+      "length_m": 0.7071067811865506
+    },
+    {
+      "a": 47,
+      "b": 48,
+      "length_m": 1.4560219778561019
+    },
+    {
+      "a": 48,
+      "b": 9,
+      "length_m": 0.31622776601684244
+    },
+    {
+      "a": 46,
+      "b": 47,
+      "length_m": 1.0
+    },
+    {
+      "a": 8,
+      "b": 49,
+      "length_m": 2.1540659228538006
+    },
+    {
+      "a": 49,
+      "b": 50,
+      "length_m": 1.9000000000000021
+    },
+    {
+      "a": 50,
+      "b": 51,
+      "length_m": 1.8000000000000007
+    },
+    {
+      "a": 51,
+      "b": 14,
+      "length_m": 2.1540659228538006
+    },
+    {
+      "a": 8,
+      "b": 52,
+      "length_m": 2.154065922853802
+    },
+    {
+      "a": 52,
+      "b": 53,
+      "length_m": 1.9000000000000021
+    },
+    {
+      "a": 53,
+      "b": 54,
+      "length_m": 1.8000000000000007
+    },
+    {
+      "a": 54,
+      "b": 14,
+      "length_m": 2.154065922853802
+    },
+    {
+      "a": 49,
+      "b": 52,
+      "length_m": 1.5999999999999979
+    },
+    {
+      "a": 51,
+      "b": 54,
+      "length_m": 1.5999999999999979
+    },
+    {
+      "a": 50,
+      "b": 53,
+      "length_m": 1.5999999999999979
+    },
+    {
+      "a": 8,
+      "b": 55,
+      "length_m": 1.0049875621120887
+    },
+    {
+      "a": 55,
+      "b": 56,
+      "length_m": 1.4000000000000021
+    },
+    {
+      "a": 56,
+      "b": 57,
+      "length_m": 2.799999999999997
+    },
+    {
+      "a": 57,
+      "b": 58,
+      "length_m": 3.0364452901377947
+    },
+    {
+      "a": 58,
+      "b": 59,
+      "length_m": 1.8000000000000043
+    },
+    {
+      "a": 59,
+      "b": 12,
+      "length_m": 0.7071067811865466
+    },
+    {
+      "a": 8,
+      "b": 60,
+      "length_m": 4.159326868617083
+    },
+    {
+      "a": 60,
+      "b": 61,
+      "length_m": 1.8000000000000043
+    },
+    {
+      "a": 61,
+      "b": 12,
+      "length_m": 0.8062257748298554
+    },
+    {
+      "a": 58,
+      "b": 60,
+      "length_m": 1.5
+    },
+    {
+      "a": 59,
+      "b": 61,
+      "length_m": 1.5
+    },
+    {
+      "a": 10,
+      "b": 62,
+      "length_m": 0.8246211251235326
+    },
+    {
+      "a": 62,
+      "b": 63,
+      "length_m": 1.0
+    },
+    {
+      "a": 63,
+      "b": 14,
+      "length_m": 0.9055385138137401
+    },
+    {
+      "a": 11,
+      "b": 64,
+      "length_m": 1.280624847486568
+    },
+    {
+      "a": 64,
+      "b": 14,
+      "length_m": 0.8062257748298519
+    }
+  ]
+}

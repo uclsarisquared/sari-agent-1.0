@@ -97,7 +97,9 @@ from frontier_planner import (  # noqa: E402
     PlannerState,
     _inflate_occupied,
     _line_of_sight,
+    astar,
     cluster_frontiers,
+    simplify_path,
 )
 from mapping import normalize_deg  # noqa: E402
 
@@ -107,7 +109,7 @@ from mapping import normalize_deg  # noqa: E402
 # imported - it sys.exit()s on any HTTPError, which is right for a one-shot probe and catastrophic
 # for a 300-step live run, where one transient blip would kill the run and lose the map. Hence the
 # retrying _post_chat below.
-from annotate_probe import image_content_block, resolve_base_url  # noqa: E402
+from annotate_probe import image_content_block, resolve_api_key, resolve_base_url  # noqa: E402
 
 DEFAULT_MODEL = "Qwen/Qwen3.6-27B"
 
@@ -405,7 +407,10 @@ class _VLMClientMixin:
         self.uri = uri
         self.base = resolve_base_url(base_url)
         self.model = model
-        self.api_key = api_key
+        # Resolved at init, never trusted as a literal: the server 401s without the real
+        # bearer (measured 2026-07-19), and the key may rotate - resolve_api_key reads
+        # $UCL_API, then sari_env_old's conda state.
+        self.api_key = resolve_api_key(api_key)
         self.timeout = timeout
         self.retries = retries
         self.mode = mode                      # "both" | "map" | "ego"
@@ -428,6 +433,9 @@ class _VLMClientMixin:
             "waypoint_into_inflation": 0, "waypoint_crosses_obstacle": 0,
             "waypoint_crosses_inflation": 0, "waypoint_absurd_distance": 0,
             "waypoint_ok": 0, "coasted_on_stale_waypoint": 0, "held_no_waypoint": 0,
+            # vlm-advised arm only; stay 0 elsewhere. Read TOGETHER, never alone: agree-rate
+            # without the collision flags cannot distinguish "navigates well" from "retypes A*".
+            "advice_offered": 0, "advice_agree": 0, "advice_deviate": 0,
         }
 
     def _pose(self):
@@ -598,6 +606,13 @@ class VLMFrontierPlanner(_VLMClientMixin):
                        map_crop_m=map_crop_m, include_clearance=include_clearance,
                        capture_dir=capture_dir, debug=debug)
 
+    ADVICE_AGREE_RADIUS_M = 0.5  # within one body-diameter of the advice counts as "followed"
+
+    def _advise(self, cur_world_xz, clusters):
+        """Advisory hook - None in this arm. VLMAdvisedPlanner overrides. Kept on the base so
+        update() stays one shared implementation instead of a diverging copy per arm."""
+        return None
+
     def _validate(self, wx, wz, cur_world_xz, occupied_mask, raw_occupied_mask):
         """Classify a proposed waypoint. Records what is wrong with it; never fixes it.
 
@@ -702,9 +717,23 @@ class VLMFrontierPlanner(_VLMClientMixin):
         yaw = rot[1]
         step_tag = f"step{self._step:04d}"
 
+        # vlm-advised hook: base arm has no advisor (returns None), so this line is inert
+        # everywhere except VLMAdvisedPlanner - the arms stay one-variable-apart.
+        advice = self._advise((px, pz), clusters)
+        task_text = "Decide the robot's next waypoint."
+        if advice is not None:
+            a_fid, (ax, az) = advice
+            self.stats["advice_offered"] += 1
+            task_text = (
+                f"A CLASSICAL PLANNER (A*) computed a SUGGESTION from the same map you see: "
+                f"head for frontier {a_fid}; its next straight-line-reachable waypoint is "
+                f"({ax:+.2f}, {az:+.2f}). The suggestion is ADVISORY - you own the decision. "
+                f"Follow it, or override it if your first-person camera or your reading of the "
+                f"map indicates a better or safer move (the planner cannot see the camera).\n"
+                f"Decide the robot's next waypoint.")
+
         blocks = self._build_blocks(
-            self.grid, (px, pz), yaw, clusters, step_tag,
-            "Decide the robot's next waypoint.")
+            self.grid, (px, pz), yaw, clusters, step_tag, task_text)
         decision, dt = self._ask(_SYS_FULL, DECISION_SCHEMA, blocks, "nav_decision")
 
         record = {"step": self._step, "pos": [px, pz], "yaw": yaw, "latency_s": round(dt, 2),
@@ -748,6 +777,16 @@ class VLMFrontierPlanner(_VLMClientMixin):
         occupied_mask = _inflate_occupied(self.grid, self.body_radius)
         raw_occupied_mask = self.grid.log_odds > self.grid.OCCUPIED_THRESHOLD
         flags = self._validate(wx, wz, (px, pz), occupied_mask, raw_occupied_mask)
+        if advice is not None:
+            # Attribution data for the writeup: how far did the model land from the advice,
+            # and did it follow? Deviation is NOT an error - a deviation with a clean flag
+            # set is the camera-override result this arm exists to detect.
+            adist = math.hypot(wx - advice[1][0], wz - advice[1][1])
+            agree = adist <= self.ADVICE_AGREE_RADIUS_M
+            record["advice"] = {"frontier_id": advice[0],
+                                "waypoint": [advice[1][0], advice[1][1]],
+                                "dist_m": round(adist, 2), "agree": agree}
+            self.stats["advice_agree" if agree else "advice_deviate"] += 1
         record["waypoint"] = [wx, wz]
         record["goal_world"] = list(goal_world)
         record["flags"] = flags
@@ -780,6 +819,64 @@ class VLMFrontierPlanner(_VLMClientMixin):
                                      "x": float(blocked_cell[0]), "z": float(blocked_cell[1])})
         self._last_waypoint = None   # do not coast toward something that just failed
         self._steps_since_ask = self.replan_every  # force a fresh ask next step
+
+
+class VLMAdvisedPlanner(VLMFrontierPlanner):
+    """--planner vlm-advised: the VLM still owns every decision; A* whispers.
+
+    The fourth arm on the authority spectrum, between `vlm` (no help) and `vlm-goal` (A*
+    executes). Each ask, A*'s OWN best move from the current PARTIAL map - nearest reachable
+    frontier by path cost, first simplified waypoint - is computed and injected into the
+    prompt as an explicitly ADVISORY line. The VLM may follow or override; nothing is
+    validated differently, nothing is corrected, and the executor still never falls back
+    to A*.
+
+    Why this arm exists (see phase4.1 doc, "vlm-advised"):
+      * It is the MOST generous baseline constructible: map + coordinates + THE ANSWER. If
+        the model still proposes waypoints that cross recorded walls, no examiner can say
+        the setup starved it. If it executes faithfully, that measures the ceiling.
+      * During EXPLORATION the advice is computed on an incomplete grid, so it can be
+        genuinely wrong in ways the first-person camera can catch. A deviation with a clean
+        flag set is the camera-override result - the one regime where VLM-in-the-loop could
+        legitimately beat pure A*, and the only honest reason to keep a VLM in the loop.
+
+    Attribution rule, load-bearing: read `advice_agree`/`advice_deviate` TOGETHER with the
+    waypoint flags. Agree-rate ~1.0 with clean flags = A* with a VLM latency tax. Deviations
+    with clean flags = camera overrides worth reading individually. Deviations WITH flags =
+    the thesis claim, now with the answer having been handed over.
+
+    On the FROZEN map this arm is pointless by construction - A* is near-perfect there, so
+    the VLM can only match it (tax) or deviate (worse). It belongs to the exploration
+    harness only; keep it out of the Phase 4.2 task-navigation A/B.
+    """
+
+    def _advise(self, cur_world_xz, clusters):
+        """A*'s best move from the current partial map, or None when no frontier is reachable
+        (advice failing to exist is itself informative - it means A* is stuck too, and the
+        prompt then simply carries no advisory line rather than a fabricated one)."""
+        occupied = _inflate_occupied(self.grid, self.body_radius)
+        cur_cell = self.grid.cell(*cur_world_xz)
+        best = None  # (path_len, vlm_id, first_waypoint_world)
+        for c in clusters:
+            path = astar(self.grid, cur_cell, tuple(c.centroid_cell),
+                         connectivity=self.connectivity, occupied_mask=occupied)
+            if path is None:
+                continue
+            if best is None or len(path) < best[0]:
+                wps = simplify_path(path, self.grid, occupied_mask=occupied)
+                # STRICTLY wps[1] - the only waypoint with guaranteed line-of-sight from the
+                # CURRENT cell. A first draft skipped waypoints inside goal_arrival_radius
+                # (capture_walk's executor habit) and MEASURED 2026-07-19, first live run:
+                # 3 of 28 advised asks got flagged crosses_inflation with dist=0.0 - the VLM
+                # had copied the advice EXACTLY and the ADVICE was the violation, because
+                # cur -> wps[2] carries no line-of-sight guarantee. An advisor whose advice
+                # fails the harness's own validator contaminates the attribution analysis.
+                target = (self.grid.to_world(*wps[1]) if len(wps) > 1
+                          else self.grid.to_world(*c.centroid_cell))
+                best = (len(path), c.vlm_id, target)
+        if best is None:
+            return None
+        return best[1], best[2]
 
 
 class VLMGoalPlanner(FrontierPlanner, _VLMClientMixin):

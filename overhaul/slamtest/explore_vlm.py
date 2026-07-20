@@ -84,7 +84,7 @@ from nav_metrics import (  # noqa: E402
 )
 from pointcloud_map import PointCloudMap  # noqa: E402
 from topology import extract_topology, save_topology  # noqa: E402
-from vlm_planner import DEFAULT_MODEL, VLMFrontierPlanner, VLMGoalPlanner  # noqa: E402
+from vlm_planner import DEFAULT_MODEL, VLMAdvisedPlanner, VLMFrontierPlanner, VLMGoalPlanner  # noqa: E402
 from voxel_grid import VoxelGrid  # noqa: E402
 
 DEFAULT_OUTPUT_ROOT = os.path.join(_THIS_DIR, "output_vlm")
@@ -118,16 +118,22 @@ def build_vlm_parser():
 
     g = parser.add_argument_group("vlm navigation")
     g.add_argument(
-        "--planner", choices=["vlm", "vlm-goal", "astar"], default="vlm",
+        "--planner", choices=["vlm", "vlm-advised", "vlm-goal", "astar"], default="vlm",
         help="vlm: the model picks the frontier AND emits every waypoint (no A* at all) - the "
-             "arm that actually tests the thesis claim. vlm-goal: the model picks WHICH frontier, "
-             "A* still computes HOW to get there - isolates goal choice from path planning, which "
-             "is what tells you *where* the VLM fails rather than just *that* it does. astar: the "
-             "control, identical to explore.py, run through this same instrumentation.",
+             "arm that actually tests the thesis claim. vlm-advised: same as vlm, but each ask "
+             "carries A*'s own suggestion as an explicitly ADVISORY line - the most generous "
+             "baseline constructible (map + coordinates + the answer), with agreement recorded "
+             "so obedience and navigation stay distinguishable. vlm-goal: the model picks WHICH "
+             "frontier, A* still computes HOW to get there - isolates goal choice from path "
+             "planning, which is what tells you *where* the VLM fails rather than just *that* "
+             "it does. astar: the control, identical to explore.py, run through this same "
+             "instrumentation.",
     )
     g.add_argument("--model", default=DEFAULT_MODEL)
     g.add_argument("--base-url", default=None, help="Default: $UCL_BASE_URL, +:8000/v1")
-    g.add_argument("--api-key", default="none", help="vLLM ignores it; the header must exist")
+    g.add_argument("--api-key", default=None,
+                   help="Bearer for the qwen server (default: $UCL_API, then sari_env_old's "
+                        "conda state). The server 401s without it - measured 2026-07-19.")
     g.add_argument(
         "--vlm-mode", choices=["both", "map", "ego"], default="both",
         help="What the model sees. both (default): top-down map image + first-person camera - "
@@ -221,7 +227,8 @@ def build_planner(args, grid):
             max_replans_without_moving=args.max_replans_without_moving,
             body_radius=args.body_radius, debug=args.debug_planner,
         )
-    return VLMFrontierPlanner(
+    cls = VLMAdvisedPlanner if args.planner == "vlm-advised" else VLMFrontierPlanner
+    return cls(
         grid, **common,
         min_cluster_size=args.min_cluster_size, connectivity=args.connectivity,
         body_radius=args.body_radius, goal_arrival_radius=args.goal_arrival_radius,
