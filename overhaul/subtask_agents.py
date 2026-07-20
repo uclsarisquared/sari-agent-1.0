@@ -23,7 +23,7 @@ import os
 import re
 import sys
 import time
-import winsound
+import chime  # cross-platform run-completion beep (was winsound: Windows-only)
 from datetime import datetime
 
 from pathlib import Path
@@ -407,7 +407,7 @@ def orchestrate(task: str, run_entry: str = ""):
         print("-" * 30)
         print(f"Runtime: {duration:.2f} seconds")
         print("-" * 30)
-        winsound.Beep(392, 1000)
+        chime.beep()
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ import re
 import ast
 import sys
 import time  # Added time module
-import winsound # Added winsound module for beep at the end
+import chime  # cross-platform run-completion beep (was winsound: Windows-only)
 import requests
 import env
 
@@ -99,7 +99,7 @@ def run(task):
         print("-" * 30)
         print(f"Runtime: {duration:.2f} seconds")
         print("-" * 30)
-        winsound.Beep(392, 1000)
+        chime.beep()
 
 
 if __name__ == "__main__":
