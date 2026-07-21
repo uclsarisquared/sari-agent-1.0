@@ -11,6 +11,7 @@ from io import BytesIO
 import requests
 import ast
 import re
+import math
 # Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
 load_dotenv(Path(__file__).resolve().parent.parent / 'api.env')
 
@@ -28,13 +29,53 @@ CLIENT = OpenAI(
 )
 ORIGINAL_WIDTH = 1920
 ORIGINAL_HEIGHT = 1080
-PERCEPTION_PROMPT = ("Detect the <target_object> from the provided info about it. The box_2d should be [ymin, xmin, ymax, xmax] in the image normalized to 0-1000. "
+
+# --- Camera projection: MEASURED, not assumed --------------------------------------
+# The sim's agent camera is 60 deg VERTICAL FOV: SariSandboxV2/Assets/Prefabs/
+# "IK Humanoid Agent.prefab" carries `field of view: 60` with no m_FOVAxisMode override,
+# so Unity's default FOV axis (Vertical) applies. For a WxH frame with square pixels the
+# pinhole focal length in PIXELS is identical on both axes: f = (H/2) / tan(vFOV/2) ~= 935.
+# A bbox-centre offset (dx, dy) in pixels from the aim point maps to camera angles by
+# yaw = atan(dx/f), pitch = atan(dy/f) (see bbox_to_rotation).
+#
+# This REPLACES the old single linear gain `px_offset / 19.2` (19.2 = 1920/100 deg, i.e. an
+# assumed 100 deg *horizontal* FOV reused unchanged on the vertical axis - wrong on both
+# counts). Measured against the real 60 deg vertical FOV the correct near-centre gain is
+# f*pi/180 ~= 16.3 px/deg, so `/19.2` commanded only ~85% of the needed angle: a systematic
+# UNDERSHOOT a single open-loop shot could never recover, worsening toward the frame edges
+# where a straight line diverges from atan. Getting f right + closing the loop (see
+# center_object_on_screen) is what makes centring actually converge.
+CAMERA_VFOV_DEG = 60.0
+FOCAL_PX = (ORIGINAL_HEIGHT / 2.0) / math.tan(math.radians(CAMERA_VFOV_DEG / 2.0))
+
+# Measured pixels-per-degree of camera rotation (phase-correlation, live, 2026-07-21): pitch
+# matches the f=935 model (16.4 vs 16.3), yaw is ~11% hotter (18.1, parallax over the oblique
+# shelf). Used ONLY to PREDICT where a tracked item lands after a rotation so the loop can
+# re-lock the SAME instance next look - the correction angle itself still comes from the atan
+# model above, damped by `gain`. Good-enough-for-tracking, not a precision constant.
+PPD_YAW = 18.1
+PPD_PITCH = 16.4
+# COORDINATE ORDER (measured 2026-07-21): the box is [xmin, ymin, xmax, ymax], NOT the
+# [ymin, xmin, ...] this prompt used to state. These prompts were written for Gemini (ymin-first);
+# the backend is now Qwen-VL, whose native grounding format is xmin-first ([x1,y1,x2,y2]). Qwen
+# emits xmin-first regardless of what the prompt claims - verified: it boxed "Choco Crunchies" at
+# [0,292,249,406], which is the real bottom-left product ONLY read as [xmin,ymin,xmax,ymax]; read
+# ymin-first it lands on the ceiling. The parser (_detect_bbox_px/_detect_boxes_px) reads xmin-first
+# to match, so keep the prompt and parser in agreement.
+PERCEPTION_PROMPT = ("Detect the <target_object> from the provided info about it. The box_2d should be [xmin, ymin, xmax, ymax] in the image normalized to 0-1000. "
                      "The top-left corner of the image is the origin. The x- and y-axes go horizontally and vertically, respectively. "
                      "Return bounding boxes as a JSON array with labels. Never return masks or code fencing. Limit to one object only. Do not put the JSON inside a list/array. "
                      "Example output:\n\n"
                      "```json\n"
                      "{'box_2d': box_2d, 'label': target_object}\n"
                      "```\n\n")
+PERCEPTION_PROMPT_MULTI = ("Detect up to 12 instances of the <target_object> from the provided info about it - the ones CLOSEST to the centre of the image. "
+                           "Each box_2d is [xmin, ymin, xmax, ymax] normalized to 0-1000, origin at the top-left, x horizontal and y vertical. "
+                           "Return a JSON array with one entry per instance and nothing else. Never return masks or extra code fencing. "
+                           "Example output:\n\n"
+                           "```json\n"
+                           "[{'box_2d': box_2d, 'label': target_object}, {'box_2d': box_2d, 'label': target_object}]\n"
+                           "```\n\n")
 FIND_MOST_SIMILAR_OCR_BBOX_PROMPT = ("An OCR tool was used to extract texts from the image. "
                                      "Find the most semantically similar bounding box to the <target_object>. "
                                      "An Embodied AI Agent will be using this bounding box to center the agent's perspective on the target. "
@@ -106,33 +147,61 @@ def transform_paddle_result_to_coco_label_format(paddle_result):
 
 
 def annotate_target(ymin, xmin, ymax, xmax, file_path='screenshots/ClientScreenshot.png'):
+    """Draw the detected box on the screenshot (debug eyeballing only). Inputs are PIXEL coords -
+    every caller passes pixels (bbox already scaled by ORIGINAL_W/H). The previous body re-divided
+    by 1000 and re-multiplied by ORIGINAL_*, treating pixels as if normalised, so it drew a box
+    shrunk ~1.08x/1.92x near the top-left and CRASHED PIL whenever an inverted box made y1<y0.
+    Now: sort so min<=max and clamp to the image, so a malformed detection can't kill the run."""
     image = Image.open(file_path)
     draw = ImageDraw.Draw(image)
+    W, H = image.size
+    x0, x1 = sorted((int(xmin), int(xmax)))
+    y0, y1 = sorted((int(ymin), int(ymax)))
+    x0, x1 = max(0, min(x0, W - 1)), max(0, min(x1, W - 1))
+    y0, y1 = max(0, min(y0, H - 1)), max(0, min(y1, H - 1))
+    draw.rectangle([x0, y0, x1, y1], outline="red", width=3)
+    draw.text((x0, max(0, y0 - 12)), "Target", fill="red")
+    image.save('screenshots/annotated_target.png')
 
-    ymin_pixel = int(ymin / 1000 * ORIGINAL_HEIGHT)
-    xmin_pixel = int(xmin / 1000 * ORIGINAL_WIDTH)
-    ymax_pixel = int(ymax / 1000 * ORIGINAL_HEIGHT)
-    xmax_pixel = int(xmax / 1000 * ORIGINAL_WIDTH)
-    draw.rectangle([xmin_pixel, ymin_pixel, xmax_pixel, ymax_pixel], outline="red", width=3)
-    draw.text((xmin_pixel, ymin_pixel), "Target", fill="red")
-    annotated_image_path = 'screenshots/annotated_target.png'
-    image.save(annotated_image_path)
+
+def _draw_debug_frame(frame_path, boxes, chosen, aim_xy, out_path):
+    """Debug-only: save `frame_path` with EVERY VLM candidate box (thin yellow), the chosen /
+    tracked instance (thick red), and the aim crosshair (green). This is the "what did the
+    detector actually return, and which one are we driving to centre" picture. Best-effort - a
+    drawing error must never take down a centring run."""
+    try:
+        img = Image.open(frame_path).convert("RGB")
+        draw = ImageDraw.Draw(img)
+        for b in boxes:
+            draw.rectangle([b['xmin'], b['ymin'], b['xmax'], b['ymax']], outline="yellow", width=2)
+        if chosen is not None:
+            draw.rectangle([chosen['xmin'], chosen['ymin'], chosen['xmax'], chosen['ymax']],
+                           outline="red", width=4)
+            draw.text((chosen['xmin'], max(0, chosen['ymin'] - 13)), "locked", fill="red")
+        ax, ay = int(aim_xy[0]), int(aim_xy[1])
+        draw.line([(ax - 28, ay), (ax + 28, ay)], fill="lime", width=3)
+        draw.line([(ax, ay - 28), (ax, ay + 28)], fill="lime", width=3)
+        img.save(out_path)
+    except Exception as e:
+        print(f"[CENTER] debug frame save failed: {type(e).__name__}: {e}")
 
 
-def center_object_on_screen(target_info):
-    RequestScreenshot(save_image=True)
-    filepath = os.path.join("screenshots", "ClientScreenshot.png")
-    with open(filepath, "rb") as image_file:
-        image_bytes = image_file.read()
-    image = Image.open(BytesIO(image_bytes))
+def _detect_bbox_px(image, target_info, temperature=0.0):
+    """Detect ONE target box and return it in PIXELS as
+    {'xmin','ymin','xmax','ymax','cx','cy','label'}, or None if nothing parseable.
 
+    temperature defaults to 0.0 on purpose: this is a LOCALISATION call, not a creative
+    one. At the old 0.5 the same frame returned different coordinates run to run, which a
+    closed centring loop would chase as if the object itself were moving. Deterministic box
+    in, deterministic correction out. Pulled out of center_object_on_screen so it (and the
+    projection math) can be exercised offline on saved PNGs - see center_offline_check.py."""
     resp = CLIENT.chat.completions.create(
         model=MODEL_NAME,
         messages=[{"role": "user", "content": [
             _encode_image(image),
             {"type": "text", "text": f"{PERCEPTION_PROMPT}\n\ntarget_info={target_info}\n\n"},
         ]}],
-        temperature=0.5,
+        temperature=temperature,
         max_tokens=400,
         extra_body={'chat_template_kwargs': {'enable_thinking': False}},
     )
@@ -140,29 +209,232 @@ def center_object_on_screen(target_info):
     print(f"[DETECT OBJECT IN FRAME] Response: {annotated_bbox}")
 
     match = re.search(EXTRACTABLE_JSON_PATTERN, annotated_bbox)
-    if match:
-        extracted = match.group(1)
-        parsed = ast.literal_eval(extracted)
-        box_2d = parsed[0] if isinstance(parsed, list) else parsed
-        target_object = box_2d.get('label', 'unknown')
-        box_2d = box_2d['box_2d']
+    if not match:
+        return None
+    try:
+        parsed = ast.literal_eval(match.group(1))
+    except (ValueError, SyntaxError):
+        return None
+    box_2d = parsed[0] if isinstance(parsed, list) else parsed
+    if not isinstance(box_2d, dict):
+        return None
+    coords = box_2d.get('box_2d') or box_2d.get('bbox_2d')  # Qwen sometimes uses bbox_2d
+    if not coords or len(coords) != 4:
+        return None
+    label = box_2d.get('label', 'unknown')
+    xmin = coords[0] / 1000 * ORIGINAL_WIDTH   # [xmin, ymin, xmax, ymax] - Qwen order (see prompt note)
+    ymin = coords[1] / 1000 * ORIGINAL_HEIGHT
+    xmax = coords[2] / 1000 * ORIGINAL_WIDTH
+    ymax = coords[3] / 1000 * ORIGINAL_HEIGHT
+    return {'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax,
+            'cx': (xmin + xmax) / 2.0, 'cy': (ymin + ymax) / 2.0, 'label': label}
 
-        print(f"Detected bounding box: {box_2d}, Target Object: {target_object}")
-        ymin = box_2d[0] / 1000 * ORIGINAL_HEIGHT
-        xmin = box_2d[1] / 1000 * ORIGINAL_WIDTH
-        ymax = box_2d[2] / 1000 * ORIGINAL_HEIGHT
-        xmax = box_2d[3] / 1000 * ORIGINAL_WIDTH
 
-        annotate_target(ymin, xmin, ymax, xmax)
+def _detect_boxes_px(image, target_info, temperature=0.0):
+    """ALL matching instances as a list of box dicts (same shape as _detect_bbox_px's return);
+    [] if none. Lets the centring loop pick and TRACK one instance instead of taking whatever
+    single box the model happens to return - the fix for the loop hopping between identical
+    items on a dense shelf (measured 2026-07-21). temperature 0.0 for the same reason as
+    _detect_bbox_px: a stable candidate set look to look."""
+    resp = CLIENT.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[{"role": "user", "content": [
+            _encode_image(image),
+            {"type": "text", "text": f"{PERCEPTION_PROMPT_MULTI}\n\ntarget_info={target_info}\n\n"},
+        ]}],
+        temperature=temperature,
+        max_tokens=1500,
+        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+    )
+    content = resp.choices[0].message.content
+    # Tolerant parse: pull each {...} object out on its own rather than literal_eval-ing the whole
+    # array. A long instance list can truncate at max_tokens with no closing ``` fence; the
+    # fence-based parse then returns nothing. Per-object extraction still yields every COMPLETE
+    # box and simply drops a half-written trailing one.
+    body = content.split("```json", 1)[-1].split("```", 1)[0]
+    out = []
+    for m in re.finditer(r'\{[^{}]*\}', body):
+        try:
+            box_2d = ast.literal_eval(m.group(0))
+        except (ValueError, SyntaxError):
+            continue
+        if not isinstance(box_2d, dict):
+            continue
+        coords = box_2d.get('box_2d') or box_2d.get('bbox_2d')  # Qwen sometimes uses bbox_2d
+        if not coords or len(coords) != 4:
+            continue
+        xmin = coords[0] / 1000 * ORIGINAL_WIDTH   # [xmin, ymin, xmax, ymax] - Qwen order (see prompt note)
+        ymin = coords[1] / 1000 * ORIGINAL_HEIGHT
+        xmax = coords[2] / 1000 * ORIGINAL_WIDTH
+        ymax = coords[3] / 1000 * ORIGINAL_HEIGHT
+        out.append({'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax,
+                    'cx': (xmin + xmax) / 2.0, 'cy': (ymin + ymax) / 2.0,
+                    'label': box_2d.get('label', 'unknown')})
+    return out
 
-        x_center_before = (xmin + xmax) / 2
-        y_center_before = (ymin + ymax) / 2
-        agent_x_rot = (x_center_before - 960) / 19.2
-        agent_y_rot = (y_center_before - 540) / 19.2
 
-        state = TransformAgent((0, 0, 0), (agent_y_rot, agent_x_rot, 0))
-        return state
-    return TransformAgent((0,0,0), (0,0,0))
+def bbox_to_rotation(cx, cy, aim_x, aim_y, focal_px=FOCAL_PX):
+    """Camera (pitch, yaw) in DEGREES that swings the bbox centre (cx, cy) onto the aim
+    point (aim_x, aim_y): pinhole/atan model, one focal length for both axes. Signs match
+    the _PAN_RIGHT_/_TILT_DOWN_ primitives in env.py - object right-of-aim -> +yaw (pan
+    right), object below-aim -> +pitch (tilt down) - so the pair drops straight into
+    TransformAgent((0,0,0), (pitch, yaw, 0))."""
+    yaw = math.degrees(math.atan2(cx - aim_x, focal_px))
+    pitch = math.degrees(math.atan2(cy - aim_y, focal_px))
+    return pitch, yaw
+
+
+def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_px=20.0,
+                            gain=0.8, max_step_deg=12.0, debug_dir=None):
+    """Rotate the camera until the target's bbox centre sits on the aim point - CLOSED-LOOP.
+
+    Was a single open-loop shot with a wrong linear gain (see the FOCAL_PX note): detect
+    once, rotate once by px/19.2, never look again. It reliably undershot and never
+    recovered. Now:
+
+        detect (temp 0) -> measure residual from aim -> within tol_px? stop
+                        -> else rotate by the atan-model angle -> re-screenshot -> repeat
+
+    up to max_iters corrective rotations, with one final measurement-only look. Because
+    TransformAgent rotations are relative deltas, each pass shrinks the residual, so any
+    leftover gain error self-corrects across iterations instead of standing as a permanent
+    miss.
+
+    gain (<1) DAMPS each correction - command only `gain` of the computed angle. This is a
+    deliberate under-shoot so the loop converges monotonically instead of overshooting and
+    ringing. It exists because the atan model is not perfect on both axes: MEASURED live
+    (phase-correlation, 2026-07-21) the true rates are pitch ~16.4 px/deg (matches the f=935
+    model) but yaw ~18.1 px/deg (~11% hotter than the model, so an undamped yaw over-rotates
+    and sails the target past centre). Rather than hard-code a second focal - the yaw rate is
+    depth-dependent (parallax over an oblique shelf) so no single constant is right - we damp:
+    gain 0.8 keeps net per-step motion below 1.0 even on the hot yaw axis, and smaller steps
+    also change the view less between looks, which curbs the detector re-locking onto a
+    different identical item (see the caveat below).
+
+    max_step_deg caps each rotation for that same reason: a large swing at a far-off target
+    changes the view enough to shrink/shift the candidate set and break the instance lock (seen
+    live - a 20 deg step dropped candidates 12 -> 3 and the lock jumped). Far targets are closed
+    over several BOUNDED looks instead of one jump; near targets never hit the cap.
+
+    TARGET LOCK (measured 2026-07-21): on a shelf of near-identical items the detector will
+    otherwise hop between instances as the view shifts - a step that "moves" the target further
+    than any camera rotation could is that hop, not a gain error, and it was the loop's actual
+    failure to converge. So detection returns ALL instances (_detect_boxes_px) and the loop
+    stays on ONE: nearest the aim on look 1 (centre the most central instance), then nearest to
+    where that instance is PREDICTED to land (PPD_YAW/PPD_PITCH) on every look after.
+
+    aim_norm: normalised (x, y) aim point. (0.5, 0.5) is the geometric centre. The grab
+      sweet-spot sits BELOW centre - the extended hand shows up around y~0.67 (see
+      ../center_object.py) - so aiming a grab will pass aim_norm=(0.5, 0.67). That is the
+      deliberate follow-up (Phase D); it is kept a parameter so the change is one argument,
+      not a rewrite. Default stays dead-centre so THIS change can be A/B'd as pure aiming
+      accuracy, one variable at a time.
+
+    Vertical caveat: this pitches the CAMERA onto the target; it does not lower the HAND.
+    For a low shelf the follow-on grab still needs crouch / hand-height, not just a centred
+    view (see extend_arm_until_grabbed's vertical-gap note). Centring gets the target in
+    front; it is not by itself a grab.
+
+    debug_dir: if set, each look writes {debug_dir}/look<i>_bbox.png - the frame with every VLM
+    candidate box (yellow), the locked instance (red) and the aim crosshair (green) - so a test
+    can show what the detector returned and which instance was tracked. None in production (no
+    image I/O beyond the annotate_target debug write).
+
+    Returns the last TransformAgent state dict, augmented with 'centered' (bool), 'detected'
+    (bool), 'residual_px' (dx, dy at the final look), 'iters' (looks taken), 'outcome'
+    (success | not_detected | stalled | incomplete) and 'center_message' (a human-readable line
+    the runner surfaces to the agent as `last_center`, so the actor and the episodic learner know
+    whether centring worked instead of guessing)."""
+    aim_x = aim_norm[0] * ORIGINAL_WIDTH
+    aim_y = aim_norm[1] * ORIGINAL_HEIGHT
+    state = TransformAgent((0, 0, 0), (0, 0, 0))  # read current pose (no-op move)
+    residual = (None, None)
+    centered = False
+    detected = False        # did the detector ever return the target?
+    stalled = False         # did the residual stop shrinking (target likely at the frame edge)?
+    locked = None           # predicted (x, y) of the tracked instance; None until look 1 picks one
+    prev_mag = None
+    no_improve = 0
+    i = 0
+    for i in range(1, max_iters + 2):   # max_iters rotations + one measurement-only look
+        RequestScreenshot(save_image=True)
+        filepath = os.path.join("screenshots", "ClientScreenshot.png")
+        with open(filepath, "rb") as image_file:
+            image = Image.open(BytesIO(image_file.read()))
+        boxes = _detect_boxes_px(image, target_info)
+        if not boxes:
+            print(f"[CENTER] look {i}: target not detected - not rotating (let the caller search).")
+            break
+        detected = True
+        # Stay on ONE instance: nearest the aim on look 1, thereafter nearest to where the
+        # tracked instance was predicted to land. This is what stops the hop between identical
+        # items as they cross near the aim.
+        anchor = (aim_x, aim_y) if locked is None else locked
+        box = min(boxes, key=lambda b: (b['cx'] - anchor[0]) ** 2 + (b['cy'] - anchor[1]) ** 2)
+        annotate_target(box['ymin'], box['xmin'], box['ymax'], box['xmax'])
+        if debug_dir:
+            _draw_debug_frame(filepath, boxes, box, (aim_x, aim_y),
+                              os.path.join(debug_dir, f"look{i}_bbox.png"))
+        dx, dy = box['cx'] - aim_x, box['cy'] - aim_y
+        residual = (round(dx, 1), round(dy, 1))
+        print(f"[CENTER] look {i}: '{box['label']}' center=({box['cx']:.0f},{box['cy']:.0f}) "
+              f"residual=({dx:+.0f},{dy:+.0f})px  ({len(boxes)} candidate(s))")
+        if abs(dx) <= tol_px and abs(dy) <= tol_px:
+            centered = True
+            print(f"[CENTER] within tolerance ({tol_px:.0f}px) in {i} look(s).")
+            break
+        # Stall guard: if the residual stops shrinking for two looks the target is likely at the
+        # frame edge (detection jitter, not a gain error). Stop instead of grinding out the budget
+        # - that wasted looping is what an onlooker/learner mislabels as "centring keeps failing".
+        mag = (dx * dx + dy * dy) ** 0.5
+        no_improve = no_improve + 1 if (prev_mag is not None and mag >= prev_mag - 3.0) else 0
+        prev_mag = mag
+        if no_improve >= 2:
+            stalled = True
+            print(f"[CENTER] residual stopped improving ({residual}px) - stopping (target likely at frame edge).")
+            break
+        if i > max_iters:
+            print(f"[CENTER] out of rotation budget ({max_iters}); residual {residual}px remains.")
+            break
+        pitch, yaw = bbox_to_rotation(box['cx'], box['cy'], aim_x, aim_y)
+        pitch, yaw = pitch * gain, yaw * gain
+        # Cap the per-step swing: a big rotation changes the view so much the detector returns a
+        # different (smaller) candidate set and the instance lock jumps to a neighbour. Bounded
+        # steps keep enough of the scene stable for the nearest-to-prediction re-lock to hold;
+        # a far target just takes a few more looks (measured 2026-07-21).
+        pitch = max(-max_step_deg, min(max_step_deg, pitch))
+        yaw = max(-max_step_deg, min(max_step_deg, yaw))
+        # Predict where THIS instance lands so the next look re-locks it, not a neighbour
+        # (pan right -> item moves left, tilt down -> item moves up; measured px/deg).
+        locked = (box['cx'] - yaw * PPD_YAW, box['cy'] - pitch * PPD_PITCH)
+        print(f"[CENTER] rotate pitch={pitch:+.2f} yaw={yaw:+.2f} deg (gain {gain})")
+        state = TransformAgent((0, 0, 0), (pitch, yaw, 0))
+
+    # Outcome surfaced to the agent as `last_center` (see the runner loops): the actor and the
+    # episodic learner must KNOW whether centring worked. Without it a silent success gets guessed
+    # at - the learner once concluded "avoid center_object_on_screen" from a centre that actually
+    # succeeded. The failure strings are actionable so the lesson is "get the target in view",
+    # never "stop using the tool".
+    if centered:
+        outcome = "success"
+        message = f"SUCCESS - target centred (residual {residual}px, {i} look(s))"
+    elif not detected:
+        outcome = "not_detected"
+        message = ("FAILED - target not detected in the frame; tilt/pan to bring it into view, "
+                   "then center again (do not abandon center_object_on_screen)")
+    elif stalled:
+        outcome = "stalled"
+        message = (f"STALLED - centring stopped improving at {residual}px; the target is likely near "
+                   "the frame edge - bring it more into view, then center again")
+    else:
+        outcome = "incomplete"
+        message = (f"INCOMPLETE - detected but not centred within tolerance (residual {residual}px "
+                   f"after {i} looks); move a little closer or center again")
+    print(f"[CENTER] result: {message}")
+    state = dict(state)
+    state.update({'centered': centered, 'detected': detected, 'residual_px': residual,
+                  'iters': i, 'outcome': outcome, 'center_message': message})
+    return state
 
 
 def detect_object_via_gemini(target_name):
@@ -174,7 +446,7 @@ def detect_object_via_gemini(target_name):
     RequestScreenshot(save_image=True)
     file_path = os.path.join("screenshots", "ClientScreenshot.png")
     im = Image.open(BytesIO(open(file_path, "rb").read()))
-    prompt = (f"Detect the {target_name} in the image. The box_2d should be [ymin, xmin, ymax, xmax] in the image normalized to 0-1000. "
+    prompt = (f"Detect the {target_name} in the image. The box_2d should be [xmin, ymin, xmax, ymax] in the image normalized to 0-1000. "
               "The top left corner of the image is the origin. The x and y axis go horizontally and vertically, respectively. "
               "Return bounding boxes as a JSON array with labels. Never return masks or code fencing. Limit to 1 object only. "
               "Here is an example output:\n\n"
@@ -201,10 +473,11 @@ def detect_object_via_gemini(target_name):
         box_2d = ast.literal_eval(json_str)
         if type(box_2d) == list:
             box_2d = box_2d[0]
-        ymin = box_2d['box_2d'][0] / 1000 * original_height
-        xmin = box_2d['box_2d'][1] / 1000 * original_width
-        ymax = box_2d['box_2d'][2] / 1000 * original_height
-        xmax = box_2d['box_2d'][3] / 1000 * original_width
+        coords = box_2d.get('box_2d') or box_2d.get('bbox_2d')
+        xmin = coords[0] / 1000 * original_width   # [xmin, ymin, xmax, ymax] - Qwen order
+        ymin = coords[1] / 1000 * original_height
+        xmax = coords[2] / 1000 * original_width
+        ymax = coords[3] / 1000 * original_height
     else:
         return None
     annotate_target(ymin, xmin, ymax, xmax)

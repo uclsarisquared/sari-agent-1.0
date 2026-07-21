@@ -167,8 +167,15 @@ def generate_handoff_summary(client: OpenAI, completed_subtask: str, final_state
 # Action dispatch
 # ---------------------------------------------------------------------------
 
-def dispatch_action(action: str, time_units: int, notes: dict) -> None:
+def dispatch_action(action: str, time_units: int, notes: dict, mode: str = None) -> None:
     action = action.strip()
+
+    # Manipulation actions need the hands ACTIVE (manipulation mode only, agent._set_hands); out of
+    # that mode they silently no-op in the sim, so block them with a clear message when mode is known.
+    if action in MANIPULATION_ACTIONS_REF and mode is not None and mode != "manipulation":
+        print(f"[BLOCKED] '{action}' only works in *manipulation* mode (current mode: {mode}); "
+              f"the hands are inactive otherwise. Skipped.")
+        return
 
     if action in NAVIGATION_ACTIONS_REF:
         action_ref = NAVIGATION_ACTIONS_REF[action]
@@ -330,7 +337,7 @@ def run_subtask(subtask: str, agent: EmbodiedAgent, context: str = "",
         time_step += 1
 
         for action, t in zip(actions, times):
-            dispatch_action(action, int(t), notes)
+            dispatch_action(action, int(t), notes, mode=agent_mode)
 
         # Refresh state from the environment
         updated_agent = TransformAgent((0, 0, 0), (0, 0, 0))

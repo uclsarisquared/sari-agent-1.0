@@ -153,8 +153,19 @@ def generate_findings_summary(
 # Action dispatch
 # ---------------------------------------------------------------------------
 
-def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None) -> dict:
-    """Execute one action. Returns a result dict; grab actions include a 'gripped' key."""
+def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None,
+                    mode: str = None) -> dict:
+    """Execute one action. Returns a result dict; grab actions include a 'gripped' key.
+
+    Manipulation-only actions (hand movement, grip, extend_arm_until_grabbed) need the hands
+    ACTIVE, which the runtime only makes them in manipulation mode (agent._set_hands). Called in
+    perception/navigation mode they are a silent no-op in the sim (inactive hand = dead collider =
+    leftHoveredObject never populates), so when `mode` is supplied we BLOCK them with a clear
+    message instead of pretending to run them."""
+    if action in MANIPULATION_ACTIONS_REF and mode is not None and mode != "manipulation":
+        print(f"[BLOCKED] '{action}' only works in *manipulation* mode (current mode: {mode}); "
+              f"the hands are inactive otherwise. Skipped - route to manipulation first.")
+        return {"blocked": True, "reason": f"{action} requires manipulation mode (was {mode})"}
     if action in NAVIGATION_ACTIONS_REF:
         action_ref = NAVIGATION_ACTIONS_REF[action]
     elif action in PERCEPTION_ACTIONS_REF:
@@ -216,6 +227,8 @@ def _fresh_agent_state() -> dict:
         "rightHoveredObject": "None",
         "rightGrippedState": False,
         "last_grab_failed": False,
+        "last_action_blocked": False,
+        "last_center": None,
         "mode": "perception",
     }
     for k, v in {**agent_pos, **hands_pos}.items():
@@ -320,17 +333,32 @@ def run_subtask(
         time_step += 1
 
         grab_failed = False
+        blocked_reason = False
+        center_msg = None
         for action, t in zip(actions, times):
             raw_action = action.strip()
             inline_arg = None
             inline_match = re.match(r'^(\w+)\([\'"]?(.*?)[\'"]?\)$', raw_action)
             if inline_match:
                 raw_action, inline_arg = inline_match.group(1), inline_match.group(2)
-            result = dispatch_action(raw_action, int(t), notes, inline_arg=inline_arg)
-            if raw_action == "extend_arm_until_grabbed":
+            result = dispatch_action(raw_action, int(t), notes, inline_arg=inline_arg,
+                                     mode=agent_mode)
+            if result.get('blocked'):
+                blocked_reason = result.get('reason', True)
+            if result.get('center_message'):
+                center_msg = result['center_message']
+            if raw_action == "extend_arm_until_grabbed" and not result.get('blocked'):
+                # A blocked call is a wrong-mode error, NOT a distance failure - don't let it
+                # trigger the "move closer" recovery (last_grab_failed).
                 if not result.get('gripped', False):
                     grab_failed = True
         current_state['last_grab_failed'] = grab_failed
+        # Surfaced to the router next step: a set value means the agent tried a hand action out of
+        # manipulation mode, so the router should switch to manipulation.
+        current_state['last_action_blocked'] = blocked_reason
+        # The centring outcome (SUCCESS/FAILED/STALLED...), so the actor and episodic learner know
+        # whether center_object_on_screen worked instead of guessing (see its docstring).
+        current_state['last_center'] = center_msg
 
         # Refresh state from the environment after all actions have executed
         updated_agent = TransformAgent((0, 0, 0), (0, 0, 0))

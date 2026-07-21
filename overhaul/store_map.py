@@ -243,8 +243,9 @@ class NavSession:
 
     def goto(self, cp_id, face_shelf=True):
         """Drive to a checkpoint; at shelf/landmark nodes, face the perpendicular Phase 2
-        computed. Returns True iff arrived - a False is an executor refusal, not an exception,
-        because adjacency is a graph edge and reachability is the executor's call."""
+        computed, then re-level the camera. Returns True iff arrived - a False is an executor
+        refusal, not an exception, because adjacency is a graph edge and reachability is the
+        executor's call."""
         cp = self.sm.by_id[cp_id]
         target = tuple(cp["world_xz"])
         self.pos, self.rot, ok = goto(self.args, self.grid, self.inflated,
@@ -253,6 +254,12 @@ class NavSession:
             return False
         if face_shelf and cp.get("shelf_cell"):
             self.pos, self.rot = face(self.args, self.pos, self.rot, perpendicular_yaw(cp))
+        # Re-level the camera on arrival: a move-to-checkpoint should leave the agent looking
+        # STRAIGHT ahead, not tilted up/down from a prior crouch/grab/manual pitch (agents have
+        # been found sitting at 16 deg). This matters most for the graph-nav dispatcher
+        # (agent._graph_navigate), which grabs its post-arrival frame with a raw RequestScreenshot
+        # that does NOT pass through screenshot()'s levelling. Absolute pitch_to, so it never drifts.
+        self.pos, self.rot = pitch_to(self.args, self.rot, PITCH_LEVEL_DEG)
         return True
 
     def screenshot(self, out_path, crouched=False):

@@ -49,6 +49,7 @@ CURRENT_AGENT_STATE = {
     "leftGrippedState": False,
     "rightHoveredObject": "None",
     "rightGrippedState": False,
+    "last_action_blocked": False,
     "mode": "perception"
 }
 
@@ -137,6 +138,7 @@ while ON_PLAY:
 
         time_step += 1
 
+        blocked_reason = False
         for action, time in zip(actions, times):
             action = action.strip()
             time = int(time)
@@ -146,6 +148,14 @@ while ON_PLAY:
             inline_match = re.match(r'^(\w+)\([\'"]?(.*?)[\'"]?\)$', action)
             if inline_match:
                 action, inline_arg = inline_match.group(1), inline_match.group(2)
+
+            # Manipulation actions need the hands ACTIVE, which only happens in manipulation mode
+            # (agent._set_hands). Out of that mode they are a silent no-op in the sim, so block them.
+            if action in MANIPULATION_ACTIONS_REF and agent_mode != "manipulation":
+                print(f"[BLOCKED] '{action}' only works in *manipulation* mode "
+                      f"(current mode: {agent_mode}); the hands are inactive otherwise. Skipped.")
+                blocked_reason = f"{action} requires manipulation mode (was {agent_mode})"
+                continue
 
             if action in NAVIGATION_ACTIONS_REF:
                 action_ref = NAVIGATION_ACTIONS_REF[action]
@@ -171,4 +181,5 @@ while ON_PLAY:
         updated_hands = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
         for k, v in {**updated_agent, **updated_hands}.items():
             CURRENT_AGENT_STATE[k] = v
+        CURRENT_AGENT_STATE['last_action_blocked'] = blocked_reason
         # mode is kept as set by the agent above

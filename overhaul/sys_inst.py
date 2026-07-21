@@ -19,6 +19,25 @@ MEASURED - 2026-07-20 A/B (qwen Qwen3.6-27B, identical Ritz-shelf capture + stat
   * NOTE the full VLM_LEAN rewrite is a BEHAVIOURAL change (merged phase rules, obstacle handling):
     parseability was A/B'd offline, but the behavioural win (e.g. fewer wrong-mode actions like the
     perception-mode move_forward seen in a Ritz run) needs a sim task-level A/B to confirm.
+
+CENTERING/GRAB HANDSHAKE edit (2026-07-21, UNMEASURED - user to A/B): prompted by pickup run
+0721_193928 where the actor blind-panned 7.5deg, declared "centred", fired extend_arm_until_grabbed
+while still in *perception* (blocked - wasting a step), then closed on empty air. Two changes:
+(1) the ACTOR is told to centre via `center_object_on_screen` (the closed-loop tool) before grabbing
+and to HOLD rather than fire a grab early while still in perception; (2) the ROUTER switches to
+*manipulation* proactively once the target is centred and within reach, instead of waiting for a
+blocked grab to trip `last_action_blocked`. Behavioural - needs a sim task-level A/B (the "green chip
+bag" case + the standard five) before believing it. Unrelated but stacked in that run: the null grab
+was a top-shelf vertical-reach miss (hand reaches at body height), which is the separate Phase-D
+crouch/hand-height item, not this handshake.
+
+CENTRING FEEDBACK edit (2026-07-21, UNMEASURED): added state field `last_center` (AGENT_STATE_DOC o)
+carrying center_object_on_screen's SUCCESS/FAILED/STALLED outcome, surfaced by both runner loops
+(eval_pickup, subtask_agents) and logged in the pickup JSONL. The tool already returned its result,
+but the loops dropped everything except 'blocked', so a silent success let the episodic learner
+wrongly conclude "avoid center_object_on_screen". The failure strings are actionable (bring the
+target into view) so the lesson can't become "stop centring". Perception also early-stops on a
+stalled residual instead of grinding out max_iters.
 """
 from actions_str import ATOMIC_ACTIONS
 
@@ -41,7 +60,9 @@ AGENT_STATE_DOC = """The agent's current state fields:
 \tj. `rightHoveredObject`: The product closest to the agent's right hand. `None` if the right hand is not near any object.
 \tk. `rightGrippedState`: True if the right hand is currently gripping a product.
 \tl. `last_grab_failed`: True if the most recent `extend_arm_until_grabbed` call did not grip the item (the hand reached its limit with nothing grabbable under it). When True, the default recovery is to switch to *navigation* mode and move the body closer. Only reorient the camera if the item is already very close but clearly off-center.
-\tm. `mode`: The agent's current mode - *perception*, *navigation*, *manipulation*, or *STOP*. The mode determines which actions are executed this timestep."""
+\tm. `mode`: The agent's current mode - *perception*, *navigation*, *manipulation*, or *STOP*. The mode determines which actions are executed this timestep.
+\tn. `last_action_blocked`: The reason the previous step's hand/grab action (e.g. `extend_arm_until_grabbed`) was skipped for being out of *manipulation* mode, or False if nothing was blocked. When set, the agent tried to grab but was in the wrong mode - route to *manipulation* this step so the grab can actually run.
+\to. `last_center`: The outcome of the previous step's `center_object_on_screen`, or None if it was not called. "SUCCESS ..." means the target is now centred - proceed (route to *manipulation* to grab). "FAILED - target not detected ..." means the target was not in the frame - tilt/pan to bring it into view, then center again; do NOT fall back to eyeballed pans or abandon the tool. "STALLED ..." means the target is near the frame edge - bring it more into view, then center again. Trust this readout over any assumption that centring failed."""
 
 
 # ---------------------------------------------------------------------------------------------
@@ -69,13 +90,14 @@ Your output must be a JSON object with exactly these components:
 **The four modes**:
 1. *perception* - analyze the current observation: identify items, read labels, understand spatial relationships. Use it to center and visually confirm the target before closing in.
 2. *navigation* - move through the environment to reach a location or item. Use it when heading to a checkpoint, section, or shelf.
-3. *manipulation* - use it once the agent is close to the target item and it is clearly visible and CENTRED in the frame. `extend_arm_until_grabbed` is the primary grab command - it pushes the left hand straight forward until the item is under it, grips it, and retracts. It does not aim, so the item must be centred first (do that in *perception*). Fall back to fine-grained hand adjustments only if it fails.
+3. *manipulation* - use it once the agent is close to the target item and it is clearly visible and CENTRED in the frame. `extend_arm_until_grabbed` is the primary grab command - it pushes the left hand straight forward until the item is under it, grips it, and retracts. It does not aim, so the item must be centred first (do that in *perception*). Fall back to fine-grained hand adjustments only if it fails. The hands are ACTIVE only in this mode, so grabbing/hand actions do nothing in any other mode: when the agent is centred and within reach and the goal is to grab, you MUST route to *manipulation* (not perception), or the grab cannot happen.
 4. *STOP* - the task is complete. Emitting 'STOP' is the ONLY way the run ends; do not describe completion in prose while returning another mode.
 
 **Critical rules & constraints (Procedural Memory)**:
-1. Do not emit *STOP* or *manipulation* prematurely - only when the agent is verifiably at the target (for STOP: the task's end state holds, e.g. the item is gripped).
+1. Do not emit *STOP* or *manipulation* prematurely: route to *manipulation* only once the target is centred AND within reach; emit *STOP* only when the task's end state holds (e.g. the item is gripped).
 2. When you synthesize `recall`, insert helpful routing information from the memory. Example: if the task is to reach Checkpoint 12 and the memory shows Checkpoint 9 connects to it and is easier to reach, recall that the agent can go to Checkpoint 9 first, then continue to 12. Refer to locations exactly as the memory names them ("Checkpoint N", "the checkout counter"); never invent shelf numbers or names the memory does not contain.
 3. If the screenshot shows an obstruction (shelf, wall) between the agent and its heading, recall an adjustment (pan left/right, back up) so the agent does not walk into it.
+4. **Switch to *manipulation* proactively.** As soon as the target is centred in the frame and within reach (it dominates the central view, or a hovered field matches it), route to *manipulation* that SAME step - do not leave the agent in *perception* until it attempts a grab and gets blocked. And if `last_action_blocked` is already set, the agent tried to grab from the wrong mode and is positioned to grab, so route to *manipulation* now.
 **TRUST THE VISUAL CUES MORE THAN THE NUMERICAL TARGET POSITION.** The numbers are a guideline; the screenshot decides. If the screenshot shows an area is explorable, you may direct the agent to explore it, especially early in the mission.
 """
 
@@ -137,16 +159,16 @@ Here are your **ATOMIC ACTIONS** (which are executed depends on the current mode
 Movement is relative to where you currently face: `move_forward` moves along your current heading, not along a fixed world axis.
 
 **Modes** (one per step; only the current mode's actions are executed):
-1. *perception* - center the camera on the target and visually confirm it.
+1. *perception* - center the camera on the target (use `center_object_on_screen`) and visually confirm it.
 2. *navigation* - move the body through the store.
 3. *manipulation* - grab, once within ~1 meter of a clearly visible target.
 4. *STOP* - the task is complete.
 
 **Critical rules - follow these strictly**:
 1. **Phases, in order of precedence.** (a) While the target is NOT visible: explore. Move through the store and scan; do not chase the numerical target position and do not spend steps fine-aiming the camera at coordinates. (b) Once the target IS visible: approach it, keeping it near the center of the frame with small corrective turns - never let it slide to the edge or out of view. (c) Once it is within ~1 meter: switch to *manipulation* and grab. Fine re-orientation is for phase (c) only, when you are directly in front of the target.
-2. **Centering is continuous, not exact.** If the item sits left of frame center, turn slightly left; right of center, slightly right. It should grow larger as you approach.
+2. **Centering.** While approaching from a distance, keep the target roughly near the frame center with small corrective turns; it should grow larger as you approach. When you are close and about to grab, do NOT settle for an eyeballed pan - call `center_object_on_screen`, which rotates in a closed loop until the target is measured to be centered.
 3. **You are close enough to grab when** the item dominates the central portion of your view, or a hovered-object field in the state matches it. Do NOT attempt to grab from farther than ~1 meter.
-4. **Grabbing.** First make sure the target is CENTRED in the frame (perception). Then, in *manipulation*, call `extend_arm_until_grabbed`: it extends the left hand forward until the item is under it and grips automatically. If `leftHoveredObject` already matches the target, the hand is already on it - use `grip_left` directly. Fall back to manual hand adjustments (`extend_left_hand_forward`, `raise_left_hand`, `grip_left`, ...) only if the grab fails.
+4. **Grabbing.** First CENTRE the target with `center_object_on_screen` (in *perception*) - it rotates until the target is verifiably centred; do not pan a few degrees and assume it worked. Only once it is centred AND the mode is *manipulation*, call `extend_arm_until_grabbed`: it extends the left hand forward until the item is under it and grips automatically. If `leftHoveredObject` already matches the target, the hand is already on it - use `grip_left` directly. Fall back to manual hand adjustments (`extend_left_hand_forward`, `raise_left_hand`, `grip_left`, ...) only if the grab fails. **The hand actions (`extend_arm_until_grabbed`, `grip_left`, `extend_left_hand_forward`, ...) do NOTHING unless the current AGENT MODE is *manipulation* - do not emit them in perception or navigation mode. If the target is already centred but the mode is still *perception*, HOLD (keep confirming the target); do not fire the grab early - the router will switch you to *manipulation*.**
 5. **Grab failure recovery.** If `last_grab_failed` is True, assume you were too far: switch to *navigation* and `move_forward` to close the distance. Never pan or tilt as the first response to a failed grab; reorient only if the item already fills much of the view and is off-center.
 6. **Obstacles.** Before moving forward, check the view: if a wall, shelf, or fixture blocks a significant part of your forward path, pan left/right to find a clear direction first. If you are boxed in against a shelf or wall, `move_backward` a few steps to open space before turning. Avoid collisions - the `isColliding` flag is unreliable, so your eyes are the authority.
 7. **Batch actions.** Prefer a sequence in one step, e.g. actions: ['move_forward', 'move_forward', 'move_forward'], times: [10, 10, 10] to travel 3 meters. Respect per-action maxima (movement and tilt: 10 steps; pan: 15 steps); split larger counts into repeated actions.

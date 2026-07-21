@@ -149,6 +149,14 @@ def _category_lines():
 # Stage 1 - classify
 # ---------------------------------------------------------------------------------------------
 
+# MEASURED 2026-07-21 (rule 1, sonnet): the original rule 1 judged ONLY the CENTRE of the frame,
+# which rejected every checkpoint placed at an aisle END or in a GAP between units - there the
+# shelf fills one HALF of the frame (off-centre) while open floor/wall fills the centre, so the
+# model judged the floor and returned non_shelf, discarding a densely-stocked, readable shelf.
+# Found on cp35/49/53 (+cp31, a fridge/shelf gap that was already flip-flopping). Rewriting rule 1
+# to count a NEAR shelf anywhere in the frame flipped all four to shelf 12/12 while the genuine
+# walls cp22/28/36/40 stayed non_shelf 8/8 (negative control) - a recall fix with no wall
+# regression. The anti-leakage intent survives as "ignore only a SMALL, DISTANT edge shelf".
 SYS_INST_CLASSIFY = """You are a shelf classifier for a store-mapping system. You are shown ONE image: the STANDING view from a fixed checkpoint, looking directly at the surface that checkpoint was placed to observe.
 
 Decide ONLY this: is that surface a shelf holding retail product, or not?
@@ -156,7 +164,7 @@ Decide ONLY this: is that surface a shelf holding retail product, or not?
     - "non_shelf": a bare wall, a structural surface, or anything with no retail product on it.
 
 Rules:
-    1. Judge ONLY the surface directly in front of you - the one filling the centre of the frame. Ignore anything at the edges or further away; those belong to other checkpoints.
+    1. Answer "shelf" if a fixture holding retail product (a shelving unit, rack, or refrigerated case) takes up a substantial part of the frame - roughly a third or more - EVEN IF it sits to one side rather than the centre. A checkpoint at the END of an aisle or in a GAP between units sees its shelf fill one side of the frame while open floor or a plain wall fills the rest; that is still "shelf", and rejecting it discards every product on it. Ignore ONLY a small, DISTANT shelf peeking in at the far edge, too far away to read - that one belongs to a neighbouring checkpoint, not this one.
     2. Do not describe the scene. Do not list products. Do not explain your reasoning. Classify only.
     3. If you genuinely cannot tell, answer "shelf". A wall wrongly sent on for annotation is cheap to discard later, but a shelf wrongly rejected loses all of its products permanently.
 

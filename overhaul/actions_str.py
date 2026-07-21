@@ -29,7 +29,7 @@ PERCEPTION_ACTIONS = (
     "pan_right: Pan right 2.5 degrees. Maximum 15 steps per action.\n"
     "tilt_up: Tilt up 2.5 degrees. Maximum 10 steps per action.\n"
     "tilt_down: Tilt down 2.5 degrees. Maximum 10 steps per action.\n"
-    "center_object_on_screen: Center the agent's body on the target object in the frame.\n"
+    "center_object_on_screen: Rotate the camera in a closed loop until the target object is centred in the frame (it detects the target and verifies the result). Use this to centre the target before grabbing - do not rely on eyeballed pan_left/pan_right for the final centring.\n"
     # "retrieve_item: Approach the target object, grab it with the agent's hand, and read it.\n"
 )
 
@@ -48,7 +48,7 @@ MANIPULATION_ACTIONS = (
     "rotate_right_counterclockwise: Rotate right hand counterclockwise 15 degrees per step.\n"
     "grip_left: Toggle left grip (times value is ignored).\n"
     "grip_right: Toggle right grip (times value is ignored).\n"
-    "extend_arm_until_grabbed: Extend the LEFT hand straight forward until a grabbable item is under it, grip it, then retract to the starting pose (times value is ignored). It does NOT aim, so centre the item in the frame first; if it reports gripped=False the item was out of reach, so move the body closer and retry.\n"
+    "extend_arm_until_grabbed: Extend the LEFT hand straight forward until a grabbable item is under it, grip it, then retract to the starting pose (times value is ignored). Works ONLY in *manipulation* mode - the hands are inactive in perception/navigation mode, so calling it there does nothing. It does NOT aim, so centre the item in the frame first; if it reports gripped=False the item was out of reach, so move the body closer and retry.\n"
 )
 
 ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS

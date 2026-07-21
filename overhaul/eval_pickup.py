@@ -78,11 +78,16 @@ def return_to_start(agent):
                                 sm.nearest_checkpoint((-3.0, -5.0)))  # nearest to spawn
     sm, nav, start_cp = return_to_start._nav
     from explore import step_agent
+    from capture_walk import face
     nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
     # Through the agent's tracker, not raw SetHandsActive - a raw call here would desync
     # agent._hands_active and the mode toggle would skip a needed transition.
     agent._set_hands(False)
     nav.goto(start_cp, face_shelf=False)
+    # Face world yaw 0 at the start point so every task begins from the identical pose. goto with
+    # face_shelf=False leaves the yaw wherever the drive ended (it only re-levels the pitch);
+    # face() is an absolute rotate-in-place on the yaw axis, so the levelled pitch is untouched.
+    nav.pos, nav.rot = face(nav.args, nav.pos, nav.rot, 0.0)
 
 
 def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
@@ -146,20 +151,29 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
             continue
         notes = parsed.get("notes", {})
         acted = []
+        blocked_reason = False
+        center_msg = None
         for action, times in zip(parsed.get("actions", []), parsed.get("times", [])):
             action = action.strip()
             inline = None
             im = re.match(r'^(\w+)\([\'"]?(.*?)[\'"]?\)$', action)
             if im:
                 action, inline = im.group(1), im.group(2)
-            dispatch_action(action, int(times), notes, inline)
+            res = dispatch_action(action, int(times), notes, inline, mode=mode) or {}
+            if res.get("blocked"):
+                blocked_reason = res.get("reason", True)
+            if res.get("center_message"):
+                center_msg = res["center_message"]
             acted.append([action, int(times)])
 
         state = _fresh_agent_state()
         state["mode"] = mode
+        state["last_action_blocked"] = blocked_reason
+        state["last_center"] = center_msg
         log({"event": "step", "step": step, "mode": mode,
              "nav_note": (response.get("nav_note") or "")[:200] or None,
-             "actions": acted,
+             "actions": acted, "blocked": blocked_reason or None,
+             "center": center_msg,
              "pos": state.get("translation"), "rot": state.get("rotation"),
              "hovered": [state.get("leftHoveredObject"), state.get("rightHoveredObject")],
              "gripped": [state.get("leftGrippedState"), state.get("rightGrippedState")],

@@ -3,6 +3,7 @@ import asyncio
 import websockets
 import json
 import re
+import math
 from datetime import datetime
 
 from typing import (
@@ -212,29 +213,51 @@ _ROT_RIGHT_CLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 
 _ROT_RIGHT_CTRCLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, -15, 0))
 _REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=False: RequestScreenshot(prefix, suffix, folder_name, save_image)
 
+# NOTE: the _MOVE_*_ lambdas above are RAW WORLD-AXIS moves (kept only as low-level primitives).
+# The public move_* functions below are HEADING-RELATIVE and are what the agent/actions.py use.
+def _heading_world_delta(forward, right, uri="ws://localhost:8080/commands"):
+    """Rotate a body-relative (forward, right) step of 0.1 into a world (x, 0, z) delta using the
+    agent's current yaw. TransformAgent translation is WORLD-space - it does NOT respect facing -
+    so move_* must rotate the request themselves, matching the nav layer (explore.py) and the
+    'move_forward moves along your current heading' promise in the system prompt.
+
+    BUG FIXED 2026-07-21: move_forward used to send raw world +Z, so whenever the agent faced -Z
+    (yaw~180, the usual shelf-facing orientation) 'move forward to approach the shelf' drove it
+    BACKWARD. Verified in pickup_runs/0721_152211_graph: move_forward at yaw~200 moved pos +0.5 in
+    world Z (away from the faced shelf). Y is held at 0 so the body stays level even when the camera
+    is pitched at a low/high shelf."""
+    yaw = math.radians(TransformAgent((0, 0, 0), (0, 0, 0), uri)["rotation"][1])
+    s, c = math.sin(yaw), math.cos(yaw)
+    return (forward * s + right * c, forward * c - right * s)
+
+def _move_relative(forward, right, units):
+    units = min(units, 10)
+    if units <= 0:
+        return
+    # Yaw is read once - a pure translation does not rotate the agent, so it is constant here.
+    dx, dz = _heading_world_delta(forward, right)
+    for _ in range(units):
+        TransformAgent((dx, 0.0, dz), (0, 0, 0))
+
 def move_forward(units):
     if units > 10:
         print("Warning: Moving forward more than 10 units at once may cause instability. Setting to 10 units.")
-    for _ in range(min(units, 10)):
-        _MOVE_FWD_()
+    _move_relative(0.1, 0.0, units)
 
 def move_backward(units):
     if units > 10:
         print("Warning: Moving backward more than 10 units at once may cause instability. Setting to 10 units.")
-    for _ in range(min(units, 10)):
-        _MOVE_BCK_()
+    _move_relative(-0.1, 0.0, units)
 
 def move_left(units):
     if units > 10:
         print("Warning: Moving left more than 10 units at once may cause instability. Setting to 10 units.")
-    for _ in range(min(units, 10)):
-        _MOVE_LEFT_()
+    _move_relative(0.0, -0.1, units)
 
 def move_right(units):
     if units > 10:
         print("Warning: Moving right more than 10 units at once may cause instability. Setting to 10 units.")
-    for _ in range(min(units, 10)):
-        _MOVE_RIGHT_()
+    _move_relative(0.0, 0.1, units)
 
 def pan_left(units):
     if units > 15:

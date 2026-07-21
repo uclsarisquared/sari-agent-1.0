@@ -193,8 +193,14 @@ def annotate_checkpoint(cp, primary, views, args, annotate_fn):
     system = build_annotation_instructions(ekind)
     schema = schema_for(ekind)
 
+    # The crouch view exists only to read a shelf's bottom rows face-on. The non-shelf overlay
+    # describes the place and is forbidden from enumerating products, so a second image would be
+    # pure cost there. When Stage 1 rules this out as a shelf (or the node is a landmark, which is
+    # non-shelf by construction), annotate from the STANDING primary alone - the crouch is not sent.
+    stage2_views = views if ekind == SHELF_KIND else []
+
     result, env = annotate_fn(primary, system, schema, model=args.model, effort=args.effort,
-                              timeout=args.timeout, extra_views=views)
+                              timeout=args.timeout, extra_views=stage2_views)
 
     return {
         "id": cp["id"],
@@ -209,7 +215,7 @@ def annotate_checkpoint(cp, primary, views, args, annotate_fn):
         "model": args.model,
         "effort": args.effort if args.backend == "claude-cli" else None,
         "cost_equiv_usd": env.get("total_cost_usd"),
-        "views": ["STANDING"] + [lbl for lbl, _ in views],
+        "views": ["STANDING"] + [lbl for lbl, _ in stage2_views],
         "annotation": result,             # the schema-shaped VLM output
     }
 
