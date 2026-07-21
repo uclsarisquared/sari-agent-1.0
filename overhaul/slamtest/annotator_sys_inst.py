@@ -16,10 +16,11 @@ Every rule below encodes a decision from the Phase 3 / 3.1 design discussions - 
 so it's commented rather than left as folklore. See plans/phase3_vlm_annotation_pass.md and
 plans/phase3.1_semantic_product_layer.md. In short:
 
-  * PRIMARY vs CONTEXT: for a shelf node the perpendicular image is the ONLY source of item
-    content; other angles are surroundings only. A side angle sees the NEXT shelf or the
-    opposite aisle - items from there belong to other checkpoints, and letting them leak in
-    mis-attributes the product index.
+  * MULTI-VIEW, ALL ITEM-BEARING: a shelf node is annotated from the STANDING view plus (when
+    captured) the CROUCHED view - the SAME shelf from the SAME spot at a lower camera height, which
+    reaches the bottom rows the standing frame clips or renders oblique. The `items` rule reads
+    from ALL views and dedups the overlap. Cross-shelf leakage (a neighbouring shelf intruding at a
+    frame edge) is barred by the "only THIS shelf" rule, NOT by restricting to a single view.
   * PROSE vs STRUCTURE: `semantic_summary` is prose because the consumer is an LLM (this is
     modelled on overhaul's semantic_memory.txt). `items` and `shelf_type` stay structured
     because the product index must be queryable and the enum is what bounds hallucination.
@@ -39,6 +40,14 @@ plans/phase3.1_semantic_product_layer.md. In short:
     nothing consumes it, and the prompt says so.
   * HALLUCINATION IS TOLERATED, NOT FOUGHT: the index is re-verified by the agent on arrival, so
     the rules aim at "null over guess" and "general over specific" rather than perfection.
+
+VIEW VOCABULARY (2026-07-20): the prompts name the views STANDING / CROUCHED, matching what
+capture_walk actually sends (the primary standing frame + the crouch shot) and what the backends
+label them. This replaced the earlier STRAIGHT / DOWN / UP wording, which advertised pitch views
+that never arrived. A/B'd on sonnet (the annotator baseline) old-vocab vs new-vocab, K=6 each on
+cp015 + cp017: cp015 dead-even (~9 items both), cp017 pure noise (both swing 0-2 on that sparse
+shelf) - i.e. zero recall regression, a consistency fix not a quality change. A first n=1 qwen probe
+looked like a regression (11->6) but did not replicate; qwen is not the annotator and misbehaved.
 
 MEASURED - DO NOT RE-ATTEMPT (2026-07, all on cp067 captures):
   * THERE IS NO `brand` FIELD, on purpose. It used to be its own field; the name/brand SPLIT turned
@@ -78,11 +87,11 @@ MEASURED - DO NOT RE-ATTEMPT (2026-07, all on cp067 captures):
     spent all 2048 tokens reasoning, fell into a repetition loop, and returned content=None.
 
 CALLER CONTRACT (the prompts below promise these; the client has to deliver them):
-  * Image labelling. SYS_INST_ANNOTATE_BASE tells the model it gets a PRIMARY image and,
-    optionally, CONTEXT images "each labelled with its angle". Nothing enforces that - the client
-    must send a text part before each image saying which one it is. Post bare images and the
-    "items come ONLY from the PRIMARY image" rule loses its referent, and that rule is the one
-    keeping one shelf's products out of another shelf's index.
+  * Image labelling. SYS_INST_ANNOTATE_BASE tells the model each image is labelled STANDING or
+    CROUCHED. Nothing enforces that - the client must send a text part before each image saying
+    which one it is (annotate_pass ships the primary as STANDING and the crouch shot as CROUCHED;
+    annotate_qwen / annotate_claude_cli label the same way). Post bare images and the multi-view
+    "enumerate across every view and dedup the overlap" rule loses its referent.
   * Effective kind. The Stage-2 overlay is chosen by effective_kind(), NOT by a checkpoint's raw
     topology kind. See that function - the distinction is the entire reason Stage 1 exists.
 
@@ -140,7 +149,7 @@ def _category_lines():
 # Stage 1 - classify
 # ---------------------------------------------------------------------------------------------
 
-SYS_INST_CLASSIFY = """You are a shelf classifier for a store-mapping system. You are shown ONE image: the view from a fixed checkpoint, looking directly at the surface that checkpoint was placed to observe.
+SYS_INST_CLASSIFY = """You are a shelf classifier for a store-mapping system. You are shown ONE image: the STANDING view from a fixed checkpoint, looking directly at the surface that checkpoint was placed to observe.
 
 Decide ONLY this: is that surface a shelf holding retail product, or not?
     - "shelf": any fixture holding retail product - a shelving unit, a rack, or a refrigerated case (product behind glass still counts as a shelf).
@@ -164,8 +173,8 @@ Output strict JSON only, no prose and no markdown fences, using exactly one of t
 SYS_INST_ANNOTATE_BASE = """You are a store-map annotator. You are annotating ONE fixed checkpoint in a store's navigation map. Another system already chose where this checkpoint is and drove the agent to it - you never decide where to go, and you are never asked to navigate.
 
 What you are given:
-    - One or more images taken from this ONE checkpoint, each labelled with its view: STRAIGHT (camera level), DOWN (camera tilted down), UP (camera tilted up).
-    - Every view looks at the SAME thing from the SAME spot - only the camera's tilt differs. They OVERLAP: the lower rows of the STRAIGHT view are the upper rows of the DOWN view, so the same object can appear in two images.
+    - One or more images taken from this ONE checkpoint, each labelled with its view: STANDING (camera at standing height, level) or CROUCHED (camera lowered, same spot and same direction).
+    - Every view looks at the SAME thing from the SAME spot - only the camera height differs. They OVERLAP: the lower rows of the STANDING view are the upper rows of the CROUCHED view, so the same object can appear in two images.
 
 Rules that apply to everything you write:
     1. Report only what you can actually see, and never guess. Where a field below tells you to use null or an empty list when you cannot tell, use it - a "don't know" recorded honestly is a correct and useful answer here; an invented one is not.
@@ -193,10 +202,10 @@ Produce these fields:
     Judge this from the products themselves. Do not use signs.
 
 "sign_text"
-    If a category or aisle sign is legible anywhere in the PRIMARY image - including at its edges - copy its text verbatim. Otherwise null. This is a plain observation, nothing more: do NOT let it influence "shelf_type", and do NOT assume the sign refers to the shelf you are facing. In this store a visible sign usually belongs to a different aisle.
+    If a category or aisle sign is legible anywhere in ANY view - including at the edges of a frame - copy its text verbatim. Otherwise null. This is a plain observation, nothing more: do NOT let it influence "shelf_type", and do NOT assume the sign refers to the shelf you are facing. In this store a visible sign usually belongs to a different aisle.
 
 "items"
-    The products on this shelf, taken from ALL the views you were given. They are one shelf at different tilts, and each reaches rows the others cut off - the DOWN view in particular reaches the bottom rows the STRAIGHT view clips off. Enumerate across every view; a product is no less real for appearing in only one of them.
+    The products on this shelf, taken from ALL the views you were given. They are one shelf at different camera heights, and each reaches rows the others cut off - the CROUCHED view in particular shows face-on the bottom rows that the STANDING view clips or renders oblique. Enumerate across every view; a product is no less real for appearing in only one of them.
 
     The views OVERLAP, so list each distinct product EXACTLY ONCE however many views show it. The same box seen in two views is one entry, not two.
 
@@ -235,7 +244,7 @@ Produce these fields:
     One to three sentences, in natural language, describing this spot: what kind of place it is, and anything navigationally useful you can SEE from here (an aisle opening, a doorway, a checkout, signage). Follow rule 4 - do not describe how shelves relate to one another.
 
 "sign_text"
-    If a sign is legible anywhere in the PRIMARY image, copy its text verbatim. Otherwise null.
+    If a sign is legible anywhere in ANY view, copy its text verbatim. Otherwise null.
 
 Do NOT list products. There are none here to identify, and inventing them would corrupt the product index. "Nothing to identify here" is the expected, correct outcome for this kind of checkpoint - not a failure.
 

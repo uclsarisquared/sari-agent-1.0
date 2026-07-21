@@ -212,9 +212,10 @@ def main():
         associative_config=ucl_qwen_config(temperature=0.3),
         mode='lean', nav_mode=args.arm)
 
-    # Same hand posture env_simulation.py establishes at startup - without it the default
-    # hand pose fills the camera (measured: giant ghost hands in every frame).
-    reset_hands_in_front2(extra_elevation=-0.1, hand="left")
+    # Startup hand-centering DISABLED (user, 2026-07-21): Unity now owns the default hand pose.
+    # Was needed here because without it the default pose filled the camera (giant ghost hands);
+    # re-enable if that regresses.
+    # reset_hands_in_front2(extra_elevation=-0.1, hand="left")
 
     print(f"== pick-up A/B, arm={args.arm}, {len(todo)} task(s), "
           f"caps: {args.max_steps} steps / {args.max_minutes} min ==")

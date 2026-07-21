@@ -81,6 +81,5 @@ This semantic memory outlines the store's environment, rendered from the annotat
 - Checkpoint 52 (Chips, Noodles) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 264.3, 0.0)
 - Checkpoint 54 (counter) has the target position -> translation: (-4.45, 1.36, -3.55), rotation: (0.0, 212.0, 0.0)
 
-@ timestep 1: The agent is currently facing a blank wall with electrical outlets, indicating a dead end or corner. To find the Ritz 3-pack, the agent must turn away from this wall and navigate towards the Biscuit aisles.
-@ timestep 2: At Checkpoint 33, the 'Ritz Original' 3-pack is located on the second shelf from the bottom, positioned towards the right side of the shelf unit. It is surrounded by other snack items like Pepero and Danisa.
-@ timestep 3: The agent is currently at Checkpoint 34, facing a shelf stocked with biscuits. The target 'Ritz Original' 3-pack is clearly visible on the second shelf from the bottom, positioned centrally in the view. The agent is slightly colliding with the shelf edge.
+@ timestep 1: The agent is currently facing a blank wall corner with tiled flooring. Champorado products (Maya Champorado, White King Champ-O-Rado) are located at Checkpoints 30 and 31, which are in the soup/porridge aisle.
+@ timestep 2: At Checkpoint 30, White King Champ-O-Rado boxes are located on the middle shelf, positioned centrally among other soup mixes. The boxes are yellow with a distinct black swirl image on the front.

@@ -90,17 +90,19 @@ def decompose_task(client: OpenAI, task: str) -> list:
     system = (
         "You are a task planner for an Embodied AI Agent in a 3D convenience "
         "store simulation. The agent can navigate, locate items on shelves, "
-        "pick them up, carry them, and bring them to locations like the counter. "
+        "pick them up, carry them, and bring them to locations like the checkout counter. "
         "Given a complex multi-step task, decompose it into a short ordered list "
         "of simple, self-contained subtasks. Each subtask should:\n"
         "  - Be completable in a single continuous agent run.\n"
         "  - End in a clear, verifiable physical state change.\n"
         "  - Reference what the agent is currently holding when relevant.\n"
+        "  - Name locations only as the task or the store memory names them (e.g. 'Checkpoint 32', "
+        "'the checkout counter'). Never invent shelf numbers or location names.\n"
         "Return ONLY a JSON array of subtask strings — no other text.\n\n"
         "Example input: \"pick up the milk and bring it to the counter\"\n"
         "Example output: "
-        "[\"Pick up the milk from Shelf 9.\", "
-        "\"Carry the held milk to the counter near the cash register and place it down.\"]"
+        "[\"Pick up the milk.\", "
+        "\"Carry the held milk to the checkout counter and place it down.\"]"
         "\n\nIf a task is already simple (e.g. 'pick up the milk'), just return it as a single-item array."
     )
     raw = _llm_call(client, system, f"Task: {task}")
@@ -173,11 +175,10 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         return action_ref(target_info) or {}
     elif action in ("retrieve_item", "approach_object"):
         return action_ref(main_goal) or {}
-    elif action in ("grab_item_in_view_right", "grab_item_in_view_left"):
-        item_name = notes.get('item_name', '') or inline_arg or main_goal
-        result = action_ref(item_name) or {}
+    elif action == "extend_arm_until_grabbed":
+        result = action_ref(time_units) or {}
         if not result.get('gripped', False):
-            print(f"[GRAB] Grab failed for '{item_name}' — agent should reposition.")
+            print("[GRAB] extend_arm_until_grabbed did not grip — item out of reach, reposition.")
         return result
     else:
         return action_ref(time_units) or {}
@@ -326,7 +327,7 @@ def run_subtask(
             if inline_match:
                 raw_action, inline_arg = inline_match.group(1), inline_match.group(2)
             result = dispatch_action(raw_action, int(t), notes, inline_arg=inline_arg)
-            if raw_action in ("grab_item_in_view_right", "grab_item_in_view_left"):
+            if raw_action == "extend_arm_until_grabbed":
                 if not result.get('gripped', False):
                     grab_failed = True
         current_state['last_grab_failed'] = grab_failed
@@ -352,7 +353,8 @@ def run_subtask(
 def orchestrate(task: str, run_entry: str = ""):
     client = _llm_client()
 
-    reset_hands_in_front2(extra_elevation=-0.1, hand="left")
+    # Startup hand-centering DISABLED (user, 2026-07-21): Unity now owns the default hand pose.
+    # reset_hands_in_front2(extra_elevation=-0.1, hand="left")
 
     timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
     log_name = f"subtask-{run_entry}-{timestamp}" if run_entry else f"subtask-{timestamp}"

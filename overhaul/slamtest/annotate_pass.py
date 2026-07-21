@@ -183,7 +183,7 @@ def annotate_checkpoint(cp, primary, views, args, annotate_fn):
     topo_kind = cp.get("kind", "?")
 
     # Stage 1 only runs on shelf-kind checkpoints (the only ones with shelf-vs-wall ambiguity).
-    # It uses the STRAIGHT view alone - shelf-vs-wall is obvious at a level frame, and the extra
+    # It uses the STANDING view alone - shelf-vs-wall is obvious at a level frame, and the extra
     # views would only add cost to a binary the classifier already gets right.
     label = None
     if topo_kind == SHELF_KIND and not args.skip_classify:
@@ -209,7 +209,7 @@ def annotate_checkpoint(cp, primary, views, args, annotate_fn):
         "model": args.model,
         "effort": args.effort if args.backend == "claude-cli" else None,
         "cost_equiv_usd": env.get("total_cost_usd"),
-        "views": ["STRAIGHT"] + [lbl for lbl, _ in views],
+        "views": ["STANDING"] + [lbl for lbl, _ in views],
         "annotation": result,             # the schema-shaped VLM output
     }
 

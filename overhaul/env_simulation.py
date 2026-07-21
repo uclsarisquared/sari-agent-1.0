@@ -9,7 +9,10 @@ from datetime import datetime
 
 from hand_reset import reset_hands_in_front2
 
-reset_hands_in_front2(extra_elevation=-0.1, hand="left")
+# Startup hand-centering DISABLED (user, 2026-07-21): the hand's default pose is now centered in
+# Unity itself, so the Python side no longer poses it. Re-enable if Unity's default hand pose
+# regresses to the giant-ghost-hands-in-frame default.
+# reset_hands_in_front2(extra_elevation=-0.1, hand="left")
 
 from env import _REQUEST_SCREENSHOT_
 from env import *
@@ -160,8 +163,6 @@ while ON_PLAY:
             elif action in ("retrieve_item", "approach_object"):
                 target_info = f"main_goal={main_goal}\nsub_goals={sub_goals}\nkey_info={key_info}\nchecklist={checklist}"
                 action_ref(main_goal)
-            elif action in ("grab_item_in_view_right", "grab_item_in_view_left"):
-                action_ref(inline_arg if inline_arg else main_goal)
             else:
                 action_ref(time)
 

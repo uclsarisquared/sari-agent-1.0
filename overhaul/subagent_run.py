@@ -87,17 +87,19 @@ def decompose_task(client: OpenAI, task: str) -> list:
     system = (
         "You are a task planner for an Embodied AI Agent in a 3D convenience "
         "store simulation. The agent can navigate, locate items on shelves, "
-        "pick them up, carry them, and bring them to locations like the counter. "
+        "pick them up, carry them, and bring them to locations like the checkout counter. "
         "Given a complex multi-step task, decompose it into a short ordered list "
         "of simple, self-contained subtasks. Each subtask should:\n"
         "  - Be completable in a single continuous agent run.\n"
         "  - End in a clear, verifiable physical state change.\n"
         "  - Reference what the agent is currently holding when relevant.\n"
+        "  - Name locations only as the task or the store memory names them (e.g. 'Checkpoint 32', "
+        "'the checkout counter'). Never invent shelf numbers or location names.\n"
         "Return ONLY a JSON array of subtask strings — no other text.\n\n"
         "Example input: \"pick up the milk and bring it to the counter\"\n"
         "Example output: "
-        "[\"Pick up the milk from Shelf 9.\", "
-        "\"Carry the held milk to the counter near the cash register and place it down.\"]"
+        "[\"Pick up the milk.\", "
+        "\"Carry the held milk to the checkout counter and place it down.\"]"
         "\n\nIf a task is already simple (e.g. 'pick up the milk'), just return it as a single-item array."
     )
     raw = _llm_call(client, system, f"Task: {task}")
@@ -133,11 +135,11 @@ def verify_subtask(client: OpenAI, subtask: str, final_state: dict, step_notes: 
     raw = _llm_call(client, system, user)
     obj_match = re.search(r'\{[\s\S]*\}', raw)
     if not obj_match:
-        return {"completed": True, "reason": "Could not parse verification response — assuming complete."}
+        return {"completed": False, "reason": "Could not parse verification response — treating as NOT complete (fail-closed)."}
     try:
         return json.loads(obj_match.group(0))
     except json.JSONDecodeError:
-        return {"completed": True, "reason": "Could not parse verification response — assuming complete."}
+        return {"completed": False, "reason": "Could not parse verification response — treating as NOT complete (fail-closed)."}
 
 
 def generate_handoff_summary(client: OpenAI, completed_subtask: str, final_state: dict, step_notes: list) -> str:
@@ -147,7 +149,7 @@ def generate_handoff_summary(client: OpenAI, completed_subtask: str, final_state
         "final physical state, and a log of its step-by-step notes, write a "
         "concise handoff summary for the NEXT agent instance. Include:\n"
         "  - Current agent position (translate the coordinates into plain English "
-        "    if possible, e.g. 'near Shelf 9').\n"
+        "    if possible, e.g. 'near Checkpoint 32').\n"
         "  - What each hand is holding (gripped items, or empty).\n"
         "  - Key environmental observations relevant to upcoming tasks.\n"
         "  - Anything unusual or important the next agent should know.\n"
@@ -346,7 +348,8 @@ def run_subtask(subtask: str, agent: EmbodiedAgent, context: str = "",
 def orchestrate(task: str, run_entry: str = ""):
     client = _llm_client()
 
-    reset_hands_in_front2(extra_elevation=-0.1, hand="left")
+    # Startup hand-centering DISABLED (user, 2026-07-21): Unity now owns the default hand pose.
+    # reset_hands_in_front2(extra_elevation=-0.1, hand="left")
 
     timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
     log_name = f"subagent-{run_entry}-{timestamp}" if run_entry else f"subagent-{timestamp}"

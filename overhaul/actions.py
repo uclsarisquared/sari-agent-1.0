@@ -33,7 +33,10 @@ from perception import (
     retrieve_item
 )
 
-from md_tools import grab_item_in_view_right, grab_item_in_view_left
+# grab_item_in_view_* (md_tools) drove the sim's ReachAtPixel command, which is NOT implemented in
+# SariSandboxMY - it hits the `default: Unknown command` branch. Temporarily de-wired in favour of
+# extend_arm_until_grabbed (manipulation.py), which grabs using only commands the sim handles.
+from manipulation import extend_arm_until_grabbed
 
 
 NAVIGATION_ACTIONS_REF = {
@@ -68,6 +71,5 @@ MANIPULATION_ACTIONS_REF = {
     'rotate_right_counterclockwise': rotate_right_counterclockwise,
     'grip_left': grip_left,
     'grip_right': grip_right,
-    'grab_item_in_view_right': grab_item_in_view_right,
-    'grab_item_in_view_left': grab_item_in_view_left,
+    'extend_arm_until_grabbed': extend_arm_until_grabbed,
 }

@@ -11,7 +11,7 @@ so the two probe/batch paths cannot drift on the facts that were expensive to es
   * chat_template_kwargs={"enable_thinking": False} - Qwen3.x otherwise burns the whole token
     budget reasoning, loops, and returns content=None.
   * Each image is preceded by a text label part, per the annotator caller contract - the primary
-    is the STRAIGHT view, extra_views are the same shelf at other tilts (CROUCHED), every one
+    is the STANDING view, extra_views are the same shelf at a lower camera height (CROUCHED), every one
     item-bearing.
 
 The annotator was un-pinned from claude on 2026-07-20 (user directive) - claude-cli stays the
@@ -114,7 +114,7 @@ def annotate(image_path, system, schema, *, model=DEFAULT_MODEL, effort=None,
     base = resolve_base_url(base_url)
     key = resolve_api_key(api_key)
 
-    content = _image_part("STRAIGHT", image_path, model)
+    content = _image_part("STANDING", image_path, model)
     for label, path in (extra_views or []):
         content += _image_part(label, path, model)
 
@@ -169,7 +169,7 @@ def _build_request(args):
 
 def main():
     p = argparse.ArgumentParser(description="Annotate one capture via the qwen/vLLM server.")
-    p.add_argument("image", help="STRAIGHT view (a PNG from the capture walk)")
+    p.add_argument("image", help="STANDING view (a PNG from the capture walk)")
     p.add_argument("--crouch", default=None, help="CROUCHED view of the same shelf (cp<id>_crouch.png)")
     p.add_argument("--classify", action="store_true", help="Run Stage 1 (shelf/non_shelf) instead of Stage 2")
     p.add_argument("--kind", default="shelf", help="Stage-2 effective kind: shelf | junction | end | doorway | non_shelf")

@@ -100,13 +100,13 @@ def annotate(image_path, system, schema, *, model=DEFAULT_MODEL, effort=DEFAULT_
     timing. Raises ClaudeCliError on any failure.
 
     extra_views: optional [(label, path)] of ADDITIONAL views of the same shelf from the same spot
-    - e.g. [("DOWN", ...), ("UP", ...)] from capture_walk's pitch captures. `image_path` is the
-    STRAIGHT view. These are NOT "context": every view is item-bearing, because they are one shelf
-    at different tilts and the DOWN view reaches rows the STRAIGHT view clips. The prompt tells the
-    model to enumerate across all of them and de-duplicate the overlap.
+    - e.g. [("CROUCHED", ...)] from capture_walk's crouch capture. `image_path` is the STANDING
+    view. These are NOT "context": every view is item-bearing, because they are one shelf at
+    different camera heights and the CROUCHED view reaches the bottom rows the STANDING view clips.
+    The prompt tells the model to enumerate across all of them and de-duplicate the overlap.
     """
     claude = shutil.which("claude") or "claude"
-    lines = [f"STRAIGHT view: {os.path.abspath(image_path)}"]
+    lines = [f"STANDING view: {os.path.abspath(image_path)}"]
     for label, path in (extra_views or []):
         lines.append(f"{label} view: {os.path.abspath(path)}")
     prompt = "\n".join(lines)
@@ -166,7 +166,7 @@ def _build_request(args):
 
 def main():
     p = argparse.ArgumentParser(description="Annotate one capture via `claude -p` (rides the claude.ai / Max-plan login).")
-    p.add_argument("image", help="STRAIGHT view (a PNG from the capture walk)")
+    p.add_argument("image", help="STANDING view (a PNG from the capture walk)")
     p.add_argument("--down", default=None, help="DOWN-pitch view of the same shelf (cp<id>_down.png)")
     p.add_argument("--up", default=None, help="UP-pitch view of the same shelf (cp<id>_up.png)")
     p.add_argument("--classify", action="store_true", help="Run Stage 1 (shelf/non_shelf) instead of Stage 2")
