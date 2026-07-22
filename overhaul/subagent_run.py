@@ -170,8 +170,9 @@ def generate_handoff_summary(client: OpenAI, completed_subtask: str, final_state
 def dispatch_action(action: str, time_units: int, notes: dict, mode: str = None) -> None:
     action = action.strip()
 
-    # Manipulation actions need the hands ACTIVE (manipulation mode only, agent._set_hands); out of
-    # that mode they silently no-op in the sim, so block them with a clear message when mode is known.
+    # Manipulation actions are gated to manipulation mode. Pre-6.1 they no-op'd elsewhere (hands
+    # inactive); as of Phase 6.1 hands stay ACTIVE at REST in every mode, so firing one outside
+    # manipulation would perturb the hand/carried item - the gate stands for mode coherence.
     if action in MANIPULATION_ACTIONS_REF and mode is not None and mode != "manipulation":
         print(f"[BLOCKED] '{action}' only works in *manipulation* mode (current mode: {mode}); "
               f"the hands are inactive otherwise. Skipped.")

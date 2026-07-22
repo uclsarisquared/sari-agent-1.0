@@ -242,6 +242,7 @@ class EmbodiedAgent:
         self._nav_visited = set()
         self._nav_task = None
         self._hands_active = None       # None = unknown; set on first _set_hands call
+        self._hand_pose = None          # None = unknown; 'rest' when the router has parked the hand (6.1)
 
         if mode == 'lean':
             self.associative_learner = SemanticEpisodicAssociativeLearner(associative_config)
@@ -260,14 +261,42 @@ class EmbodiedAgent:
     # (LiDAR forward range or hoveredObject proximity - see phase4.2 plan, REMOVED #3).
 
     def _set_hands(self, active: bool):
-        """Hands are visible/active ONLY in manipulation mode (user directive 2026-07-19):
-        outside it they fill the camera and add nothing. State-tracked so the websocket call
-        fires only on transitions, not every step. Both A/B arms share this identically."""
+        """Low-level hand enable/disable, state-tracked so the websocket call fires only on
+        transitions. Phase 6.1: the WITHIN-TASK path no longer disables hands (disabling dropped
+        carried items); this survives for the BETWEEN-TASK hard reset only - return_to_start stows
+        (False), the next task re-activates via _set_hand_pose. Any toggle INVALIDATES the pose
+        tracker: after Unity re-enables a hand its pose is unknown, so the next _set_hand_pose must
+        re-drive. Both A/B arms share this identically."""
         if self._hands_active == active:
             return
         from env import SetHandsActive
         SetHandsActive(active)
         self._hands_active = active
+        self._hand_pose = None
+
+    def _set_hand_pose(self, pose: str):
+        """Ensure the LEFT hand is ACTIVE and parked at the named pose ('rest'). Phase 6.1 replaces
+        _set_hands(active) on the nav/perception path: hands are no longer disabled, so a carried item
+        is never dropped by a mode change - it rides at REST. Transition-only: the websocket drive
+        fires only when the tracked pose changes (no per-step spam). The GRAB pose is NEVER set here -
+        it is tool-internal (manipulation.extend_arm_until_grabbed and 6.2's place tool)."""
+        self._set_hands(True)                 # always active during a task; no-op if already active
+        if self._hand_pose == pose:
+            return
+        from manipulation import set_hand_pose
+        arrived, reported, resid = set_hand_pose(pose)
+        if not arrived:
+            logger.warning(f"[hand-pose] '{pose}' did not converge (resid={resid:.3f} m, "
+                           f"reported={tuple(round(v, 3) for v in reported)}) - frame/clamp issue?")
+        self._hand_pose = pose
+
+    def _invalidate_hand_pose(self):
+        """Manipulation mode may move the hand (the grab tool sets GRAB then REST; a manual hand poke
+        moves it directly). Keep the hand ACTIVE but mark its pose UNKNOWN, so the next nav/perception
+        step re-asserts REST even if a poke left it displaced. We deliberately do NOT force REST here -
+        manipulation wants the hand free to reach/poke."""
+        self._set_hands(True)
+        self._hand_pose = None
 
     # ---- Phase 4.2 graph-navigation dispatcher -------------------------------------------
 
@@ -290,7 +319,7 @@ class EmbodiedAgent:
         unvisited candidate (goto_product's retry loop realised as mode-machine behaviour).
         No verifier LLM here - arm B is goto+face+ordinary perception, per the 4.2 plan."""
         import locate_task
-        from env import SetHandsActive, RequestScreenshot
+        from env import RequestScreenshot
         from explore import step_agent
 
         sm, nav = self._graph_nav_session()
@@ -328,7 +357,7 @@ class EmbodiedAgent:
         target = min(remaining, key=lambda c: sm.hops(sm.nearest_checkpoint((x, z)), c) or 99)
         self._nav_visited.add(target)
 
-        self._set_hands(False)   # off for the drive; the mode toggle re-enables at manipulation
+        self._set_hand_pose("rest")   # 6.1: hands stay ACTIVE at REST through the drive (carry-safe)
         ok = nav.goto(target)
 
         info = sm.checkpoint(target)
@@ -364,7 +393,7 @@ class EmbodiedAgent:
         shifts the centred target off-centre (the same finding behind the grab-recovery edit)."""
         from env import move_forward, RequestScreenshot
 
-        self._set_hands(False)   # off for the move; the mode toggle re-enables at manipulation
+        self._set_hand_pose("rest")   # 6.1: hands stay ACTIVE at REST through the nudge (carry-safe)
         move_forward(move_steps)   # body-relative along the current heading; env clamps to <=10
         fresh = RequestScreenshot(save_image=False)["image"]
         note = (f"## MOVED {move_steps} STEP(S) (~{move_steps * 0.1:.1f} m) FORWARD to close the "
@@ -451,8 +480,14 @@ class EmbodiedAgent:
                     screenshot = Image.open(BytesIO(_fresh_png)).convert('RGB')
                 agent_mode = "perception"
 
-            # Hands only exist for manipulation (both arms; see _set_hands).
-            self._set_hands(agent_mode == "manipulation")
+            # Phase 6.1: hands stay ACTIVE at REST for nav/perception so a carried item survives the
+            # trip. In manipulation mode leave the hand free (the grab/place tool sets GRAB then
+            # restores REST itself) but mark the pose UNKNOWN, so the next nav/perception step
+            # re-asserts REST even if a manual poke displaced it. Both A/B arms share this.
+            if agent_mode == "manipulation":
+                self._invalidate_hand_pose()
+            else:
+                self._set_hand_pose("rest")
 
             if agent_mode == "perception":
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"
@@ -535,8 +570,14 @@ class EmbodiedAgent:
                     screenshot = Image.open(BytesIO(_fresh_png)).convert('RGB')
                 agent_mode = "perception"
 
-            # Hands only exist for manipulation (both arms; see _set_hands).
-            self._set_hands(agent_mode == "manipulation")
+            # Phase 6.1: hands stay ACTIVE at REST for nav/perception so a carried item survives the
+            # trip. In manipulation mode leave the hand free (the grab/place tool sets GRAB then
+            # restores REST itself) but mark the pose UNKNOWN, so the next nav/perception step
+            # re-asserts REST even if a manual poke displaced it. Both A/B arms share this.
+            if agent_mode == "manipulation":
+                self._invalidate_hand_pose()
+            else:
+                self._set_hand_pose("rest")
 
             if agent_mode == "perception":
                 available_actions = f"{PERCEPTION_ACTIONS}\n\n"

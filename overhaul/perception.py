@@ -155,8 +155,13 @@ def annotate_target(ymin, xmin, ymax, xmax, file_path='screenshots/ClientScreens
     image = Image.open(file_path)
     draw = ImageDraw.Draw(image)
     W, H = image.size
-    x0, x1 = sorted((int(xmin), int(xmax)))
-    y0, y1 = sorted((int(ymin), int(ymax)))
+    # Inputs are in the fixed ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame (detections are
+    # 0-1000 normalised * ORIGINAL_*), so scale to the ACTUAL frame before drawing. Without this a
+    # higher-res screenshot (e.g. 4K) paints the box/crosshair in the top-left quadrant instead of
+    # over the target - the drawing is now resolution-dynamic, off the real image.size.
+    sx, sy = W / ORIGINAL_WIDTH, H / ORIGINAL_HEIGHT
+    x0, x1 = sorted((int(xmin * sx), int(xmax * sx)))
+    y0, y1 = sorted((int(ymin * sy), int(ymax * sy)))
     x0, x1 = max(0, min(x0, W - 1)), max(0, min(x1, W - 1))
     y0, y1 = max(0, min(y0, H - 1)), max(0, min(y1, H - 1))
     draw.rectangle([x0, y0, x1, y1], outline="red", width=3)
@@ -172,13 +177,19 @@ def _draw_debug_frame(frame_path, boxes, chosen, aim_xy, out_path):
     try:
         img = Image.open(frame_path).convert("RGB")
         draw = ImageDraw.Draw(img)
+        # boxes/aim are in the fixed ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame; scale to the
+        # ACTUAL screenshot so the crosshair sits at true centre at any capture resolution (a 4K
+        # frame would otherwise draw the green aim at 960,540 - its top-left quadrant, not centre).
+        W, H = img.size
+        sx, sy = W / ORIGINAL_WIDTH, H / ORIGINAL_HEIGHT
         for b in boxes:
-            draw.rectangle([b['xmin'], b['ymin'], b['xmax'], b['ymax']], outline="yellow", width=2)
+            draw.rectangle([b['xmin'] * sx, b['ymin'] * sy, b['xmax'] * sx, b['ymax'] * sy],
+                           outline="yellow", width=2)
         if chosen is not None:
-            draw.rectangle([chosen['xmin'], chosen['ymin'], chosen['xmax'], chosen['ymax']],
-                           outline="red", width=4)
-            draw.text((chosen['xmin'], max(0, chosen['ymin'] - 13)), "locked", fill="red")
-        ax, ay = int(aim_xy[0]), int(aim_xy[1])
+            draw.rectangle([chosen['xmin'] * sx, chosen['ymin'] * sy,
+                            chosen['xmax'] * sx, chosen['ymax'] * sy], outline="red", width=4)
+            draw.text((chosen['xmin'] * sx, max(0, chosen['ymin'] * sy - 13)), "locked", fill="red")
+        ax, ay = int(aim_xy[0] * sx), int(aim_xy[1] * sy)
         draw.line([(ax - 28, ay), (ax + 28, ay)], fill="lime", width=3)
         draw.line([(ax, ay - 28), (ax, ay + 28)], fill="lime", width=3)
         img.save(out_path)
@@ -326,7 +337,7 @@ def _seed_front_instance(boxes, aim_x, aim_y, front_bias):
 
 
 def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_px=20.0,
-                            gain=0.8, max_step_deg=12.0, front_bias=0.25, debug_dir=None):
+                            gain=0.8, max_step_deg=12.0, front_bias=0, debug_dir=None):
     """Rotate the camera until the target's bbox centre sits on the aim point - CLOSED-LOOP.
 
     Was a single open-loop shot with a wrong linear gain (see the FOCAL_PX note): detect

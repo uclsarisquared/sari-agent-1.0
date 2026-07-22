@@ -175,11 +175,12 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
                     mode: str = None, debug_dir: str = None) -> dict:
     """Execute one action. Returns a result dict; grab actions include a 'gripped' key.
 
-    Manipulation-only actions (hand movement, grip, extend_arm_until_grabbed) need the hands
-    ACTIVE, which the runtime only makes them in manipulation mode (agent._set_hands). Called in
-    perception/navigation mode they are a silent no-op in the sim (inactive hand = dead collider =
-    leftHoveredObject never populates), so when `mode` is supplied we BLOCK them with a clear
-    message instead of pretending to run them."""
+    Manipulation-only actions (hand movement, grip, extend_arm_until_grabbed) are gated to
+    manipulation mode. Pre-6.1 the reason was that hands were inactive elsewhere so these no-op'd;
+    as of Phase 6.1 hands stay ACTIVE at REST in every mode (so a carried item survives), which means
+    firing a hand action in perception/navigation would actually perturb the hand (and any carried
+    item) off-script. So the gate stands, now for MODE COHERENCE: when `mode` is supplied we BLOCK
+    these with a clear message and let the router switch to manipulation first."""
     if action in MANIPULATION_ACTIONS_REF and mode is not None and mode != "manipulation":
         print(f"[BLOCKED] '{action}' only works in *manipulation* mode (current mode: {mode}); "
               f"the hands are inactive otherwise. Skipped - route to manipulation first.")

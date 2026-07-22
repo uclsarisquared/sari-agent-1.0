@@ -37,6 +37,36 @@ def init_logger(run_name: str, directory: str = "logs"):
     logger.info(f"=== STARTING NEW RUN: {run_name} ===")
     return logger
 
+
+# Screenshots are capped at 1080p on disk. Downscaling costs nothing downstream: detections are
+# normalised 0-1000 (resolution-independent) and the annotator's vision encoder downscales past
+# ~1080p anyway, so a 4K render's extra pixels never reach any model - they only cost storage.
+# Depth maps are NOT routed through here: their pixel values are distance measurements, so resizing
+# them would corrupt estimate_steps_from_depth.
+MAX_SAVE_W, MAX_SAVE_H = 1920, 1080
+
+
+def downscale_for_storage(image_bytes, max_w=MAX_SAVE_W, max_h=MAX_SAVE_H):
+    """Return `image_bytes` shrunk to fit within max_w x max_h (aspect preserved), as PNG bytes.
+    A frame already within bounds is returned byte-for-byte unchanged; this NEVER upscales. Best-
+    effort: if the bytes aren't a decodable image (or Pillow is missing) the original is returned,
+    so a save can never fail on account of resizing."""
+    try:
+        from io import BytesIO
+        from PIL import Image
+        img = Image.open(BytesIO(image_bytes))
+        w, h = img.size
+        if w <= max_w and h <= max_h:
+            return image_bytes
+        scale = min(max_w / w, max_h / h)
+        img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return image_bytes
+
+
 async def SendCommand(command: Dict[str, Any], uri: str):
     async with websockets.connect(uri, max_size=None) as websocket:
         await websocket.send(json.dumps(command))
@@ -57,8 +87,10 @@ async def SendCommand(command: Dict[str, Any], uri: str):
                 file_path = os.path.join(folder_name, file_name) if folder_name else file_name
 
                 with open(file_path, "wb") as file:
-                    file.write(image_bytes)
+                    file.write(downscale_for_storage(image_bytes))
 
+            # The RETURN is left full-resolution: only the on-disk copy is capped. Live consumers
+            # (e.g. a VLM call on the returned bytes) get the raw frame; storage is what we shrink.
             return {'image': image_bytes}
         else:
             response = await websocket.recv()

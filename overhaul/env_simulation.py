@@ -149,8 +149,9 @@ while ON_PLAY:
             if inline_match:
                 action, inline_arg = inline_match.group(1), inline_match.group(2)
 
-            # Manipulation actions need the hands ACTIVE, which only happens in manipulation mode
-            # (agent._set_hands). Out of that mode they are a silent no-op in the sim, so block them.
+            # Manipulation actions are gated to manipulation mode. Pre-6.1 they no-op'd elsewhere
+            # (hands inactive); as of Phase 6.1 hands stay ACTIVE at REST in every mode, so firing one
+            # outside manipulation would perturb the hand/carried item - the gate stands (mode coherence).
             if action in MANIPULATION_ACTIONS_REF and agent_mode != "manipulation":
                 print(f"[BLOCKED] '{action}' only works in *manipulation* mode "
                       f"(current mode: {agent_mode}); the hands are inactive otherwise. Skipped.")

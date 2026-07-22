@@ -93,9 +93,4 @@ This semantic memory outlines the store's environment, rendered from the annotat
 - Checkpoint 53 (Chips, Noodles) has the target position -> translation: (-4.65, 1.36, 1.15), rotation: (0.0, 264.3, 0.0)
 - Checkpoint 54 (counter) has the target position -> translation: (-4.45, 1.36, -3.55), rotation: (0.0, 212.0, 0.0)
 
-@ timestep 1: The Bingo Corned Beef is located in the canned goods section. According to the semantic memory, Checkpoints 49, 50, and 51 face shelves stocked with canned goods including corned beef from brands like Bingo. Checkpoint 50 specifically mentions Bingo brand corned beef.
-@ timestep 2: At Checkpoint 50, Bingo Corned Beef cans are visible on the middle shelf (second from bottom), positioned towards the left side of the shelf unit. The bottom shelf contains various other canned goods but no Bingo Corned Beef is immediately visible there.
-@ timestep 3: At Checkpoint 50, the Bingo Corned Beef cans are located on the middle shelf (second from bottom), not the bottom shelf. The bottom shelf contains various other canned goods like tuna and sardines but no Bingo Corned Beef.
-@ timestep 4: At Checkpoint 50, Bingo Corned Beef cans are located on the middle shelf (second from bottom), specifically in the red cans with yellow text. The bottom shelf contains other brands like Mega and Century, but no Bingo Corned Beef is visible there.
-@ timestep 5: At Checkpoint 50, the Bingo Corned Beef cans (red with yellow text) are located on the middle shelf (second from bottom). The bottom shelf contains other brands like Mega and Century but no Bingo Corned Beef. The target is currently near the right edge of the frame.
-@ timestep 6: At Checkpoint 50, Bingo Corned Beef cans (red label with yellow text) are located on the middle shelf (second from bottom). The bottom shelf contains other brands like Mega and Century but no Bingo Corned Beef.
+@ timestep 1: The agent is currently standing in an open area between aisles, facing the refrigerated section (Aisle 3). The checkout counter is located at Checkpoint 54, which is connected to Checkpoint 32 (Noodles).

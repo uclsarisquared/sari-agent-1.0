@@ -1,0 +1,6 @@
+{"ts": "2026-07-22T19:59:10", "route": 1, "leg": 1, "cp": 3, "arrived": true, "gripped": true, "nearest_cp": 3, "hand_translation": [-0.21, -0.09, 0.2], "shot": "route1_leg1_cp3.png"}
+{"ts": "2026-07-22T19:59:28", "route": 1, "leg": 2, "cp": 50, "arrived": true, "gripped": true, "nearest_cp": 50, "hand_translation": [-0.21, -0.09, 0.2], "shot": "route1_leg2_cp50.png"}
+{"ts": "2026-07-22T19:59:42", "route": 1, "leg": 3, "cp": 23, "arrived": true, "gripped": true, "nearest_cp": 23, "hand_translation": [-0.21, -0.09, 0.2], "shot": "route1_leg3_cp23.png"}
+{"ts": "2026-07-22T20:00:12", "route": 1, "leg": 4, "cp": 54, "arrived": true, "gripped": true, "nearest_cp": 54, "hand_translation": [-0.21, -0.09, 0.2], "shot": "route1_leg4_cp54.png"}
+{"ts": "2026-07-22T20:00:12", "route": 1, "result": "pass", "drops": 0, "frozen": 0}
+{"ts": "2026-07-22T20:04:28", "route": 2, "result": "no_grip"}

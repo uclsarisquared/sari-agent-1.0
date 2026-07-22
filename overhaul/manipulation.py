@@ -86,11 +86,64 @@ def grab_and_read_item(hand="left", max_attempts=30, text_read_fn=None):
     return ["No object grabbed"]
 
 
+# ===== Phase 6.1: hand-pose state machine (REST / GRAB) =========================================
+# Hands stay ACTIVE throughout a task now (no longer disabled for nav/perception), parked at a named
+# REST pose so a carried item is never dropped by a mode change - it rides at REST. The two poses are
+# the user's manual calibration (2026-07-22), LEFT-hand agent-local xyz, validated live by the step-0
+# probe (plan6/step0_hand_pose_probe.py, user-confirmed working 2026-07-22).
+REST_POSE = (-0.213, -0.09, 0.2)   # out-of-frame resting pose: navigate, perceive, and CARRY here
+GRAB_POSE = (-0.01, 0.006, 0.33)   # centred forward "ready to grab" pose - TOOL-INTERNAL (see below)
+_NAMED_POSES = {"rest": REST_POSE, "grab": GRAB_POSE}
+_HAND_MOVE_RANGE = 0.5   # Unity clamps each TransformHands delta component here (TranslateHand, ~656)
+_POSE_TOL = 0.012        # m; "arrived" once the reported translation is within this of the target
+
+
+def _vlen(v):
+    return math.sqrt(sum(c * c for c in v))
+
+
+def set_hand_pose(pose, hand="left", max_iters=5):
+    """Closed-loop drive one hand to `pose` (a name 'rest'/'grab', or an agent-local xyz), reading the
+    reported translation and nudging by the residual each iteration. Returns (arrived, reported, resid).
+
+    Closed-loop on purpose (validated by the step-0 probe, user-confirmed 2026-07-22):
+      - it self-corrects Unity's per-call clamp (handMoveRange = 0.5 on each delta component): a move
+        larger than the clamp just takes another iteration, so one logical set_hand_pose still arrives
+        ("split into two calls", as the phase6 plan flags).
+      - if the reported translation does NOT march toward the target, the residual won't shrink and this
+        returns arrived=False - the honest signal "the pose is in a different frame than assumed",
+        rather than a silent wrong pose.
+
+    Only the mode router (agent._set_hand_pose -> 'rest') and the grab/place tools (transient 'grab')
+    call this. TransformHands takes agent-local DELTAS, so this drives by (target - reported) each step.
+    """
+    target = _NAMED_POSES[pose] if isinstance(pose, str) else tuple(pose)
+    tkey = "leftTranslation" if hand == "left" else "rightTranslation"
+    cur = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))[tkey]
+    for _ in range(max_iters):
+        err = [target[k] - cur[k] for k in range(3)]
+        if _vlen(err) <= _POSE_TOL:
+            return True, cur, _vlen(err)
+        clamp = _HAND_MOVE_RANGE - 1e-3
+        d = tuple(max(-clamp, min(clamp, err[k])) for k in range(3))
+        if hand == "left":
+            cur = TransformHands(d, (0, 0, 0), (0, 0, 0), (0, 0, 0))[tkey]
+        else:
+            cur = TransformHands((0, 0, 0), (0, 0, 0), d, (0, 0, 0))[tkey]
+    resid = _vlen([target[k] - cur[k] for k in range(3)])
+    return resid <= _POSE_TOL, cur, resid
+
+
 def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=20.0):
-    """Extend one hand straight forward until a grabbable item comes under it, grip it, then
-    retract the hand to its starting pose. If the hand reaches its limit empty-handed, report
-    out-of-reach and let the CALLER reposition - this tool no longer moves the body. LEFT hand by
-    default.
+    """Set the GRAB pose, extend the hand straight forward until a grabbable item comes under it, grip
+    it, then retract to REST (Phase 6.1 - the tool owns both poses). If the hand reaches its limit
+    empty-handed, report out-of-reach and let the CALLER reposition - this tool no longer moves the
+    body. LEFT hand by default.
+
+    Phase 6.1 hand-pose ownership: this tool sets GRAB_POSE at entry and restores REST_POSE on EVERY
+    exit path (success, miss, exception), so a gripped item rides back to the carry pose. It also
+    REFUSES (returns {'blocked': True, ...}) if the hand is already gripping at entry, rather than
+    force-opening it - force-opening would drop a carried item mid-task.
 
     This REPLACES grab_item_in_view_* (md_tools.py), whose ReachAtPixel command does NOT exist in
     SariSandboxMY - it lands in the sim's `default: Unknown command` branch. This tool uses only
@@ -123,7 +176,8 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=
 
     NOT yet verified in a live Play-mode run; the mechanism is read off the C#.
 
-    Returns {'gripped': bool, 'hovered': <id|None>[, 'reason': str]}.
+    Returns {'gripped': bool, 'hovered': <id|None>[, 'reason': str]}, or
+    {'blocked': True, 'reason': 'hand already holding an item'} if it refused (full-hand guard).
     """
     hand = str(hand).lower()
     assert hand in ("left", "right"), "hand must be 'left' or 'right'"
@@ -143,22 +197,14 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=
         return sum((a[i] - b[i]) ** 2 for i in range(3)) ** 0.5
 
     def _reach_once():
-        """One extend-until-hover-or-stall sweep from the current rest pose, then a slow retract to
-        that same pose - one pull-back per extend that actually MOVED the hand, so a clamped extend
-        can't over-retract past the origin. A gripped item is parented to the hand, so it rides back
-        with it. Returns (gripped, hovered)."""
+        """One extend-until-hover-or-stall sweep from the GRAB pose the caller just set, then a slow
+        retract - one pull-back per extend that actually MOVED the hand, so a clamped extend can't
+        over-retract past the origin. A gripped item is parented to the hand, so it rides back with it.
+        Returns (gripped, hovered). The hand is guaranteed OPEN here: the full-hand guard in
+        extend_arm_until_grabbed refuses a closed hand before this runs, so there is no stray-close to
+        recover from (that recovery lived here pre-6.1; it force-opened the hand, which would drop a
+        carried item mid-task, so it moved to the guard - which refuses instead of opening)."""
         start = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
-        if start.get(grip_key):
-            # Hand starts CLOSED. A reach needs an OPEN hand to have something to grip onto; leaving it
-            # shut used to short-circuit to a phantom "gripped=True" over empty air. That never bit
-            # while the grip command was a silent no-op, but once ToggleGrip actually fires a stray
-            # close (keyboard Q, a prior missed grab's cleanup, an interrupted run) leaves the hand shut
-            # and the next call would falsely claim a grab. So OPEN it (a toggle from closed releases),
-            # re-read, then reach normally. If it happened to be holding an item this drops it - but
-            # calling a GRAB with a full hand is a caller error, and a clean open beats a false grab.
-            grip_fn()
-            start = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
-
         prev = start[trans_key]
         moved_steps = 0
         stalled = 0
@@ -186,29 +232,47 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=
             pull_fn()
         return gripped, hovered
 
-    gripped, hovered = _reach_once()
+    # Phase 6.1 full-hand guard: refuse to grab while already holding. A closed hand at entry is NOT
+    # force-opened (that would drop the carried item). A true hold vs a stray close isn't reliably
+    # distinguishable from grip-state alone, so per the phase6 plan that recovery lives at task start
+    # (harness), never mid-task - here we simply refuse and leave the hand where it is.
+    entry = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+    if entry.get(grip_key):
+        print(f"[extend_arm_until_grabbed] hand={hand} REFUSED: hand already holding an item")
+        return {"blocked": True, "reason": "hand already holding an item"}
 
-    # No body creep - one reach from where we stand. If it missed, tell the caller HOW to adjust:
-    # a steep pitch means a low/high row (vertical gap, forward motion won't help), otherwise the
-    # item is too far. Either way the caller must move, then RE-CENTER before retrying.
-    reason = None
-    if not gripped:
-        pitch = TransformAgent((0, 0, 0), (0, 0, 0))["rotation"][0]
-        pitch = ((pitch + 180) % 360) - 180      # eulerAngles wraps to [0,360); fold to [-180,180]
-        if abs(pitch) > max_pitch_deg:
-            reason = (f"out of reach at steep pitch {pitch:.0f}deg (low/high row): moving forward "
-                      f"can't close a vertical gap - raise/lower the hand (or crouch), then re-center "
-                      f"and retry")
-        else:
-            reason = ("out of reach: hand stalled with nothing under it - move the body closer, then "
-                      "re-center on the target (center_object_on_screen) and retry")
+    # The tool OWNS the GRAB pose: set it now, and restore REST on EVERY exit (success, miss, and
+    # exception - via the finally) so a gripped item rides back to the carry pose and the mode
+    # router's REST tracker stays valid. The router never sets GRAB; only this tool (and 6.2's place
+    # tool) do. NOTE: REACH_ENVELOPE (0.85 m) was fit BEFORE GRAB was set at entry - if the live gate
+    # shows the reach boundary shifted, re-run reach_probe/fit_envelope from the GRAB start pose.
+    set_hand_pose(GRAB_POSE, hand=hand)
+    try:
+        gripped, hovered = _reach_once()
 
-    print(f"[extend_arm_until_grabbed] hand={hand} hovered={hovered!r} gripped={gripped}"
-          + (f" | {reason}" if reason else ""))
-    result = {"gripped": gripped, "hovered": None if hovered in _EMPTY else hovered}
-    if reason:
-        result["reason"] = reason
-    return result
+        # No body creep - one reach from where we stand. If it missed, tell the caller HOW to adjust:
+        # a steep pitch means a low/high row (vertical gap, forward motion won't help), otherwise the
+        # item is too far. Either way the caller must move, then RE-CENTER before retrying.
+        reason = None
+        if not gripped:
+            pitch = TransformAgent((0, 0, 0), (0, 0, 0))["rotation"][0]
+            pitch = ((pitch + 180) % 360) - 180      # eulerAngles wraps to [0,360); fold to [-180,180]
+            if abs(pitch) > max_pitch_deg:
+                reason = (f"out of reach at steep pitch {pitch:.0f}deg (low/high row): moving forward "
+                          f"can't close a vertical gap - raise/lower the hand (or crouch), then "
+                          f"re-center and retry")
+            else:
+                reason = ("out of reach: hand stalled with nothing under it - move the body closer, "
+                          "then re-center on the target (center_object_on_screen) and retry")
+
+        print(f"[extend_arm_until_grabbed] hand={hand} hovered={hovered!r} gripped={gripped}"
+              + (f" | {reason}" if reason else ""))
+        result = {"gripped": gripped, "hovered": None if hovered in _EMPTY else hovered}
+        if reason:
+            result["reason"] = reason
+        return result
+    finally:
+        set_hand_pose(REST_POSE, hand=hand)
 
 
 # ===== Phase D: depth-gated reach planning ======================================================
