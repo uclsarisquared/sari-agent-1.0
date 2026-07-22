@@ -58,8 +58,8 @@ RESOLVE_SCHEMA = {
                               "description": "What to look for visually, specific enough to tell the target from lookalikes (colors, label text, packaging)"},
         "candidates": {"type": "array", "items": {"type": "integer"},
                        "description": "Checkpoint ids that might hold the target. Empty if unresolvable."},
-        "tier": {"type": "string", "enum": ["name", "category", "unresolvable"],
-                 "description": "name = matched index rows; category = no name match, routed by category; unresolvable = neither tier applies"},
+        "tier": {"type": "string", "enum": ["name", "attribute", "category", "unresolvable"],
+                 "description": "name = matched index rows; attribute = property-based task, rows marked by world knowledge; category = routed by category; unresolvable = task is nonsensical for a store"},
         "reasoning": {"type": "string"},
     },
     "required": ["target_name", "target_appearance", "candidates", "tier", "reasoning"],
@@ -80,6 +80,15 @@ VERIFY_SCHEMA = {
     "required": ["target_visible", "confidence", "where", "evidence", "seen_instead"],
 }
 
+# MEASURED 2026-07-23 (A/B, 12 eval tasks, qwen, resolve-only - slamtest/plans/ResolverResolved.md
+# + slamtest/output/resolver_ab/): the previous two-tier prompt STARVED 4/12 tasks (empty or
+# singleton candidates) because most eval tasks are attribute-shaped ("with stevia", "imported",
+# "< 30 pesos") and neither the name nor category tier fires for a property. Starvation is what
+# strands the graph arm: with 0-1 candidates, navigation mode has nowhere new to go and the VLM
+# actor falls back to manual body-moves (pickup run 0722_160423, stuck at cp48 for 12 steps).
+# This ATTRIBUTE-tier version measured 1/12 starved - and that one (Bingo Corned Beef -> [50]) is
+# a correct singleton - with no regression on any name/category task. Generosity is the point:
+# a wrong candidate costs one wasted visit, and the on-site verifier is the ground truth.
 RESOLVER_SYS = (
     "You are the task resolver for a store agent. You receive a task and the store's product "
     "index - every product a mapping pass observed, with the checkpoint id where it was seen. "
@@ -91,13 +100,23 @@ RESOLVER_SYS = (
     "brand/nickname matching (e.g. 'Coke' is Coca-Cola). The index was written by a vision model "
     "that often records only the brand - a row naming the brand without the exact variant is "
     "still a candidate, and telling variants apart is the on-site verifier's job, not yours.\n"
-    "2. CATEGORY TIER only if no row plausibly matches: pick checkpoints whose category should "
-    "hold the target. The category->checkpoint map is provided.\n"
-    "3. UNRESOLVABLE if neither tier applies. Say so - do not invent candidates.\n"
-    "4. candidates: every checkpoint id whose rows (or category) support the target. Do NOT "
-    "order by store position - you do not know the store's geometry, and routing is not your "
-    "job.\n"
-    "5. target_appearance: describe what distinguishes the target from its nearest lookalikes "
+    "2. ATTRIBUTE TIER when the task names a PROPERTY rather than a product - an ingredient "
+    "('with stevia'), weight, price, origin ('imported'), packaging ('in a wrapper'), size, or "
+    "location ('near the checkout'). Use world knowledge to mark EVERY index row that plausibly "
+    "satisfies the property and return all their checkpoints. Prefer breadth: 4-8 candidates, "
+    "most-plausible first. Being unsure which items satisfy the property is NORMAL here - the "
+    "on-site verifier is the ground truth, your job is only to pick which shelves are worth a "
+    "look. Do not return fewer than 3 candidates on this tier unless the index genuinely offers "
+    "fewer plausible rows.\n"
+    "3. CATEGORY TIER only if neither of the above applies: pick checkpoints whose category "
+    "should hold the target. The category->checkpoint map is provided.\n"
+    "4. UNRESOLVABLE only if the task is nonsensical for a grocery store (e.g. 'find the "
+    "forklift'). Uncertainty about an attribute or a name is NOT unresolvable - guess broadly "
+    "instead; empty candidates strand the agent.\n"
+    "5. candidates: every checkpoint id whose rows (or category) support the target, "
+    "most-plausible first. Do NOT order by store position - you do not know the store's "
+    "geometry, and routing is not your job.\n"
+    "6. target_appearance: describe what distinguishes the target from its nearest lookalikes "
     "on a shelf (for Coke Zero vs regular Coca-Cola: black label/cap vs red)."
 )
 
@@ -317,8 +336,14 @@ def verify(call, task, resolution, cp_info, views):
     visible?"; a category-shaped task ("find a shelf with chips") asks "does this shelf hold
     this kind?" - different verdict, different evidence fields, so a different prompt+schema
     rather than one prompt doing both badly. Category verdicts are normalised to the item
-    schema's field names so the caller's loop handles both identically."""
-    if resolution.get("tier") == "category":
+    schema's field names so the caller's loop handles both identically.
+
+    The attribute tier (added 2026-07-23, see RESOLVER_SYS) routes to the CATEGORY question:
+    "a product with stevia" / "an imported drink" is a KIND of product, not a specific one,
+    so "does this shelf hold products like this" is the answerable question. Reasoned, not
+    measured - the eval graph arm never calls verify() (arm B has no verifier), so this path
+    only runs in standalone locate_task sessions; A/B it there before tuning further."""
+    if resolution.get("tier") in ("category", "attribute"):
         prompt = (
             f"## LOOKING FOR SHELVES HOLDING\n{resolution['target_name']}\n"
             f"## WHAT THAT KIND LOOKS LIKE\n{resolution['target_appearance']}\n"
@@ -429,10 +454,11 @@ def drive_and_verify(call, sm, nav, task, resolution, report, run_dir, max_visit
 
         # Same-brand lookalike seen but variant unconfirmed -> the variant word is probably
         # just below legibility at this distance. Re-verify on magnified tiles of the SAME
-        # frames before moving on (digital close-in; no sim motion). Item tier only: a
-        # category verdict ("no chips on this shelf") is about the shelf's kind, which
-        # magnification cannot change - zooming there burns a call to re-ask the same thing.
-        if (not vis and zoom and resolution.get("tier") != "category"
+        # frames before moving on (digital close-in; no sim motion). NAME tier only: a
+        # category/attribute verdict ("no chips / nothing stevia-like on this shelf") is about
+        # the shelf's kind, which magnification cannot change - and near_miss's token overlap
+        # is meaningless against attribute target names like "Imported Drink" anyway.
+        if (not vis and zoom and resolution.get("tier") not in ("category", "attribute")
                 and near_miss(resolution["target_name"], verdict["seen_instead"])):
             print(f"[locate]    near miss (same brand seen) - zooming in ...")
             tiles = []
