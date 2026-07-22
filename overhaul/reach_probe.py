@@ -25,19 +25,17 @@ Commands at the `>` prompt (a trailing number is a repeat count, default 1):
 Each read prints, e.g.:
   distance=0.62m pitch=+22.1 cam_h=1.31 -> target_h=1.08 fwd_gap=0.57 | plan_reach: move(2)  [read_007.png]
 
-CALIBRATION RECIPE - `standoff` is already set in manipulation.REACH_ENVELOPE from the measured hand
-reach, so you do NOT sweep distance. What's left is the VERTICAL band. Position with the Unity
-controller (crouch = LeftControl; camera_height records the posture), put an item on each shelf level
-under the crosshair, and log a grab with `g <label>` (then `x` to release) - you only need Enter/g/x in
-this prompt. Cover every level STANDING, then the lower levels CROUCHED. Then run
+CALIBRATION RECIPE - reach is a single SLANT-distance limit (the hand extends along the gaze), so you
+sweep DISTANCE, not height (MEASURED 2026-07-22). Position with the Unity controller, put an item under
+the crosshair, and log a grab with `g <label>` (then `x` to release) - you only need Enter/g/x here.
+Grab a target from a RANGE of distances, from comfortably close out to where grabs start FAILING; a few
+different heights/postures (crouch = LeftControl) confirm the limit is the same everywhere. Then run
 `python fit_envelope.py`, which reads the CSV (slamtest/output/reachtests/envelope.csv) and prints:
-  hand_drop = midpoint of (camera_height - target_h) over grabbed==True rows - how far below the camera
-              the hand reaches; pooled across postures when crouch keeps the same drop (fit_envelope checks)
-  r_eff     = half the spread of that quantity   (how far off hand-height a grab still lands)
-  standoff  = the largest grabbed horizontal_gap (only a CROSS-CHECK on the reach value already set)
-It also prints each posture's reachable HEIGHT BAND, so you see which levels standing covers and which
-need crouch. Paste hand_drop/r_eff into REACH_ENVELOPE; re-run test_plan_reach.py. Where plan_reach's
-printed verdict disagrees with the actual grabbed result, that's the guess the calibration is fixing.
+  max_reach = the slant `distance` that separates grabs from misses, minus a small safety margin
+The only columns that matter are `distance` and `grabbed`; fit_envelope flags any OVERLAP (a miss closer
+than a grab), which would mean distance alone isn't deciding it. Paste max_reach into REACH_ENVELOPE;
+re-run test_plan_reach.py. Where plan_reach's printed verdict disagrees with the actual grabbed result,
+that's the guess the calibration is fixing.
 """
 import csv
 import os

@@ -38,6 +38,18 @@ def _extract_json(pattern, text: str) -> str:
     return text.strip()
 
 
+def _reach_move_steps(last_reach) -> Optional[int]:
+    """If `last_reach` is a measured MOVE verdict, return its move_forward step count, else None.
+
+    The verdict string format is fixed by manipulation.plan_reach + subtask_agents._last_reach_line
+    ("MOVE - move_forward N (~0.X m): ..."). Only a MOVE verdict means "you are on the right shelf,
+    just too far" - the one case _metric_approach handles instead of the graph candidate-hopper."""
+    if not isinstance(last_reach, str) or not last_reach.startswith("MOVE"):
+        return None
+    m = re.search(r"move_forward\s+(\d+)", last_reach)
+    return int(m.group(1)) if m else None
+
+
 @dataclass
 class OpenRouterConfig:
     model_id: str = 'google/gemini-2.5-flash-preview-05-20'
@@ -332,6 +344,35 @@ class EmbodiedAgent:
                     f"candidate location.\n")
         return note, fresh
 
+    def _metric_approach(self, move_steps: int):
+        """Execute the MEASURED forward nudge from a `MOVE` reach verdict IN PLACE, without hopping
+        graph candidates. Returns (note, fresh_png) mirroring _graph_navigate.
+
+        OPTION-1 FIX (2026-07-22): under graph nav, mode==navigation otherwise routes to
+        _graph_navigate, which A*-drives to the next UNVISITED candidate checkpoint - abandoning the
+        very shelf the target sits on. But when the previous step's grab produced a measured
+        `last_reach == "MOVE - move_forward N ..."`, the agent is already ON the right shelf and only
+        measurably too far: it needs to creep N units forward along its CURRENT heading, not travel
+        to another node. Before this fix that verdict + the graph navigator collided into an infinite
+        candidate-hop loop (pickup run 0722_142259: cp32 -> 45 -> 52 -> 18, never closing the last
+        ~0.3 m). `navigation` mode was overloaded - coarse checkpoint travel vs. this fine metric
+        approach - and the metric move had no execution channel in graph mode. This is that channel.
+
+        The move is deterministic geometry (matching CLAUDE.md's "geometry is deterministic; the VLM
+        judges only what is in front of it"): plan_reach already measured the exact step count. We move
+        it, then resume the VLM in perception with a re-center-and-retry note, because a body move
+        shifts the centred target off-centre (the same finding behind the grab-recovery edit)."""
+        from env import move_forward, RequestScreenshot
+
+        self._set_hands(False)   # off for the move; the mode toggle re-enables at manipulation
+        move_forward(move_steps)   # body-relative along the current heading; env clamps to <=10
+        fresh = RequestScreenshot(save_image=False)["image"]
+        note = (f"## MOVED {move_steps} STEP(S) (~{move_steps * 0.1:.1f} m) FORWARD to close the "
+                f"measured reach gap - you are still facing the same shelf. RE-CENTER on the target "
+                f"with center_object_on_screen (the move shifted it off-centre), then retry the grab "
+                f"in *manipulation*.\n")
+        return note, fresh
+
     def _call_associative(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
         content = _build_content(image, "## CURRENT OBSERVATION\n", text)
         resp = self.associative_learner.client.chat.completions.create(
@@ -361,6 +402,11 @@ class EmbodiedAgent:
 
     def execute_lean(self, request, timestep):
         main_task = request['task']
+        raw_state = request.get('state')
+        # Measured reach verdict from the previous step's grab (AGENT_STATE_DOC p). A "MOVE" verdict
+        # steers the graph-nav branch below into a metric forward nudge instead of a candidate hop.
+        reach_move_steps = _reach_move_steps(
+            raw_state.get('last_reach') if isinstance(raw_state, dict) else None)
         state = str(request['state'])
         screenshot = str(request['image']).encode('utf-8')
         screenshot = base64.b64decode(screenshot)
@@ -394,7 +440,13 @@ class EmbodiedAgent:
                 # Arm B: navigation executes deterministically; the VLM resumes in perception
                 # at the new location, with a note and a FRESH frame (the screenshot captured
                 # before the drive shows the wrong place).
-                nav_note, _fresh_png = self._graph_navigate(main_task)
+                if reach_move_steps is not None:
+                    # A measured MOVE verdict means "on the right shelf, just too far": creep the
+                    # measured distance forward in place instead of hopping to another candidate
+                    # checkpoint (which stranded the agent in a loop - see _metric_approach).
+                    nav_note, _fresh_png = self._metric_approach(reach_move_steps)
+                else:
+                    nav_note, _fresh_png = self._graph_navigate(main_task)
                 if _fresh_png is not None:
                     screenshot = Image.open(BytesIO(_fresh_png)).convert('RGB')
                 agent_mode = "perception"
@@ -472,7 +524,13 @@ class EmbodiedAgent:
                 # Arm B: navigation executes deterministically; the VLM resumes in perception
                 # at the new location, with a note and a FRESH frame (the screenshot captured
                 # before the drive shows the wrong place).
-                nav_note, _fresh_png = self._graph_navigate(main_task)
+                if reach_move_steps is not None:
+                    # A measured MOVE verdict means "on the right shelf, just too far": creep the
+                    # measured distance forward in place instead of hopping to another candidate
+                    # checkpoint (which stranded the agent in a loop - see _metric_approach).
+                    nav_note, _fresh_png = self._metric_approach(reach_move_steps)
+                else:
+                    nav_note, _fresh_png = self._graph_navigate(main_task)
                 if _fresh_png is not None:
                     screenshot = Image.open(BytesIO(_fresh_png)).convert('RGB')
                 agent_mode = "perception"

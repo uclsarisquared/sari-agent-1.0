@@ -215,23 +215,15 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=
 # plan_reach turns ONE RequestLidarCenter sample into a reach verdict. The tool still never moves the
 # body (the 2026-07-21 no-creep directive); this only DECIDES, and the router acts on the verdict.
 #
-# REACH_ENVELOPE - the measured geometry of what the hand can actually grab, in the SAME world frame
-# RequestLidarCenter reports (camera_height = world Y). EVERY value here is a FIRST GUESS read off the
-# sim C# / prefab (slamtest/plans/phaseD_reach_and_grab.md) and is **UNMEASURED**: run the
-# calibration (reach_probe.py `g` -> slamtest/output/reachtests/envelope.csv) and set these from it
-# BEFORE the verdicts are believed. Wrong constants make plan_reach confidently wrong - that is the
-# whole reason the calibration step exists. Mapping from the CSV:
-#   hand_drop      = camera_height - (midpoint of target_h over grabbed==True, standing)
-#   r_eff          = half the spread of target_h over those grabbed rows
-#   standoff       = the LARGEST horizontal_gap that still grabbed==True
+# REACH_ENVELOPE - MEASURED 2026-07-22 from 24 reach_probe grabs. The hand extends along the CAMERA
+# GAZE, so a grab lands iff the SLANT distance to the centred target is within reach - it is NOT a
+# vertical band + horizontal standoff (that model, hand_drop/r_eff/standoff, was REFUTED by the data:
+# same-height items grabbed or missed purely on distance; see slamtest/plans/phaseD_reach_and_grab.md).
+# Every grab was <=0.885 m, every miss >=0.900 m - a clean split, and `reachable iff distance<=0.89`
+# predicted all 24 rows. Re-fit from a fresh CSV with `python fit_envelope.py`.
 REACH_ENVELOPE = {
-    "hand_drop": 0.25,   # hand reaches this far BELOW the camera (h_reach = camera_height - hand_drop)
-    "r_eff":     0.40,   # usable vertical half-reach around h_reach (a grab still lands within +/- this)
-    "standoff":  0.50,   # horizontal gap (m) to stop at & grab. CONSERVATIVE provisional. The hand's
-                         # absolute (fingertip) reach is ~0.90 m (user 2026-07-22), but the grab triggers
-                         # on the palm detector nearer in, so the reliable grab distance is uncertain and
-                         # MUST come from calibration (largest horizontal_gap that grabbed). Too-far MISSES.
-    "reach_tol": 0.05,   # horizontal slack: within standoff+this counts as reachable-now (no move)
+    "max_reach": 0.85,   # grab if the slant distance <= this (m). The ~0.89 m boundary minus a margin,
+                         # so you grab INSIDE the edge, not at it. fit_envelope sets this from the CSV.
     "move_unit": 0.10,   # metres per move_forward unit (env.py _move_relative)
     "move_cap":  10,     # move_forward clamps a single call to 10 units
 }
@@ -254,25 +246,29 @@ def _reach_result(verdict, sample=None, move_steps=0, target_height=None,
 
 def plan_reach(sample, envelope=REACH_ENVELOPE):
     """Turn ONE RequestLidarCenter sample into a reach verdict - the deterministic geometry brain of
-    Phase D. PURE function (no sim, no I/O) so it is unit-testable against a pose table; see
-    test_plan_reach.py.
+    Phase D. PURE function (no sim, no I/O), unit-tested in test_plan_reach.py.
 
-    The sample carries the gaze pose (pitch_deg, camera_height) so we never assume the prefab's pitch
-    or eye height. Decomposition of the slant range `d` at gaze pitch `theta` (+ = down):
-        horizontal_gap = d * cos(theta)              # forward distance to close (a body move is horizontal)
-        target_height  = camera_height - d*sin(theta)  # item height in world Y
-    target_height does NOT change as the body moves forward (the item does not move), so a VERTICAL
-    miss can never be fixed by moving - that is what separates a bail/crouch from a move.
+    MEASURED MODEL (2026-07-22, 24 reach_probe grabs): the hand extends along the CAMERA GAZE, so
+    reachability is decided by ONE quantity - the SLANT distance to the centred target - not by a
+    vertical band + horizontal standoff. Every grab had distance <= 0.885 m, every miss >= 0.900 m
+    (clean split, 24/24), and same-HEIGHT items with opposite outcomes were separated only by distance.
+    The earlier hand_drop/r_eff/standoff model was refuted; see slamtest/plans/phaseD_reach_and_grab.md.
+
+    Geometry (slant range d, gaze pitch theta [+ = down], camera world-Y cam_h):
+        vertical_offset = d * sin(theta)     # + = target BELOW the camera; equals cam_h - target_height
+        horizontal_gap  = d * cos(theta)     # forward distance (a body move is horizontal)
+        target_height   = cam_h - vertical_offset
+    Moving forward shrinks horizontal_gap (so the slant distance) but NOT vertical_offset (the item does
+    not move), and the smallest slant distance reachable by moving alone is |vertical_offset|. So if
+    |vertical_offset| already exceeds max_reach, moving can't help - you must change posture.
 
     Verdicts:
-      reachable   - within the vertical band AND within standoff: grab now.
-      move        - within the vertical band but too far: move `move_steps` forward, re-centre, retry.
-      crouch      - below the band: crouching lowers the camera (and hand) toward it; re-measure.
-      bail        - above the band: forward motion can't help; report "too high".
+      reachable   - distance <= max_reach: grab now.
+      move        - too far but |vertical_offset| <= max_reach: move `move_steps` forward, re-centre, retry.
+      crouch      - too far AND target more than max_reach BELOW the camera: crouch to get closer, re-measure.
+      bail        - too far AND target more than max_reach ABOVE the camera: moving/crouching can't reach it.
       recenter    - miss (nothing solid at centre): don't plan off a meaningless distance.
       unavailable - sample lacks pose (old sim build, pre-Phase-D recompile): caller falls back.
-
-    Constants come from REACH_ENVELOPE - UNMEASURED first guesses until calibration; see its note.
     """
     if not sample or sample.get("error"):
         return _reach_result("recenter", sample,
@@ -289,35 +285,35 @@ def plan_reach(sample, envelope=REACH_ENVELOPE):
     d = float(sample["distance"])
     theta = math.radians(float(sample["pitch_deg"]))
     cam_h = float(sample["camera_height"])
+    vertical_offset = d * math.sin(theta)        # + = target below the camera
     horizontal_gap = d * math.cos(theta)
-    target_height = cam_h - d * math.sin(theta)
+    target_height = cam_h - vertical_offset
+    max_reach = envelope["max_reach"]
 
-    h_reach = cam_h - envelope["hand_drop"]
-    vgap = target_height - h_reach            # + = target above the hand, - = below
-
-    # Vertical feasibility first: it is invariant to forward motion, so it decides move vs bail/crouch.
-    if vgap > envelope["r_eff"]:
-        return _reach_result("bail", sample, target_height=target_height,
-                             horizontal_gap=horizontal_gap,
-                             reason=f"too high: target {target_height:.2f} m is {vgap:+.2f} m above hand "
-                                    f"reach ({h_reach:.2f} m); moving forward can't close a vertical gap")
-    if vgap < -envelope["r_eff"]:
-        return _reach_result("crouch", sample, target_height=target_height,
-                             horizontal_gap=horizontal_gap,
-                             reason=f"too low: target {target_height:.2f} m is {-vgap:.2f} m below hand "
-                                    f"reach ({h_reach:.2f} m); crouch to lower the camera, then re-center "
-                                    f"and re-measure")
-
-    # Vertically reachable - now it is purely a distance question.
-    if horizontal_gap <= envelope["standoff"] + envelope["reach_tol"]:
+    if d <= max_reach:
         return _reach_result("reachable", sample, target_height=target_height,
                              horizontal_gap=horizontal_gap,
-                             reason=f"in reach: gap {horizontal_gap:.2f} m, target height {target_height:.2f} m")
+                             reason=f"in reach: slant distance {d:.2f} m <= max_reach {max_reach:.2f} m")
 
-    move_steps = round((horizontal_gap - envelope["standoff"]) / envelope["move_unit"])
-    move_steps = max(1, min(envelope["move_cap"], move_steps))
+    if abs(vertical_offset) > max_reach:
+        # The vertical gap alone exceeds the reach; moving forward cannot close it.
+        if vertical_offset > 0:      # target below the camera -> crouching gets you closer to it
+            return _reach_result("crouch", sample, target_height=target_height,
+                                 horizontal_gap=horizontal_gap,
+                                 reason=f"too low: target is {vertical_offset:.2f} m below the camera "
+                                        f"(> reach {max_reach:.2f} m) - crouch to get closer, then "
+                                        f"re-center and re-measure")
+        return _reach_result("bail", sample, target_height=target_height,
+                             horizontal_gap=horizontal_gap,
+                             reason=f"too high: target is {-vertical_offset:.2f} m above the camera "
+                                    f"(> reach {max_reach:.2f} m) - moving or crouching can't reach it")
+
+    # Reachable once close enough: move forward to bring the slant distance down to max_reach.
+    needed_gap = math.sqrt(max(0.0, max_reach ** 2 - vertical_offset ** 2))
+    move_steps = max(1, min(envelope["move_cap"],
+                            math.ceil((horizontal_gap - needed_gap) / envelope["move_unit"])))
     return _reach_result("move", sample, move_steps=move_steps, target_height=target_height,
                          horizontal_gap=horizontal_gap,
                          reason=f"move_forward {move_steps} (~{move_steps * envelope['move_unit']:.1f} m): "
-                                f"gap {horizontal_gap:.2f} m > standoff {envelope['standoff']:.2f} m, "
-                                f"target height {target_height:.2f} m is reachable")
+                                f"slant distance {d:.2f} m > reach {max_reach:.2f} m; close the horizontal "
+                                f"gap from {horizontal_gap:.2f} to ~{needed_gap:.2f} m")

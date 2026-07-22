@@ -1,10 +1,9 @@
 """test_plan_reach.py - offline unit table for manipulation.plan_reach (Phase D geometry brain).
 
-No sim: feeds synthetic RequestLidarCenter samples and checks verdict / move_steps / target height.
-This validates the GEOMETRY and the 4-way branch. It runs against a FROZEN reference envelope
-(REF_ENVELOPE below), NOT the live manipulation.REACH_ENVELOPE - so recalibrating the live constants
-after a reach_probe run never breaks this logic test. (The live constants are validated separately by
-the calibration + the task-level A/B, not here.)
+No sim: feeds synthetic RequestLidarCenter samples and checks verdict / move_steps / target height for
+the MEASURED slant-distance model (reachable iff distance <= max_reach; the hand extends along the
+gaze). Runs against a FROZEN reference envelope (REF_ENVELOPE), NOT the live manipulation.REACH_ENVELOPE,
+so recalibrating the live max_reach never breaks this logic test.
 
     python test_plan_reach.py
 """
@@ -12,12 +11,7 @@ import math
 
 from manipulation import plan_reach
 
-# Frozen first-guess envelope - the test asserts branch LOGIC against these fixed values, so it is
-# independent of whatever the live REACH_ENVELOPE is calibrated to.
-REF_ENVELOPE = {
-    "hand_drop": 0.25, "r_eff": 0.40, "standoff": 0.35,
-    "reach_tol": 0.05, "move_unit": 0.10, "move_cap": 10,
-}
+REF_ENVELOPE = {"max_reach": 0.85, "move_unit": 0.10, "move_cap": 10}
 
 
 def sample(distance, pitch_deg, camera_height, hit=True):
@@ -29,13 +23,13 @@ def approx(a, b, tol=0.02):
     return a is not None and abs(a - b) <= tol
 
 
-# (name, sample, expected_verdict, expected_target_height) - verdicts under REF_ENVELOPE
+# (name, sample, expected_verdict, expected_target_height) - verdicts under REF_ENVELOPE (max_reach 0.85)
 CASES = [
-    ("reachable: close, mid shelf",   sample(0.40,  25.0, 1.30), "reachable", 1.131),
-    ("move: far, mid shelf",          sample(0.80,  20.0, 1.30), "move",      1.026),
-    ("crouch: bottom shelf",          sample(0.70,  70.0, 1.30), "crouch",    0.642),
-    ("bail: top shelf (gaze up)",     sample(0.60, -30.0, 1.30), "bail",      1.600),
-    ("recenter: miss (hit=False)",    sample(10.0,  20.0, 1.30, hit=False), "recenter", None),
+    ("reachable: within slant reach",  sample(0.60,  20.0, 1.30), "reachable", 1.095),
+    ("move: too far, small vert gap",  sample(1.00,  10.0, 1.30), "move",      1.126),
+    ("crouch: too low (below reach)",  sample(1.20,  60.0, 1.30), "crouch",    0.261),
+    ("bail: too high (above reach)",   sample(1.20, -60.0, 1.30), "bail",      2.339),
+    ("recenter: miss (hit=False)",     sample(2.00,  20.0, 1.30, hit=False), "recenter", None),
 ]
 
 
@@ -55,23 +49,31 @@ def main():
         print(f"  [{'ok ' if ok else 'FAIL'}] {name}: verdict={p['verdict']} (want {want_verdict}) "
               f"target_h={th_str} (want {want_h}){extra}")
 
-    # pure-trig sanity (constant-independent): a level gaze puts the target at eye height, straight ahead
-    lvl = plan_reach(sample(0.50, 0.0, 1.30), REF_ENVELOPE)
-    assert approx(lvl["target_height"], 1.30), "level gaze: target_height must equal camera_height"
-    assert approx(lvl["horizontal_gap"], 0.50), "level gaze: horizontal_gap must equal distance"
+    mr, unit = REF_ENVELOPE["max_reach"], REF_ENVELOPE["move_unit"]
 
-    # move_steps must equal round((gap - standoff)/move_unit): gap 0.752, standoff 0.35, unit 0.10 -> 4
-    mv = plan_reach(sample(0.80, 20.0, 1.30), REF_ENVELOPE)
-    want_steps = round((mv["horizontal_gap"] - REF_ENVELOPE["standoff"]) / REF_ENVELOPE["move_unit"])
-    assert mv["move_steps"] == want_steps == 4, f"move_steps {mv['move_steps']} != {want_steps}"
+    # the reach boundary itself: distance just under max_reach grabs, just over does not
+    assert plan_reach(sample(mr - 0.01, 0.0, 1.30), REF_ENVELOPE)["verdict"] == "reachable"
+    assert plan_reach(sample(mr + 0.01, 0.0, 1.30), REF_ENVELOPE)["verdict"] == "move"
+
+    # KEY INVARIANT: after moving move_steps forward, the slant distance must actually be <= max_reach
+    # (the move brings the target into reach in one shot, not just "closer").
+    mv_s = sample(1.00, 10.0, 1.30)
+    mv = plan_reach(mv_s, REF_ENVELOPE)
+    vo = mv_s["distance"] * math.sin(math.radians(mv_s["pitch_deg"]))
+    new_gap = mv["horizontal_gap"] - mv["move_steps"] * unit
+    new_dist = math.hypot(max(0.0, new_gap), vo)
+    assert new_dist <= mr + 1e-9, f"move undershoots reach: new slant {new_dist:.3f} > {mr}"
+
+    # crouch vs bail sign: same steep angle, opposite pitch -> below=crouch, above=bail
+    assert plan_reach(sample(1.20, 60.0, 1.30), REF_ENVELOPE)["verdict"] == "crouch"
+    assert plan_reach(sample(1.20, -60.0, 1.30), REF_ENVELOPE)["verdict"] == "bail"
 
     # unavailable: a pre-Phase-D sample (no pose) must NOT crash and must ask the caller to fall back
     un = plan_reach({"distance": 0.6, "hit": True, "min_range": 0.05, "max_range": 10.0}, REF_ENVELOPE)
     assert un["verdict"] == "unavailable", f"missing pose should be 'unavailable', got {un['verdict']}"
 
     print(f"\n{'ALL PASS' if fails == 0 else str(fails) + ' FAILED'}  "
-          f"(REF_ENVELOPE frozen: standoff={REF_ENVELOPE['standoff']} r_eff={REF_ENVELOPE['r_eff']} "
-          f"hand_drop={REF_ENVELOPE['hand_drop']})")
+          f"(REF_ENVELOPE frozen: max_reach={mr})")
     return 1 if fails else 0
 
 

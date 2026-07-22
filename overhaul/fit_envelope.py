@@ -1,22 +1,13 @@
-"""fit_envelope.py - derive manipulation.REACH_ENVELOPE from a reach_probe.py calibration CSV.
+"""fit_envelope.py - derive manipulation.REACH_ENVELOPE (max_reach) from a reach_probe.py CSV.
 
-reach_probe.py logs one row per grab attempt to slamtest/output/reachtests/envelope.csv. This reads
-that CSV and prints the measured envelope constants (hand_drop, r_eff, standoff) ready to paste into
-manipulation.REACH_ENVELOPE, plus two sanity reports:
-  - the POSTURE-INVARIANCE check: does the crouched hand keep the same drop below the camera as
-    standing? (plan_reach assumes one hand_drop and lets camera_height carry the posture.)
-  - the per-posture REACHABLE HEIGHT BAND, so you can see which of your shelf levels each posture
-    actually covers - standing reaches the upper levels, crouch shifts the band down to the lower ones.
+MEASURED MODEL (2026-07-22): the hand grabs along the gaze, so reachability is decided by the SLANT
+distance alone - reachable iff distance <= max_reach. This reads the calibration CSV, finds the
+distance boundary that separates grabs from misses, and prints max_reach (boundary minus a safety
+margin) to paste into manipulation.REACH_ENVELOPE. It also reports how CLEANLY distance separates the
+two: a big overlap (misses closer than grabs) means the single-distance model isn't holding and you
+should inspect the crossing rows before trusting it.
 
     python fit_envelope.py [path/to/envelope.csv]
-
-Postures are split by MEASURED camera_height, NOT the CSV 'posture' label - if you drive/crouch with
-the Unity built-in controller the label can be stale, but camera_height is read live at each grab.
-
-The model (see manipulation.plan_reach): a grab lands iff the item height is within r_eff of
-h_reach = camera_height - hand_drop, AND the horizontal gap is <= standoff. So for every GRABBED row,
-delta = camera_height - target_height lies in [hand_drop - r_eff, hand_drop + r_eff]; we fit that band
-to the grabbed rows and read standoff off the largest grabbed horizontal_gap.
 """
 import csv
 import os
@@ -24,6 +15,7 @@ import sys
 
 _THIS = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CSV = os.path.join(_THIS, "slamtest", "output", "reachtests", "envelope.csv")
+MARGIN = 0.04   # set max_reach this far BELOW the boundary so you grab INSIDE the limit, not at its edge
 
 
 def _f(row, key):
@@ -33,37 +25,8 @@ def _f(row, key):
         return None
 
 
-def load(path):
-    with open(path, newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    for r in rows:
-        r["_grabbed"] = str(r.get("grabbed", "")).strip().lower() in ("true", "1", "yes")
-        ch, th = _f(r, "camera_height"), _f(r, "target_height")
-        r["_ch"] = ch
-        r["_th"] = th
-        r["_delta"] = (ch - th) if (ch is not None and th is not None) else None
-        r["_hgap"] = _f(r, "horizontal_gap")
-    return rows
-
-
-def band(deltas):
-    """hand_drop (midpoint), r_eff (half-spread) of a set of grabbed deltas."""
-    lo, hi = min(deltas), max(deltas)
-    return (lo + hi) / 2.0, (hi - lo) / 2.0
-
-
-def split_by_camera_height(grabbed):
-    """Group grabbed rows into postures by the LARGEST gap in measured camera_height (standing sits
-    ~2x higher than crouched). No clear gap -> a single posture cluster. Returns [(name, rows), ...]."""
-    chs = sorted(r["_ch"] for r in grabbed if r["_ch"] is not None)
-    if not chs:
-        return []
-    gap, gi = max(((chs[i + 1] - chs[i], i) for i in range(len(chs) - 1)), default=(0.0, -1))
-    if gap > 0.15:                      # bimodal -> standing (high cam) vs crouched (low cam)
-        split = (chs[gi] + chs[gi + 1]) / 2.0
-        return [(f"standing (cam>={split:.2f})", [r for r in grabbed if r["_ch"] is not None and r["_ch"] >= split]),
-                (f"crouched (cam<{split:.2f})",  [r for r in grabbed if r["_ch"] is not None and r["_ch"] < split])]
-    return [("one posture cluster", [r for r in grabbed if r["_ch"] is not None])]
+def _accuracy(rows, thresh):
+    return sum(1 for r in rows if r["_d"] is not None and (r["_d"] <= thresh) == r["_g"])
 
 
 def main():
@@ -71,53 +34,46 @@ def main():
     if not os.path.exists(path):
         print(f"No CSV at {path}.\nRun reach_probe.py and log some grabs (`g <label>`) first.")
         return 1
-    rows = load(path)
-    grabbed = [r for r in rows if r["_grabbed"] and r["_delta"] is not None]
-    if not grabbed:
-        print(f"{len(rows)} row(s) but none grabbed==True with usable pose. Log successful grabs first.")
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        r["_g"] = str(r.get("grabbed", "")).strip().lower() in ("true", "1", "yes")
+        r["_d"] = _f(r, "distance")
+    usable = [r for r in rows if r["_d"] is not None]
+    grab = [r["_d"] for r in usable if r["_g"]]
+    miss = [r["_d"] for r in usable if not r["_g"]]
+    if not grab:
+        print(f"{len(rows)} row(s) but no grabbed==True with a distance. Log successful grabs first.")
         return 1
 
-    deltas = [r["_delta"] for r in grabbed]
-    hand_drop, r_eff = band(deltas)
-    hgaps = sorted(r["_hgap"] for r in grabbed if r["_hgap"] is not None)
-    standoff = hgaps[-1] if hgaps else None
-    standoff_p90 = hgaps[int(0.9 * (len(hgaps) - 1))] if hgaps else None
+    max_grab = max(grab)
+    min_miss = min(miss) if miss else None
+    print(f"\n=== max_reach fit from {os.path.basename(path)} "
+          f"({len(grab)} grabbed / {len(usable)} usable rows) ===\n")
+    print(f"  grabbed slant distance: {min(grab):.3f} .. {max_grab:.3f} m")
+    if miss:
+        print(f"  missed  slant distance: {min_miss:.3f} .. {max(miss):.3f} m")
 
-    print(f"\n=== envelope fit from {os.path.basename(path)} "
-          f"({len(grabbed)} grabbed / {len(rows)} rows) ===\n")
-
-    # POSTURE-INVARIANCE + per-posture coverage, split by MEASURED camera_height (label-independent).
-    drops = []
-    for name, grp in split_by_camera_height(grabbed):
-        ds = [r["_delta"] for r in grp]
-        ths = [r["_th"] for r in grp if r["_th"] is not None]
-        chg = [r["_ch"] for r in grp if r["_ch"] is not None]
-        hd, re = band(ds)
-        drops.append(hd)
-        print(f"  {name}: {len(grp):2d} grabs | cam_h {min(chg):.2f}..{max(chg):.2f} | "
-              f"hand_drop~{hd:+.2f} r_eff~{re:.2f} | reachable height band {min(ths):.2f}..{max(ths):.2f} m")
-    if len(drops) == 2:
-        d = abs(drops[0] - drops[1])
-        verdict = "OK - pool into one hand_drop" if d <= 0.10 else \
-                  "DIFFERS >0.10 m - crouch changes the arm drop; plan_reach may need a per-posture hand_drop"
-        print(f"  posture-invariance: hand_drop differs by {d:.2f} m across postures -> {verdict}")
-    print()
-
-    # contradictions: a MISS whose delta is INSIDE the fitted vertical band, so height was not the
-    # reason it missed - likely too far (check horizontal_gap vs standoff) or the band is too wide.
-    inside = [r for r in rows if not r["_grabbed"] and r["_delta"] is not None
-              and abs(r["_delta"] - hand_drop) <= r_eff]
-    if inside:
-        print(f"  note: {len(inside)} MISS row(s) fall inside the fitted vertical band - check their "
-              f"horizontal_gap vs standoff, or tighten r_eff.\n")
-
-    print("  paste into manipulation.REACH_ENVELOPE (keep reach_tol/move_unit/move_cap as-is):")
-    print(f'    "hand_drop": {hand_drop:.2f},')
-    print(f'    "r_eff":     {r_eff:.2f},')
-    if standoff is not None:
-        print(f'    "standoff":  {standoff:.2f},   # largest grabbed gap; conservative p90 = {standoff_p90:.2f}')
+    if min_miss is None:
+        boundary = max_grab
+        print(f"  no misses logged - {boundary:.3f} m is only a LOWER bound; grab farther until some "
+              f"fail to find the true limit.")
+    elif max_grab < min_miss:
+        boundary = (max_grab + min_miss) / 2.0
+        print(f"  clean split: every grab is closer than every miss. boundary ~= {boundary:.3f} m "
+              f"({_accuracy(usable, boundary)}/{len(usable)} rows predicted by distance alone)")
     else:
-        print('    "standoff":  <none - no horizontal_gap logged>')
+        # overlap: pick the threshold that classifies the most rows correctly, and flag it
+        best_t = max(sorted(set(grab + miss)), key=lambda t: _accuracy(usable, t))
+        boundary = best_t
+        print(f"  OVERLAP of {max_grab - min_miss:.3f} m: some misses are CLOSER than some grabs, so "
+              f"distance alone doesn't fully decide it here. Best threshold {boundary:.3f} m gets "
+              f"{_accuracy(usable, boundary)}/{len(usable)} rows - inspect the crossing rows before trusting.")
+
+    max_reach = round(boundary - MARGIN, 2)
+    print(f"\n  paste into manipulation.REACH_ENVELOPE (keep move_unit/move_cap):")
+    print(f'    "max_reach": {max_reach:.2f},   # boundary {boundary:.3f} m - {MARGIN} margin '
+          f'(agrees with {_accuracy(usable, max_reach)}/{len(usable)} grabs; conservative near the edge)')
     return 0
 
 
