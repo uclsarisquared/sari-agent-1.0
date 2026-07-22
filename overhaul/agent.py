@@ -215,12 +215,41 @@ class VLMAgent(BaseAgent):
         return result.strip()
 
 
+# ---- graph-advised navigator (the slamtest vlm-advised idea, ported to checkpoint hops) --------
+# A DEDICATED per-hop navigator VLM - its own stateless call per hop, never the main reasoner,
+# never sharing its history - picks the next checkpoint while the graph's shortest-path next hop
+# rides along as an explicitly ADVISORY line (vlm_planner.VLMAdvisedPlanner's contract, discrete
+# hops instead of frontier waypoints). See EmbodiedAgent._advised_goto for the attribution rules.
+ADVISOR_SYS = (
+    "You are the NAVIGATOR module of a store robot, walking between checkpoints of a known "
+    "store graph one hop at a time. Each turn you get the robot's current camera view, the "
+    "checkpoint it stands at, the destination checkpoint, the adjacent checkpoints it can move "
+    "to, and the route planner's suggested next hop. Choose next_checkpoint from the ADJACENT "
+    "list ONLY. The planner's suggestion is ADVICE, not an order - override it only when what "
+    "you SEE justifies it (e.g. the sought product is already visible on a nearer shelf). If "
+    "the current view already shows the goods you are being sent to, set stop_here true "
+    "instead of moving on. Always give a one-sentence reason."
+)
+ADVISOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "next_checkpoint": {"type": "integer",
+                            "description": "checkpoint id to move to; MUST be an adjacent id"},
+        "stop_here": {"type": "boolean",
+                      "description": "true = the target goods are visible from HERE; do not move"},
+        "reason": {"type": "string"},
+    },
+    "required": ["next_checkpoint", "stop_here", "reason"],
+}
+
+
 class EmbodiedAgent:
     def __init__(self, vlm_config: Optional[OpenRouterConfig] = None,
                  associative_config: Optional[OpenRouterConfig] = None,
                  mode: Literal['base', 'lean'] = 'base',
-                 nav_mode: Literal['vlm', 'graph'] = 'vlm',
-                 resolver_backend: Literal['qwen', 'claude-cli'] = 'qwen') -> None:
+                 nav_mode: Literal['vlm', 'graph', 'graph-advised'] = 'vlm',
+                 resolver_backend: Literal['qwen', 'claude-cli'] = 'qwen',
+                 advisor_backend: Literal['qwen', 'claude-cli'] = 'qwen') -> None:
 
         self.vlm_agent = VLMAgent(vlm_config)
         self.mode = mode
@@ -229,6 +258,9 @@ class EmbodiedAgent:
         # and the VLM NEVER sees a navigation action - it wakes up in front of shelves.
         # The swap lives HERE, in the mode router, not in the VLM's action list, so the VLM
         # cannot mix strategies and contaminate the arms (phase4.2 plan, "the one rule").
+        # 'graph-advised': target selection identical to 'graph', but the DRIVE runs one graph
+        # hop at a time through a dedicated navigator VLM that gets the shortest-path next hop
+        # as advice (_advised_goto) - the vlm-advised authority arm, at checkpoint granularity.
         self.nav_mode = nav_mode
         # Which backend resolves the target -> candidate checkpoints in the graph arm.
         # DEFAULT 'qwen' since 2026-07-20 (user directive): a variance eval found qwen at
@@ -237,6 +269,13 @@ class EmbodiedAgent:
         # so the phase-4.2 A/B isolates navigation rather than planner model. 'claude-cli' stays
         # available for comparison.
         self.resolver_backend = resolver_backend
+        # Which backend the graph-advised arm's PER-HOP navigator uses. Default qwen for the
+        # same reasons as the resolver (self-hosted, no Claude-shaped advantage in an A/B);
+        # independent of resolver_backend so the two roles can be mixed deliberately.
+        self.advisor_backend = advisor_backend
+        self._advised_llm_calls = 0     # lifetime advisor-call counter; harnesses read deltas
+        self._advised_stats = []        # per-hop records {hop, cur, pick, advice, agreed, ...}
+        self._advised_shot_idx = 0      # monotonically-named advisor screenshots
         self._graph_nav = None          # lazy: needs the sim up
         self._nav_candidates = []       # resolver output for the current task, in visit order
         self._nav_visited = set()
@@ -381,20 +420,136 @@ class EmbodiedAgent:
         self._nav_visited.add(target)
 
         self._set_hand_pose("rest")   # 6.1: hands stay ACTIVE at REST through the drive (carry-safe)
-        ok = nav.goto(target)
+        if self.nav_mode == "graph-advised":
+            ok, end_cp = self._advised_goto(sm, nav, target, main_task)
+        else:
+            ok, end_cp = nav.goto(target), target
 
-        info = sm.checkpoint(target)
+        info = sm.checkpoint(end_cp)
         fresh = RequestScreenshot(save_image=False, uri=nav.args.uri)["image"]
         if not ok:
             note = (f"## NAVIGATOR: could not reach checkpoint {target} (path blocked). "
                     f"You are at ({nav.pos[0]:.2f}, {nav.pos[2]:.2f}). Assess visually.\n")
         else:
             holds = ", ".join(info["holds"]) if info["holds"] else "unknown goods"
-            note = (f"## ARRIVED VIA NAVIGATOR: checkpoint {target}, facing a shelf holding "
-                    f"{holds}. {info['summary'] or ''} If the target is not visible here, "
-                    f"choose *navigation* mode again and you will be taken to the next "
+            stopped = ("" if end_cp == target else
+                       f" (the navigator stopped short of checkpoint {target} because the goods "
+                       f"looked visible from here)")
+            note = (f"## ARRIVED VIA NAVIGATOR: checkpoint {end_cp}{stopped}, facing a shelf "
+                    f"holding {holds}. {info['summary'] or ''} If the target is not visible "
+                    f"here, choose *navigation* mode again and you will be taken to the next "
                     f"candidate location.\n")
         return note, fresh
+
+    def _advised_goto(self, sm, nav, target, main_task):
+        """graph-advised arm: drive to `target` ONE GRAPH HOP AT A TIME, each hop chosen by a
+        dedicated navigator VLM (its own stateless call - never the main reasoner) with the
+        graph's shortest-path next hop injected as an explicitly ADVISORY line. The port of
+        vlm_planner.VLMAdvisedPlanner to the frozen checkpoint graph: the VLM owns every hop,
+        A* whispers, and agree-rate is recorded per hop so obedience and navigation stay
+        distinguishable (read _advised_stats TOGETHER with outcomes - agree ~1.0 = graph arm
+        with a per-hop VLM latency+token tax; deviations/stop_here = the interesting rows).
+
+        Where the slamtest arm was exploration-only (advice on a PARTIAL grid can be wrong;
+        the camera can catch it), here the map is frozen and the route is near-perfect, so
+        the honest upside is different: the camera can justify STOPPING EARLY (the sought
+        product spotted before the destination checkpoint) - the one move the deterministic
+        graph arm structurally cannot make. stop_here is that affordance.
+
+        Guardrails, in repo discipline (degrade to the graph arm, never strand the task):
+          * an invalid pick (non-adjacent/unknown id) is logged and REPLACED by the advice
+            hop - one bad answer costs attribution for that hop, not the leg;
+          * hop budget = 2x the shortest path + 2; on exhaustion, or a refused hop (executor
+            said no - adjacency is a graph edge, reachability is the executor's call), fall
+            back to the deterministic nav.goto(target);
+          * intermediate hops keep face_shelf=False (no rotate tax mid-route); the final
+            arrival - target reached or stop_here granted - faces the shelf like the graph arm.
+
+        Returns (ok, end_cp): end_cp is where the agent actually stands (== target unless
+        stop_here fired), so _graph_navigate's arrival note describes the real view."""
+        import locate_task
+        from explore import step_agent
+
+        if self.advisor_backend == "claude-cli":
+            _ask = lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im)
+        else:
+            _ask = lambda s, p, sc, im=(): locate_task.qwen_json(s, p, sc, im)
+
+        shots_dir = os.path.join(sm.output_dir, "advised_nav")
+        os.makedirs(shots_dir, exist_ok=True)
+        tgt_info = sm.checkpoint(target)
+        tgt_holds = ", ".join(tgt_info["holds"]) or "unannotated"
+
+        nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+        cur = sm.nearest_checkpoint((nav.pos[0], nav.pos[2]))
+        budget = 2 * (sm.hops(cur, target) or 1) + 2
+        for hop in range(1, budget + 1):
+            if cur == target:
+                return True, cur
+            path = sm.hop_path(cur, target)
+            advice = path[1] if path and len(path) > 1 else None
+            neigh = sm.checkpoint(cur)["neighbors"]
+            if not neigh:
+                break   # isolated node: nothing to pick from; deterministic fallback below
+            lines = []
+            for n in neigh:
+                ni = sm.checkpoint(n)
+                d = sm.hops(n, target)
+                lines.append(f"cp{n}: {'?' if d is None else d} hop(s) from destination"
+                             + (f" | holds {', '.join(ni['holds'])}" if ni["holds"] else "")
+                             + (f" | {ni['summary']}" if ni["summary"] else ""))
+            shot = nav.screenshot(os.path.join(shots_dir,
+                                               f"hop_{self._advised_shot_idx:05d}.png"))
+            self._advised_shot_idx += 1
+            prompt = (
+                f"## GOAL\nTask: {main_task}\n"
+                f"Destination: checkpoint {target} (holds {tgt_holds})\n\n"
+                f"## WHERE YOU ARE\nCheckpoint {cur}"
+                + (f": {sm.checkpoint(cur)['summary']}" if sm.checkpoint(cur)["summary"] else "")
+                + "\n\n## ADJACENT CHECKPOINTS (next_checkpoint MUST be one of these)\n"
+                + "\n".join(lines)
+                + (f"\n\n## PLANNER ADVICE\nShortest route next hop: cp{advice}"
+                   if advice is not None else "")
+            )
+            try:
+                result, _env = _ask(ADVISOR_SYS, prompt, ADVISOR_SCHEMA,
+                                    (("current view", shot),))
+            except Exception as e:  # noqa: BLE001 - one dead call degrades, never strands
+                logger.warning(f"[advised-nav] advisor call failed ({type(e).__name__}: {e}); "
+                               f"taking the advice hop")
+                result = {}
+            self._advised_llm_calls += 1
+            pick = result.get("next_checkpoint") if isinstance(result, dict) else None
+            stop = bool(result.get("stop_here")) if isinstance(result, dict) else False
+            reason = (result.get("reason") or "")[:200] if isinstance(result, dict) else ""
+            invalid = pick not in neigh and not stop
+            if invalid:
+                pick = advice if advice is not None else neigh[0]
+            rec = {"hop": hop, "cur": cur, "target": target, "pick": pick, "advice": advice,
+                   "agreed": (not stop and pick == advice), "invalid": invalid,
+                   "stop_here": stop, "reason": reason}
+            self._advised_stats.append(rec)
+            logger.info(f"[advised-nav] hop {hop}/{budget} at cp{cur} -> "
+                        f"{'STOP' if stop else f'cp{pick}'} (advice cp{advice}, "
+                        f"{'agreed' if rec['agreed'] else 'INVALID' if invalid else 'deviated'})"
+                        f"{': ' + reason if reason else ''}")
+            if stop:
+                # The camera-override result: the navigator judges the goods visible HERE.
+                # Face the shelf like a normal arrival (goto to the current node is a
+                # zero-length drive + the face/level epilogue).
+                nav.goto(cur)
+                return True, cur
+            if not nav.goto(pick, face_shelf=(pick == target)):
+                logger.warning(f"[advised-nav] executor refused cp{cur} -> cp{pick}; "
+                               f"falling back to deterministic drive")
+                break
+            nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+            cur = sm.nearest_checkpoint((nav.pos[0], nav.pos[2]))
+        if cur == target:
+            return True, cur
+        logger.warning(f"[advised-nav] budget/refusal at cp{cur} (target cp{target}); "
+                       f"degrading to the graph arm's deterministic goto")
+        return nav.goto(target), target
 
     def _navigate_to_counter(self):
         """Deterministically drive to the checkout counter (the cp54 landmark) - the place subtask's
@@ -536,7 +691,7 @@ class EmbodiedAgent:
             agent_mode = semantic_response['mode']
 
             nav_note = ""
-            if agent_mode == "navigation" and self.nav_mode == "graph":
+            if agent_mode == "navigation" and self.nav_mode in ("graph", "graph-advised"):
                 # Arm B: navigation executes deterministically; the VLM resumes in perception
                 # at the new location, with a note and a FRESH frame (the screenshot captured
                 # before the drive shows the wrong place).
@@ -626,7 +781,7 @@ class EmbodiedAgent:
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
 
             nav_note = ""
-            if agent_mode == "navigation" and self.nav_mode == "graph":
+            if agent_mode == "navigation" and self.nav_mode in ("graph", "graph-advised"):
                 # Arm B: navigation executes deterministically; the VLM resumes in perception
                 # at the new location, with a note and a FRESH frame (the screenshot captured
                 # before the drive shows the wrong place).

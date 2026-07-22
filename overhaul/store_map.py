@@ -167,6 +167,29 @@ class StoreMap:
                     q.append((n, d + 1))
         return None
 
+    def hop_path(self, a, b):
+        """BFS shortest checkpoint path a -> b INCLUSIVE of both ends, or None if disconnected.
+        The per-hop companion to hops(): the graph-advised navigator (agent._advised_goto) needs
+        the route's NEXT HOP as advice each step, and path[1] is exactly that. Same BFS as hops()
+        with parent tracking - a spatial judgment, so it is code's job, never a VLM's."""
+        if a == b:
+            return [a]
+        from collections import deque
+        prev, q = {a: None}, deque([a])
+        while q:
+            cur = q.popleft()
+            for n in self._neighbors.get(cur, []):
+                if n in prev:
+                    continue
+                prev[n] = cur
+                if n == b:
+                    path = [b]
+                    while prev[path[-1]] is not None:
+                        path.append(prev[path[-1]])
+                    return path[::-1]
+                q.append(n)
+        return None
+
     def hints_from(self, cp_id):
         """Live route hints (graph-computed, covers base nodes the JSON has no records for)."""
         interesting = lambda i: effective_kind_of(i, self.by_id, self.annotations) in ("shelf", "landmark")

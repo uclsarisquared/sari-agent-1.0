@@ -4,6 +4,7 @@ Runs the SAME pick-up tasks through the SAME agent twice, once per navigation ar
 
     python eval_pickup.py --arm vlm      # control: old VLM-driven navigation
     python eval_pickup.py --arm graph    # graph: resolver + goto_checkpoint dispatch
+    python eval_pickup.py --arm graph-advised  # graph targets, per-hop advisor VLM drive
     python eval_pickup.py --arm vlm --tasks 0 2    # subset by index (paired reruns)
 
 Everything else - semantic learner, perception, manipulation, prompts, memory (the regenerated
@@ -127,6 +128,7 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
     agent.set_semantic_memory()
     # reset per-task graph-nav state so the resolver runs fresh for this task
     agent._nav_task = None
+    agent._advised_stats = []   # per-task advised-hop telemetry (graph-advised arm; empty elsewhere)
 
     for step in range(1, max_steps + 1):
         if (time.time() - t0) / 60 > max_minutes:
@@ -142,9 +144,11 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
         imageb64 = base64.b64encode(img_bytes).decode("utf-8")
         request = {"task": task, "image": imageb64, "state": state}
         try:
+            adv0 = agent._advised_llm_calls
             response = agent.execute_lean(request, step)
             m["llm_calls"] += 3  # semantic + VLM + episodic per execute_lean call
-            if agent.nav_mode == "graph" and step == 1:
+            m["llm_calls"] += agent._advised_llm_calls - adv0  # per-hop advisor calls, counted not hidden
+            if agent.nav_mode in ("graph", "graph-advised") and step == 1:
                 m["llm_calls"] += 1  # the resolver's one call, counted not hidden
         except Exception as e:
             m["errors"] += 1
@@ -226,6 +230,18 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
     m["wall_s"] = round(time.time() - t0, 1)
     if m["end_reason"] is None:
         m["end_reason"] = "step_cap"
+    if agent.nav_mode == "graph-advised":
+        # The attribution numbers the arm exists for (read TOGETHER with success/t_manip, per
+        # VLMAdvisedPlanner's rule): agree ~= hops means graph-with-a-tax; deviations and
+        # stop_here rows are the ones worth reading individually in the JSONL.
+        st = agent._advised_stats
+        m["advised"] = {"hops": len(st),
+                        "agreed": sum(1 for s in st if s["agreed"]),
+                        "deviated": sum(1 for s in st if not s["agreed"] and not s["invalid"]
+                                        and not s["stop_here"]),
+                        "invalid": sum(1 for s in st if s["invalid"]),
+                        "stops": sum(1 for s in st if s["stop_here"])}
+        log({"event": "advised_hops", "hops": st})
     log({"event": "task_end", **{k: v for k, v in m.items()}})
     if log_fh:
         log_fh.close()
@@ -234,7 +250,7 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arm", choices=["vlm", "graph"], required=True)
+    ap.add_argument("--arm", choices=["vlm", "graph", "graph-advised"], required=True)
     ap.add_argument("--tasks", type=int, nargs="*", default=None, help="task indices to run")
     ap.add_argument("--task", default=None,
                     help="Run ONE ad-hoc task instead of the built-in TASKS list.")

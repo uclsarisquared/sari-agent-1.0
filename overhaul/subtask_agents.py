@@ -27,6 +27,7 @@ Usage:
     python subtask_agents.py "get the green Piattos and bring it to the checkout counter"
     python subtask_agents.py --task "..." --arm graph --max-steps 150 --max-minutes 40
     python subtask_agents.py --task "..." --arm vlm      # control arm (old VLM navigation)
+    python subtask_agents.py --task "..." --arm graph-advised  # per-hop advisor-VLM drive
     python subtask_agents.py --task "..." --reset-start   # eval-reproducibility: start from spawn
 
 The agent starts from wherever it is by default; `--reset-start` is opt-in machinery for a batteried
@@ -321,6 +322,25 @@ def _fresh_agent_state() -> dict:
     return state
 
 
+# State keys that ONLY code consumes - never rendered into the LLM prompt (execute_lean stringifies
+# the whole state dict into all 3 calls, so anything here would cost input tokens on every step for no
+# benefit). `visited_checkpoints` is the worst offender: a set the compare predicate reads in code,
+# and it GROWS every step, so leaving it in makes each step progressively slower.
+_MODEL_STATE_DROP = {"visited_checkpoints"}
+
+
+def _model_facing_state(state: dict) -> dict:
+    """The state the LLM sees: the full state MINUS fields only code reads (`_MODEL_STATE_DROP`), and
+    with `last_checkout` trimmed to the verdict the agent acts on (scanned/placed/aligned/reason) - its
+    `steps` sub-dict is per-primitive logging the model never uses. The completion PREDICATE always
+    gets the FULL `state`, so nothing here weakens a halt check; this only shrinks the prompt."""
+    view = {k: v for k, v in state.items() if k not in _MODEL_STATE_DROP}
+    lc = view.get("last_checkout")
+    if isinstance(lc, dict) and "steps" in lc:
+        view["last_checkout"] = {k: v for k, v in lc.items() if k != "steps"}
+    return view
+
+
 def write_step_output(out_dir, step, response):
     """Dump a step's FULL agent output to out_dir/step<NN>.txt (untruncated, unlike the JSONL
     fields) so it pairs with the step screenshot for debugging: the mode router's decision, the
@@ -430,14 +450,20 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             with open(os.path.join(shots_dir, f"step{step:02d}.png"), "wb") as fh:
                 fh.write(downscale_for_storage(img_bytes))
         imageb64 = base64.b64encode(img_bytes).decode("utf-8")
-        state["visited_checkpoints"] = set(visited)   # compare predicate reads the task visit trace
-        request = {"task": augmented_task, "image": imageb64, "state": state}
+        state["visited_checkpoints"] = set(visited)   # compare predicate reads the task visit trace (code only)
+        # The LLM gets a LEAN view (drops code-only bookkeeping like the growing visit set); the FULL
+        # `state` still backs every predicate call, so no halt check is weakened.
+        request = {"task": augmented_task, "image": imageb64, "state": _model_facing_state(state)}
 
         try:
             prev_nav_task = getattr(agent, "_nav_task", None)
+            adv0 = getattr(agent, "_advised_llm_calls", 0)
             response = agent.execute_lean(request, step)
             m["llm_calls"] += 3  # semantic + VLM + episodic per execute_lean
-            if (agent.nav_mode == "graph" and getattr(agent, "_nav_task", None) != prev_nav_task
+            # graph-advised arm: the per-hop advisor VLM's calls, counted not hidden.
+            m["llm_calls"] += getattr(agent, "_advised_llm_calls", 0) - adv0
+            if (agent.nav_mode in ("graph", "graph-advised")
+                    and getattr(agent, "_nav_task", None) != prev_nav_task
                     and not getattr(agent, "_nav_seeded", None)):
                 # _graph_navigate initialised for this leg WITHOUT a plan-time seed -> the runtime
                 # resolver LLM actually ran this step (counted exactly, not by the step-1 heuristic:
@@ -639,7 +665,9 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     not complete ABORTS the remaining legs (a failed pickup shouldn't burn a checkout leg). Writes a
     summary.json + per-leg JSONL to run_dir (eval_pickup layout).
 
-    arm: 'graph' (default - the measured-better navigator, right for long-horizon) or 'vlm' (control).
+    arm: 'graph' (default - the measured-better navigator, right for long-horizon), 'vlm'
+    (control), or 'graph-advised' (graph targets, per-hop advisor-VLM drive - see
+    agent._advised_goto; adds one advisor call per graph hop, counted in llm_calls).
     caps: (max_steps, max_minutes) PER LEG.
 
     reset_start (default FALSE): drive to the fixed spawn checkpoint ONCE before the first leg
@@ -733,6 +761,15 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                    "legs_completed": sum(1 for r in leg_rows if r.get("success")),
                    "resolver_calls": n_resolves, "llm_calls": task_llm,
                    "wall_s": round(time.time() - t0, 1), "legs": leg_rows}
+        if arm == "graph-advised":
+            # Whole-task advisor attribution (per-hop detail rides the agent's logger lines):
+            # agree ~= hops means the graph arm with a per-hop tax; deviations/stops are the
+            # rows the arm exists to surface (VLMAdvisedPlanner's read-together rule).
+            st = getattr(agent, "_advised_stats", [])
+            summary["advised"] = {"hops": len(st),
+                                  "agreed": sum(1 for s in st if s["agreed"]),
+                                  "invalid": sum(1 for s in st if s["invalid"]),
+                                  "stops": sum(1 for s in st if s["stop_here"])}
         out_path = out or os.path.join(run_dir, "summary.json")
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
@@ -755,8 +792,9 @@ def main():
     ap.add_argument("task", nargs="?", default=None,
                     help="the long-horizon task (or use --task)")
     ap.add_argument("--task", dest="task_opt", default=None, help="the long-horizon task")
-    ap.add_argument("--arm", choices=["vlm", "graph"], default="graph",
-                    help="navigation arm (default graph - the measured-better navigator)")
+    ap.add_argument("--arm", choices=["vlm", "graph", "graph-advised"], default="graph-advised",
+                    help="navigation arm (default graph - the measured-better navigator; "
+                         "graph-advised drives each graph hop through a per-hop advisor VLM)")
     ap.add_argument("--max-steps", type=int, default=150, help="per-leg step cap")
     ap.add_argument("--max-minutes", type=float, default=40.0, help="per-leg wall-clock cap")
     ap.add_argument("--out", default=None, help="summary.json path (default: <run-dir>/summary.json)")

@@ -444,6 +444,21 @@ unverified-at-edge — re-measure via the gate CSV if a drop ever misses).
    (`reach_probe`/`place_probe`) already comply transitively — they load from the already-capped
    `ClientScreenshot.png`. Verified: 4K→1920×1080 (aspect kept), ≤1080p passes byte-for-byte, native
    return preserved; offline suite green.
+10. **Per-step speed: lean model-facing state (user asked why run_leg is slower than run_one,
+    2026-07-23).** Diagnosis: the heavy per-step costs (1 screenshot + 2 pose reads + 3 LLM calls) are
+    IDENTICAL to eval_pickup; the added orchestration logic (`nearest_checkpoint`, silent predicate) is
+    negligible pure-Python. The real delta is PROMPT TOKENS — `execute_lean` stringifies the WHOLE state
+    dict into all 3 calls, and subtask_agents populates more of it, worst of all `visited_checkpoints`, a
+    set that GROWS every step yet only the compare predicate (code) reads it. Fix: `_model_facing_state`
+    hands `execute_lean` a lean view (drops `visited_checkpoints`; trims `last_checkout.steps`, the
+    per-primitive logging the model never acts on); the completion PREDICATE still gets the FULL state,
+    so no halt check weakens. Measured on a representative mid-run state (40 cps visited + a full checkout
+    verdict): state string 1411→787 chars, ~156 tokens × 3 calls ≈ **468 input tokens/step removed**, and
+    it GROWS with the visit set (per-step time within a leg is now ~flat instead of creeping up).
+    NOT touched (behavior tradeoffs, measure before cutting): the cumulative findings `context` in the
+    augmented task (grows per leg) and the persisted semantic memory (the shared-memory feature; rendered
+    in full at each leg's step 1, `recall`-only after). Real wall-time payoff is the user's to confirm by
+    diffing per-step `wall` in the leg JSONL before/after.
 
 ### Gate 6.3 — one supervised end-to-end run 🎮
 
