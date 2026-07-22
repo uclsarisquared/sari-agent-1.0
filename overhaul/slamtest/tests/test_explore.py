@@ -181,8 +181,13 @@ class TestFindEscapeHeading(unittest.TestCase):
 
 
 class _FakeAgent:
-    """Fake Unity connection for step_agent: applies delta translation in world space and
-    delta rotation as a yaw increment, no network. Records calls."""
+    """Fake Unity connection for step_agent. Models the sim's EGOCENTRIC TranslateAgent: the
+    incoming translation is body-relative (x=right, y=up, z=forward) and the sim rotates it into
+    world space itself using the current facing (AgentControllerBase.EgocentricToWorldTranslation),
+    then applies the delta rotation as a yaw increment. No network. Records calls.
+
+    Egocentric-not-world is the whole point of the 2026-07-22 fix: a fake that added the raw delta
+    to world XZ modeled the OLD (pre-3940ce7) sim and hid the double-rotation the fix removes."""
     def __init__(self, pos, yaw):
         self.pos = list(pos)
         self.yaw = yaw
@@ -190,8 +195,14 @@ class _FakeAgent:
 
     def step_agent(self, dtrans, drot, uri):
         self.calls.append((tuple(dtrans), tuple(drot)))
-        self.pos[0] += dtrans[0]
-        self.pos[2] += dtrans[2]
+        # Unity left-handed Y-up: forward=(sin yaw, cos yaw), right=(cos yaw, -sin yaw).
+        # world = right*x + forward*z, with dtrans = (right, up, forward). Translation uses the
+        # CURRENT facing (the sim converts before applying the rotation delta), matching how
+        # explore.py always sends rotation and translation as separate zero-crossed calls.
+        yaw = math.radians(self.yaw)
+        s, c = math.sin(yaw), math.cos(yaw)
+        self.pos[0] += dtrans[0] * c + dtrans[2] * s
+        self.pos[2] += -dtrans[0] * s + dtrans[2] * c
         self.yaw = explore.normalize_deg(self.yaw + drot[1])
         return tuple(self.pos), (0.0, self.yaw, 0.0), False
 
@@ -357,6 +368,32 @@ class TestExploreLoopVoxelWiring(unittest.TestCase):
         self.assertEqual(len(planner.notify_blocked_calls), 1, "arrival still notifies/replans")
         translations = [dt for dt, _dr in agent.calls if dt != (0.0, 0.0, 0.0)]
         self.assertFalse(translations, "a waypoint arrival (open clearance) must not trigger an escape step")
+
+    def test_forward_step_travels_along_facing_not_double_rotated(self):
+        # Regression for the world-vs-egocentric de-sync (2026-07-22). The sim rotates the
+        # body-relative step into world space itself, so after facing an off-axis target the
+        # loop must step STRAIGHT along its new facing (here +X), advancing toward the target -
+        # NOT perpendicular to it. Pre-rotating the step in Python (the old code) produced a
+        # sideways move once the sim went egocentric, because the sim rotated it a SECOND time.
+        # The translation the loop sends must be body-relative forward (0, 0, step_len).
+        agent, _voxel, _grid, _planner = self._run(
+            navs=[_move_nav(target=(2.0, 0.0)), _done_nav()],  # due +X from the start
+            clearances=[(5.0, None)],                          # wide open: full step_size move
+            nudges=[],
+        )
+        # angle_to_deg(dx=2, dz=0) == 90deg, so the loop rotates to yaw 90 (facing +X)...
+        self.assertAlmostEqual(agent.yaw, 90.0, places=3, msg="must rotate to face the +X target")
+        # ...then a body-relative forward step must carry the agent along +X toward the target,
+        # with no sideways (Z) drift. Under the old double-rotation this step landed on -Z.
+        self.assertGreater(agent.pos[0], 0.1, "forward step must advance toward the +X target")
+        self.assertAlmostEqual(agent.pos[2], 0.0, places=6,
+                               msg="a forward step after facing the target must not drift sideways")
+        # And the translation the loop actually sent was body-relative forward, not a
+        # pre-rotated world vector.
+        fwd_steps = [dt for dt, _dr in agent.calls if dt != (0.0, 0.0, 0.0)]
+        self.assertEqual(len(fwd_steps), 1)
+        self.assertAlmostEqual(fwd_steps[0][0], 0.0, places=6, msg="no body-relative right component")
+        self.assertGreater(fwd_steps[0][2], 0.1, "body-relative forward (z) component")
 
 
 class TestClearOutputDir(unittest.TestCase):

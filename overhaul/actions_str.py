@@ -48,7 +48,7 @@ MANIPULATION_ACTIONS = (
     "rotate_right_counterclockwise: Rotate right hand counterclockwise 15 degrees per step.\n"
     "grip_left: Toggle left grip (times value is ignored).\n"
     "grip_right: Toggle right grip (times value is ignored).\n"
-    "extend_arm_until_grabbed: Extend the LEFT hand straight forward until a grabbable item is under it, grip it, then retract to the starting pose (times value is ignored). Works ONLY in *manipulation* mode - the hands are inactive in perception/navigation mode, so calling it there does nothing. It does NOT aim, so centre the item in the frame first; if it reports gripped=False the item was out of reach, so move the body closer and retry.\n"
+    "extend_arm_until_grabbed: Extend the LEFT hand straight forward until a grabbable item is under it, grip it, then retract to the starting pose (times value is ignored). Works ONLY in *manipulation* mode - the hands are inactive in perception/navigation mode, so calling it there does nothing. It does NOT aim and does NOT move the body, so centre the item first; if it reports gripped=False the item was out of reach - move the body closer, then RE-CENTER (center_object_on_screen) before retrying.\n"
 )
 
 ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS

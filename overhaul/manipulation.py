@@ -86,11 +86,11 @@ def grab_and_read_item(hand="left", max_attempts=30, text_read_fn=None):
     return ["No object grabbed"]
 
 
-def extend_arm_until_grabbed(times=1, hand="left", max_extend=25,
-                             creep_steps=3, creep_len=0.1, max_pitch_deg=20.0):
+def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=20.0):
     """Extend one hand straight forward until a grabbable item comes under it, grip it, then
-    retract the hand to its starting pose. If the hand reaches its limit empty-handed, creep the
-    BODY forward a little and try again. LEFT hand by default.
+    retract the hand to its starting pose. If the hand reaches its limit empty-handed, report
+    out-of-reach and let the CALLER reposition - this tool no longer moves the body. LEFT hand by
+    default.
 
     This REPLACES grab_item_in_view_* (md_tools.py), whose ReachAtPixel command does NOT exist in
     SariSandboxMY - it lands in the sim's `default: Unknown command` branch. This tool uses only
@@ -107,29 +107,23 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25,
         from the default pose the hand only reaches a little further before it stalls. We detect the
         stall (world position stops changing) and stop reaching from this spot.
 
-    FORWARD-CREEP and the ANGLE caveat (why it is handled the way it is):
-      * The reach is short, so when a sweep stalls without a hover we nudge the body forward and
-        re-reach, up to `creep_steps` creeps of `creep_len` m (a small, bounded total).
-      * HORIZONTAL angle: the creep must go along the agent's HEADING, not raw world +Z.
-        TransformAgent translation is WORLD-space (explore.py:462 - sending (0,0,step) moves
-        world-north), so we build the delta from the yaw: (sin(yaw), 0, cos(yaw)) * len. Y is held
-        at 0, so the creep is purely HORIZONTAL even when the camera is pitched down at a low item -
-        it closes distance to the shelf without diving into the floor. Each creep is small and
-        followed by a fresh reach (the hover flag is ground truth), so a small mis-aim self-corrects
-        on the next reach instead of compounding.
-      * VERTICAL angle: forward motion CANNOT close a vertical gap. If the camera is pitched steeply
-        (|pitch| > max_pitch_deg) the target is a low/high row; creeping would just drive the body
-        into the shelf before the angled hand reaches the item. So we do NOT creep there - we stop
-        and report, leaving it to the caller to crouch (low rows) or raise/lower the hand. The agent
-        has no crouch action wired yet, so bottom-shelf grabs remain an open gap.
+    NO FORWARD-CREEP (removed 2026-07-21, user directive): the reach is short, so it often stalls
+    just shy of the item. This tool used to nudge the BODY forward and re-reach - but that motion
+    deviated the agent off the centred target (a small lateral drift, amplified as it closed in, so
+    the hand ended up over the NEIGHBOURING item). It now does ONE reach from where it stands and,
+    if it can't grab, REPORTS out-of-reach for the caller to fix: move the body closer, then
+    RE-CENTER (center_object_on_screen, since moving de-centres the target) and retry.
+      * VERTICAL vs HORIZONTAL miss (reported in `reason` to guide that adjustment): if the camera
+        is pitched steeply (|pitch| > max_pitch_deg) the target is a low/high row and moving forward
+        can't close a vertical gap - raise/lower the hand (or crouch, once wired) instead. Otherwise
+        the item is simply too far - close the distance.
 
     The caller is expected to have CENTRED the target in view first (perception). `times` is accepted
     so the mode-machine's `action_ref(time_units)` dispatch works, but it is IGNORED.
 
-    NOT yet verified in a live Play-mode run; the mechanism is read off the C#, and creep_len /
-    creep_steps / max_pitch_deg are first-guess defaults that want a sim check.
+    NOT yet verified in a live Play-mode run; the mechanism is read off the C#.
 
-    Returns {'gripped': bool, 'hovered': <id|None>, 'creeps_used': int[, 'reason': str]}.
+    Returns {'gripped': bool, 'hovered': <id|None>[, 'reason': str]}.
     """
     hand = str(hand).lower()
     assert hand in ("left", "right"), "hand must be 'left' or 'right'"
@@ -155,8 +149,15 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25,
         with it. Returns (gripped, hovered)."""
         start = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
         if start.get(grip_key):
-            # A toggle on an already-closed hand would RELEASE what it holds - never re-toggle.
-            return True, start.get(hover_key)
+            # Hand starts CLOSED. A reach needs an OPEN hand to have something to grip onto; leaving it
+            # shut used to short-circuit to a phantom "gripped=True" over empty air. That never bit
+            # while the grip command was a silent no-op, but once ToggleGrip actually fires a stray
+            # close (keyboard Q, a prior missed grab's cleanup, an interrupted run) leaves the hand shut
+            # and the next call would falsely claim a grab. So OPEN it (a toggle from closed releases),
+            # re-read, then reach normally. If it happened to be holding an item this drops it - but
+            # calling a GRAB with a full hand is a caller error, and a clean open beats a false grab.
+            grip_fn()
+            start = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
 
         prev = start[trans_key]
         moved_steps = 0
@@ -185,31 +186,138 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25,
             pull_fn()
         return gripped, hovered
 
-    def _creep_forward(length):
-        """Nudge the body forward along its HEADING (horizontal, pitch-independent). See the ANGLE
-        note in the docstring for why the delta is built from the yaw and Y is pinned to 0."""
-        yaw = math.radians(TransformAgent((0, 0, 0), (0, 0, 0))["rotation"][1])
-        TransformAgent((math.sin(yaw) * length, 0.0, math.cos(yaw) * length), (0, 0, 0))
-
     gripped, hovered = _reach_once()
-    creeps_used = 0
+
+    # No body creep - one reach from where we stand. If it missed, tell the caller HOW to adjust:
+    # a steep pitch means a low/high row (vertical gap, forward motion won't help), otherwise the
+    # item is too far. Either way the caller must move, then RE-CENTER before retrying.
     reason = None
-    while not gripped and creeps_used < creep_steps:
+    if not gripped:
         pitch = TransformAgent((0, 0, 0), (0, 0, 0))["rotation"][0]
         pitch = ((pitch + 180) % 360) - 180      # eulerAngles wraps to [0,360); fold to [-180,180]
         if abs(pitch) > max_pitch_deg:
-            reason = (f"steep pitch {pitch:.0f}deg (low/high row) - creep can't close a vertical "
-                      f"gap; crouch or raise/lower the hand instead")
-            break
-        _creep_forward(creep_len)
-        creeps_used += 1
-        gripped, hovered = _reach_once()
+            reason = (f"out of reach at steep pitch {pitch:.0f}deg (low/high row): moving forward "
+                      f"can't close a vertical gap - raise/lower the hand (or crouch), then re-center "
+                      f"and retry")
+        else:
+            reason = ("out of reach: hand stalled with nothing under it - move the body closer, then "
+                      "re-center on the target (center_object_on_screen) and retry")
 
-    print(f"[extend_arm_until_grabbed] hand={hand} creeps={creeps_used} "
-          f"hovered={hovered!r} gripped={gripped}" + (f" | {reason}" if reason else ""))
-    result = {"gripped": gripped,
-              "hovered": None if hovered in _EMPTY else hovered,
-              "creeps_used": creeps_used}
+    print(f"[extend_arm_until_grabbed] hand={hand} hovered={hovered!r} gripped={gripped}"
+          + (f" | {reason}" if reason else ""))
+    result = {"gripped": gripped, "hovered": None if hovered in _EMPTY else hovered}
     if reason:
         result["reason"] = reason
     return result
+
+
+# ===== Phase D: depth-gated reach planning ======================================================
+# plan_reach turns ONE RequestLidarCenter sample into a reach verdict. The tool still never moves the
+# body (the 2026-07-21 no-creep directive); this only DECIDES, and the router acts on the verdict.
+#
+# REACH_ENVELOPE - the measured geometry of what the hand can actually grab, in the SAME world frame
+# RequestLidarCenter reports (camera_height = world Y). EVERY value here is a FIRST GUESS read off the
+# sim C# / prefab (slamtest/plans/phaseD_reach_and_grab.md) and is **UNMEASURED**: run the
+# calibration (reach_probe.py `g` -> slamtest/output/reachtests/envelope.csv) and set these from it
+# BEFORE the verdicts are believed. Wrong constants make plan_reach confidently wrong - that is the
+# whole reason the calibration step exists. Mapping from the CSV:
+#   hand_drop      = camera_height - (midpoint of target_h over grabbed==True, standing)
+#   r_eff          = half the spread of target_h over those grabbed rows
+#   standoff       = the LARGEST horizontal_gap that still grabbed==True
+REACH_ENVELOPE = {
+    "hand_drop": 0.25,   # hand reaches this far BELOW the camera (h_reach = camera_height - hand_drop)
+    "r_eff":     0.40,   # usable vertical half-reach around h_reach (a grab still lands within +/- this)
+    "standoff":  0.50,   # horizontal gap (m) to stop at & grab. CONSERVATIVE provisional. The hand's
+                         # absolute (fingertip) reach is ~0.90 m (user 2026-07-22), but the grab triggers
+                         # on the palm detector nearer in, so the reliable grab distance is uncertain and
+                         # MUST come from calibration (largest horizontal_gap that grabbed). Too-far MISSES.
+    "reach_tol": 0.05,   # horizontal slack: within standoff+this counts as reachable-now (no move)
+    "move_unit": 0.10,   # metres per move_forward unit (env.py _move_relative)
+    "move_cap":  10,     # move_forward clamps a single call to 10 units
+}
+
+
+def _reach_result(verdict, sample=None, move_steps=0, target_height=None,
+                  horizontal_gap=None, reason=""):
+    s = sample or {}
+    return {
+        "verdict": verdict,            # reachable | move | crouch | bail | recenter | unavailable
+        "move_steps": int(move_steps),
+        "distance": s.get("distance"),
+        "pitch_deg": s.get("pitch_deg"),
+        "camera_height": s.get("camera_height"),
+        "target_height": target_height,
+        "horizontal_gap": horizontal_gap,
+        "reason": reason,
+    }
+
+
+def plan_reach(sample, envelope=REACH_ENVELOPE):
+    """Turn ONE RequestLidarCenter sample into a reach verdict - the deterministic geometry brain of
+    Phase D. PURE function (no sim, no I/O) so it is unit-testable against a pose table; see
+    test_plan_reach.py.
+
+    The sample carries the gaze pose (pitch_deg, camera_height) so we never assume the prefab's pitch
+    or eye height. Decomposition of the slant range `d` at gaze pitch `theta` (+ = down):
+        horizontal_gap = d * cos(theta)              # forward distance to close (a body move is horizontal)
+        target_height  = camera_height - d*sin(theta)  # item height in world Y
+    target_height does NOT change as the body moves forward (the item does not move), so a VERTICAL
+    miss can never be fixed by moving - that is what separates a bail/crouch from a move.
+
+    Verdicts:
+      reachable   - within the vertical band AND within standoff: grab now.
+      move        - within the vertical band but too far: move `move_steps` forward, re-centre, retry.
+      crouch      - below the band: crouching lowers the camera (and hand) toward it; re-measure.
+      bail        - above the band: forward motion can't help; report "too high".
+      recenter    - miss (nothing solid at centre): don't plan off a meaningless distance.
+      unavailable - sample lacks pose (old sim build, pre-Phase-D recompile): caller falls back.
+
+    Constants come from REACH_ENVELOPE - UNMEASURED first guesses until calibration; see its note.
+    """
+    if not sample or sample.get("error"):
+        return _reach_result("recenter", sample,
+                             reason=f"lidar error: {(sample or {}).get('error', 'no sample')}")
+    if sample.get("pitch_deg") is None or sample.get("camera_height") is None:
+        return _reach_result("unavailable", sample,
+                             reason="sample has no pose (pitch_deg/camera_height) - the sim needs the "
+                                    "Phase-D recompile; falling back to a blind reach")
+    if not sample.get("hit", False):
+        return _reach_result("recenter", sample,
+                             reason="no surface at frame centre (gap / occlusion / beyond range) - "
+                                    "re-center on the target and retry")
+
+    d = float(sample["distance"])
+    theta = math.radians(float(sample["pitch_deg"]))
+    cam_h = float(sample["camera_height"])
+    horizontal_gap = d * math.cos(theta)
+    target_height = cam_h - d * math.sin(theta)
+
+    h_reach = cam_h - envelope["hand_drop"]
+    vgap = target_height - h_reach            # + = target above the hand, - = below
+
+    # Vertical feasibility first: it is invariant to forward motion, so it decides move vs bail/crouch.
+    if vgap > envelope["r_eff"]:
+        return _reach_result("bail", sample, target_height=target_height,
+                             horizontal_gap=horizontal_gap,
+                             reason=f"too high: target {target_height:.2f} m is {vgap:+.2f} m above hand "
+                                    f"reach ({h_reach:.2f} m); moving forward can't close a vertical gap")
+    if vgap < -envelope["r_eff"]:
+        return _reach_result("crouch", sample, target_height=target_height,
+                             horizontal_gap=horizontal_gap,
+                             reason=f"too low: target {target_height:.2f} m is {-vgap:.2f} m below hand "
+                                    f"reach ({h_reach:.2f} m); crouch to lower the camera, then re-center "
+                                    f"and re-measure")
+
+    # Vertically reachable - now it is purely a distance question.
+    if horizontal_gap <= envelope["standoff"] + envelope["reach_tol"]:
+        return _reach_result("reachable", sample, target_height=target_height,
+                             horizontal_gap=horizontal_gap,
+                             reason=f"in reach: gap {horizontal_gap:.2f} m, target height {target_height:.2f} m")
+
+    move_steps = round((horizontal_gap - envelope["standoff"]) / envelope["move_unit"])
+    move_steps = max(1, min(envelope["move_cap"], move_steps))
+    return _reach_result("move", sample, move_steps=move_steps, target_height=target_height,
+                         horizontal_gap=horizontal_gap,
+                         reason=f"move_forward {move_steps} (~{move_steps * envelope['move_unit']:.1f} m): "
+                                f"gap {horizontal_gap:.2f} m > standoff {envelope['standoff']:.2f} m, "
+                                f"target height {target_height:.2f} m is reachable")

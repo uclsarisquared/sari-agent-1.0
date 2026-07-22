@@ -37,30 +37,28 @@ load_dotenv(Path(__file__).resolve().parent.parent / 'api.env')
 from hand_reset import reset_hands_in_front2
 from env import (
     _REQUEST_SCREENSHOT_,
+    RequestLidarCenter,
     TransformAgent,
     TransformHands,
     init_logger,
 )
+from manipulation import plan_reach
 from actions import (
     NAVIGATION_ACTIONS_REF,
     PERCEPTION_ACTIONS_REF,
     MANIPULATION_ACTIONS_REF,
 )
-from agent import EmbodiedAgent, OpenRouterConfig
+from agent import EmbodiedAgent, ucl_qwen_config
 
 ORCHESTRATOR_MODEL = "Qwen/Qwen3.6-27B"  # UCL qwen (OpenRouter retired 2026-07-19)
 EXTRACTABLE_JSON = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
-VLM_CONFIG = OpenRouterConfig(
-    model_id='google/gemini-3.1-pro-preview',
-    temperature=0.5,
-    mode='lean',
-)
-ASSOCIATIVE_CONFIG = OpenRouterConfig(
-    model_id='google/gemini-3.1-pro-preview',
-    temperature=0.3,
-    mode='lean',
-)
+# Every reasoner runs on the UCL qwen vLLM server (OpenRouter fully retired 2026-07-21).
+# ucl_qwen_config carries the load-bearing enable_thinking=False + max_tokens cap for this
+# server - see agent.ucl_qwen_config. Mirrors eval_pickup.py / env_simulation.py. The
+# orchestrator LLM below (_llm_client) already targets the same server.
+VLM_CONFIG = ucl_qwen_config(temperature=0.5)
+ASSOCIATIVE_CONFIG = ucl_qwen_config(temperature=0.3)
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +151,28 @@ def generate_findings_summary(
 # Action dispatch
 # ---------------------------------------------------------------------------
 
+def _last_reach_line(plan, gripped=None):
+    """Human-readable `last_reach` string the actor/learner reads (AGENT_STATE_DOC p). Carries the
+    measured Phase-D verdict + distance so the recovery is specific, not a guess."""
+    v = plan["verdict"]
+    if v == "reachable":
+        if gripped:
+            return f"REACHABLE and GRABBED - {plan['reason']}"
+        return (f"REACHABLE by measure but the grab MISSED - {plan['reason']}; move a little closer, "
+                f"re-center, and retry (the reach envelope may be slightly off)")
+    if v == "move":
+        return f"MOVE - {plan['reason']}; then re-center and retry the grab"
+    if v == "crouch":
+        return f"CROUCH (too low) - {plan['reason']}"
+    if v == "bail":
+        return f"UNREACHABLE (too high) - {plan['reason']}"
+    if v == "recenter":
+        return f"RE-CENTER - {plan['reason']}"
+    return f"{v.upper()} - {plan.get('reason', '')}"
+
+
 def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None,
-                    mode: str = None) -> dict:
+                    mode: str = None, debug_dir: str = None) -> dict:
     """Execute one action. Returns a result dict; grab actions include a 'gripped' key.
 
     Manipulation-only actions (hand movement, grip, extend_arm_until_grabbed) need the hands
@@ -183,14 +201,41 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
 
     if action == "center_object_on_screen":
         target_info = f"main_goal={main_goal}\nsub_goals={sub_goals}\nkey_info={key_info}\nchecklist={checklist}"
-        return action_ref(target_info) or {}
+        # debug_dir (when a runner passes one) makes center_object_on_screen drop its per-look
+        # candidate/locked/aim frames there - see the runners' per-step screenshot logging.
+        return action_ref(target_info, debug_dir=debug_dir) or {}
     elif action in ("retrieve_item", "approach_object"):
         return action_ref(main_goal) or {}
     elif action == "extend_arm_until_grabbed":
-        result = action_ref(time_units) or {}
-        if not result.get('gripped', False):
-            print("[GRAB] extend_arm_until_grabbed did not grip — item out of reach, reposition.")
-        return result
+        # Phase D: MEASURE before the blind reach. RequestLidarCenter reads depth along the pitched
+        # gaze (hands are LiDAR self-culled, so an active hand does not occlude it); plan_reach turns
+        # it into a verdict. The tool still never moves the body - a move/crouch/bail/recenter verdict
+        # is surfaced as `last_reach` for the router/actor to act on next step (measured, not a guess).
+        # Any failure (transport error, or a pre-Phase-D sim build with no pose in the sample) falls
+        # back to the exact prior behaviour: one blind reach.
+        plan = None
+        try:
+            plan = plan_reach(RequestLidarCenter())
+        except Exception as e:
+            print(f"[REACH] RequestLidarCenter/plan_reach failed ({type(e).__name__}: {e}); "
+                  f"falling back to a blind reach.")
+        if plan is None or plan["verdict"] == "unavailable":
+            result = action_ref(time_units) or {}
+            if not result.get('gripped', False):
+                print("[GRAB] extend_arm_until_grabbed did not grip — item out of reach, reposition.")
+            return result
+        if plan["verdict"] == "reachable":
+            result = action_ref(time_units) or {}
+            result["reach_verdict"] = "reachable"
+            result["last_reach"] = _last_reach_line(plan, gripped=result.get("gripped", False))
+            if not result.get('gripped', False):
+                print(f"[GRAB] plan_reach said reachable but the grab missed - {plan['reason']}; "
+                      f"the reach envelope may need retuning.")
+            return result
+        # move / crouch / bail / recenter: skip the blind reach, report the measured verdict.
+        print(f"[REACH] {plan['verdict']}: {plan['reason']}")
+        return {"gripped": False, "reach_verdict": plan["verdict"],
+                "move_steps": plan["move_steps"], "last_reach": _last_reach_line(plan)}
     else:
         return action_ref(time_units) or {}
 
@@ -201,7 +246,7 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
 
 def _get_screenshot(run_entry: str, subtask_idx: int = 0) -> bytes:
     if run_entry:
-        directory_path = os.path.join('screenshots', 'SIM_RUNS2', run_entry, f'subtask_{subtask_idx}')
+        directory_path = os.path.join('screenshots', 'SIM_RUNS3', run_entry, f'subtask_{subtask_idx}')
         os.makedirs(directory_path, exist_ok=True)
         existing = [fn for fn in os.listdir(directory_path) if fn.lower().endswith(('.png', '.jpg', '.jpeg'))]
         prefix = str(len(existing) + 1).zfill(6)
@@ -234,6 +279,24 @@ def _fresh_agent_state() -> dict:
     for k, v in {**agent_pos, **hands_pos}.items():
         state[k] = v
     return state
+
+
+def write_step_output(out_dir, step, response):
+    """Dump a step's FULL agent output to out_dir/step<NN>.txt (untruncated, unlike the JSONL
+    fields) so it pairs with the step screenshot for debugging: the mode router's decision, the
+    VLM actor's output, the episodic reflection (what_worked / what_to_avoid), and any nav note.
+    No-op if out_dir is falsy."""
+    if not out_dir:
+        return
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, f"step{step:02d}.txt"), "w", encoding="utf-8") as fh:
+        fh.write(f"=== STEP {step} | mode={response.get('agent_mode')} "
+                 f"| halt={response.get('halt')} ===\n\n")
+        if response.get("nav_note"):
+            fh.write(f"--- NAV NOTE ---\n{response['nav_note']}\n\n")
+        fh.write(f"--- MODE ROUTER (semantic) ---\n{response.get('semantic') or '(n/a)'}\n\n")
+        fh.write(f"--- VLM ACTOR OUTPUT ---\n{response.get('text') or ''}\n\n")
+        fh.write(f"--- EPISODIC REFLECTION ---\n{response.get('episodic') or '(n/a)'}\n")
 
 
 def run_subtask(
@@ -295,6 +358,10 @@ def run_subtask(
         response = agent.execute_lean(request, time_step)
         print(f"[STEP {time_step}] Response: {response}")
 
+        if run_entry:
+            write_step_output(os.path.join('screenshots', 'SIM_RUNS2', run_entry,
+                                           f'subtask_{subtask_idx}'), time_step, response)
+
         if response['halt']:
             grip_active = (current_state.get('leftGrippedState', False) or
                            current_state.get('rightGrippedState', False))
@@ -329,28 +396,45 @@ def run_subtask(
         times   = main_response['times']
         notes   = main_response['notes']
 
+        cur_step = time_step
         print(f"[STEP {time_step}] mode={agent_mode} actions={list(zip(actions, times))}")
         time_step += 1
+
+        # Per-step centring frames alongside this subtask's step screenshots (only when a run_entry
+        # names the SIM_RUNS2 folder to log into).
+        center_dir = (os.path.join('screenshots', 'SIM_RUNS2', run_entry,
+                                   f'subtask_{subtask_idx}', f'step{cur_step}_center')
+                      if run_entry else None)
 
         grab_failed = False
         blocked_reason = False
         center_msg = None
+        last_reach = None
         for action, t in zip(actions, times):
             raw_action = action.strip()
             inline_arg = None
             inline_match = re.match(r'^(\w+)\([\'"]?(.*?)[\'"]?\)$', raw_action)
             if inline_match:
                 raw_action, inline_arg = inline_match.group(1), inline_match.group(2)
+            step_center = None
+            if center_dir and raw_action == "center_object_on_screen":
+                os.makedirs(center_dir, exist_ok=True)
+                step_center = center_dir
             result = dispatch_action(raw_action, int(t), notes, inline_arg=inline_arg,
-                                     mode=agent_mode)
+                                     mode=agent_mode, debug_dir=step_center)
             if result.get('blocked'):
                 blocked_reason = result.get('reason', True)
             if result.get('center_message'):
                 center_msg = result['center_message']
+            if result.get('last_reach'):
+                last_reach = result['last_reach']
             if raw_action == "extend_arm_until_grabbed" and not result.get('blocked'):
-                # A blocked call is a wrong-mode error, NOT a distance failure - don't let it
-                # trigger the "move closer" recovery (last_grab_failed).
-                if not result.get('gripped', False):
+                # A blocked call is a wrong-mode error, NOT a distance failure. A measured Phase-D
+                # verdict of move/crouch/bail/recenter is not a blind failure either - `last_reach`
+                # carries the specific recovery, so don't ALSO raise the generic last_grab_failed. A
+                # 'reachable' verdict that still missed IS a real failure worth the move-closer retry.
+                verdict = result.get('reach_verdict')
+                if verdict in (None, 'reachable') and not result.get('gripped', False):
                     grab_failed = True
         current_state['last_grab_failed'] = grab_failed
         # Surfaced to the router next step: a set value means the agent tried a hand action out of
@@ -359,6 +443,9 @@ def run_subtask(
         # The centring outcome (SUCCESS/FAILED/STALLED...), so the actor and episodic learner know
         # whether center_object_on_screen worked instead of guessing (see its docstring).
         current_state['last_center'] = center_msg
+        # The measured reach verdict (Phase D): move N / crouch / too-high / re-center, so the actor
+        # repositions by a MEASURED distance instead of a blind "move a little" (see AGENT_STATE_DOC p).
+        current_state['last_reach'] = last_reach
 
         # Refresh state from the environment after all actions have executed
         updated_agent = TransformAgent((0, 0, 0), (0, 0, 0))

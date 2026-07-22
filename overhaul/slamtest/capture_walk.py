@@ -137,12 +137,12 @@ def goto(args, grid, inflated, target_world_xz, pos, rot):
         pos, rot, _ = step_agent((0, 0, 0), (0, delta_yaw, 0), args.uri)
 
         if step_len >= args.min_step:
-            if nudged_heading is not None:
-                world_dx = math.sin(math.radians(rot[1])) * step_len
-                world_dz = math.cos(math.radians(rot[1])) * step_len
-            else:
-                world_dx, world_dz = dx / dist * step_len, dz / dist * step_len
-            pos, rot, _ = step_agent((world_dx, 0, world_dz), (0, 0, 0), args.uri)
+            # The agent now faces its travel direction (straight at the waypoint, or the nudged
+            # heading), so a body-relative forward step (0, 0, step_len) travels along it. The sim
+            # applies translation EGOCENTRICALLY (EgocentricToWorldTranslation) and rotates it into
+            # world space itself - it must NOT be pre-rotated here, or the sim rotates it twice
+            # (the "forward isn't forward" de-sync; see explore.py's module docstring).
+            pos, rot, _ = step_agent((0, 0, step_len), (0, 0, 0), args.uri)
             continue
 
         # Wedged: straight-ahead blocked and no nudge cleared. Same escape explore.py uses -
@@ -159,9 +159,9 @@ def goto(args, grid, inflated, target_world_xz, pos, rot):
         esc_heading, esc_clear, _ = escape
         pos, rot, _ = step_agent((0, 0, 0), (0, normalize_deg(esc_heading - delta_yaw), 0), args.uri)
         esc_step = min(args.step_size, max(0.0, esc_clear - args.safety_margin))
-        pos, rot, _ = step_agent(
-            (math.sin(math.radians(rot[1])) * esc_step, 0, math.cos(math.radians(rot[1])) * esc_step),
-            (0, 0, 0), args.uri)
+        # Facing the escape heading now, so step straight forward body-relative; the sim rotates
+        # (0, 0, esc_step) into world space itself (do NOT pre-rotate - see the note above).
+        pos, rot, _ = step_agent((0, 0, esc_step), (0, 0, 0), args.uri)
 
     return pos, rot, False
 

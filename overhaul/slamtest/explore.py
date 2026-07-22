@@ -12,11 +12,16 @@ WebSocket command server running (default ws://localhost:8080/commands)
 and the V1 compatibility layer enabled, since this reuses env.TransformAgent
 for movement (text-response parsing).
 
-Movement assumption to validate in the smoke test: TranslateAgent applies
-translation in world space (not rotated into the agent's local/facing frame -
-the step vector below is computed in world space to match), and applies
-rotation as a delta added to the current transform (confirmed against
-AgentControllerBase.cs's TranslateAgent).
+Movement convention (confirmed against AgentControllerBase.cs / SariAgentCommandBehavior.cs):
+TranslateAgent applies translation EGOCENTRICALLY - the sim rotates the (x=right, y=up, z=forward)
+vector into world space itself via EgocentricToWorldTranslation using the agent's current facing -
+and applies rotation as a delta added to the current transform. So this loop always rotates the
+agent to face its travel direction first, then steps straight forward with the body-relative vector
+(0, 0, step_len); it must NOT pre-rotate the step into world space (the sim would rotate it a second
+time). DE-SYNC 2026-07-22: the sim flipped this contract from world-space to egocentric
+(SariSandboxV2 3940ce7, merged 2026-07-21), and this loop's old world-space step vectors then came
+out rotated by the agent's yaw - the "forward isn't forward" bug. Re-verify with
+probe_translation.py if the sim's dispatcher contract changes again.
 
 Obstacle avoidance relies entirely on LiDAR, never on the Rigidbody's
 isColliding/collided flag: the agent's Rigidbody uses Discrete collision
@@ -432,9 +437,9 @@ def _explore_loop(args, voxel, grid, cloud, pos, rot, planner):
                     pos, rot, _ = step_agent(
                         (0, 0, 0), (0, normalize_deg(esc_heading - delta_yaw), 0), args.uri)
                     esc_step = min(args.step_size, max(0.0, esc_clear - args.safety_margin))
-                    world_dx = math.sin(math.radians(rot[1])) * esc_step
-                    world_dz = math.cos(math.radians(rot[1])) * esc_step
-                    pos, rot, _ = step_agent((world_dx, 0, world_dz), (0, 0, 0), args.uri)
+                    # The agent now faces the escape heading, so a body-relative forward step
+                    # travels along it - the sim rotates (0, 0, esc_step) into world space itself.
+                    pos, rot, _ = step_agent((0, 0, esc_step), (0, 0, 0), args.uri)
                     total_escapes += 1
                     escaped = True
                     print(f"[explore] path blocked (clearance={clearance:.2f}m) toward waypoint "
@@ -446,29 +451,22 @@ def _explore_loop(args, voxel, grid, cloud, pos, rot, planner):
                       f"{nav.target_world_xz}; holding position and rescanning"
                       f"{_format_clearance_debug(clearance_debug)}")
         else:
-            if nudge_deg:
-                # Deliberately NOT heading straight at the target here - we just steered
-                # around a close obstruction detected off to one side (see find_clear_heading
-                # above), so move along the nudged heading (rot[1], just applied) instead of
-                # walking straight back into what we steered around. The next iteration
-                # recomputes delta_yaw fresh from the new position, naturally re-correcting
-                # toward the actual waypoint once past the obstruction.
-                world_dx = math.sin(math.radians(rot[1])) * step_len
-                world_dz = math.cos(math.radians(rot[1])) * step_len
-            else:
-                # TranslateAgent applies deltaTranslation directly to world
-                # position - it is NOT rotated into the agent's local/facing frame.
-                # So the step vector must already point at the target in world space;
-                # sending (0, 0, step_len) here would move along raw world +Z instead.
-                world_dx = dx / dist * step_len
-                world_dz = dz / dist * step_len
-            # step_agent's `collided` return is intentionally discarded (`_`) - it
-            # comes from the Rigidbody's Discrete collision detection with no root
-            # collider, which is known unreliable (misses real contact; a false
-            # positive would inject a phantom obstacle into the map). LiDAR
-            # (integrate() + swept_clearance_ahead) is the only source of truth for
-            # both mapping and step-safety.
-            pos, rot, _ = step_agent((world_dx, 0, world_dz), (0, 0, 0), args.uri)
+            # The agent was already rotated above to face its travel direction - either
+            # straight at the waypoint (normal) or the nudged heading that steered around a
+            # close obstruction (nudge_deg != 0; see find_clear_heading). Either way "forward"
+            # now points where we want to go, so a body-relative step is the same (0, 0,
+            # step_len) in both cases: the sim rotates it into world space itself via
+            # EgocentricToWorldTranslation (it must NOT be pre-rotated here, or the sim would
+            # rotate it a second time). On the nudge branch the next iteration recomputes
+            # delta_yaw fresh from the new position, re-correcting toward the actual waypoint
+            # once past the obstruction.
+            #
+            # step_agent's `collided` return is intentionally discarded (`_`) - it comes from
+            # the Rigidbody's Discrete collision detection with no root collider, which is known
+            # unreliable (misses real contact; a false positive would inject a phantom obstacle
+            # into the map). LiDAR (integrate() + swept_clearance_ahead) is the only source of
+            # truth for both mapping and step-safety.
+            pos, rot, _ = step_agent((0, 0, step_len), (0, 0, 0), args.uri)
 
         nudge_str = f" nudge={nudge_deg:+.1f}deg" if nudge_deg else ""
         print(

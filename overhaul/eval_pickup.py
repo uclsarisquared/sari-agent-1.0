@@ -38,7 +38,7 @@ if _THIS_DIR not in sys.path:
 
 from agent import EmbodiedAgent, ucl_qwen_config
 from env import _REQUEST_SCREENSHOT_
-from subtask_agents import dispatch_action, _fresh_agent_state
+from subtask_agents import dispatch_action, _fresh_agent_state, write_step_output
 from hand_reset import reset_hands_in_front2
 
 # Targets verified present in the live store and reachable on open shelving (fridge items are
@@ -99,6 +99,13 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
          "llm_calls": 0, "errors": 0, "end_reason": None}
     log_fh = open(log_path, "a", encoding="utf-8") if log_path else None
 
+    # Per-step debug screenshots live alongside the JSONL in a folder named after the task log:
+    # pickup_runs/<run>/task<NN>/step<NN>.png (the observation the agent acted on), and the
+    # centring tool's per-look frames in pickup_runs/<run>/task<NN>/step<NN>_center/.
+    shots_dir = os.path.splitext(log_path)[0] if log_path else None
+    if shots_dir:
+        os.makedirs(shots_dir, exist_ok=True)
+
     def log(record):
         if log_fh:
             record["wall"] = round(time.time() - t0, 1)
@@ -119,7 +126,11 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
             m["end_reason"] = "time_cap"
             break
         m["timesteps"] = step
-        imageb64 = base64.b64encode(_REQUEST_SCREENSHOT_()["image"]).decode("utf-8")
+        img_bytes = _REQUEST_SCREENSHOT_()["image"]
+        if shots_dir:
+            with open(os.path.join(shots_dir, f"step{step:02d}.png"), "wb") as fh:
+                fh.write(img_bytes)
+        imageb64 = base64.b64encode(img_bytes).decode("utf-8")
         request = {"task": task, "image": imageb64, "state": state}
         try:
             response = agent.execute_lean(request, step)
@@ -134,6 +145,9 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
                 m["end_reason"] = "errors"
                 break
             continue
+
+        if shots_dir:
+            write_step_output(shots_dir, step, response)
 
         mode = response.get("agent_mode")
         if mode == "manipulation" and m["t_manip"] is None:
@@ -153,27 +167,36 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
         acted = []
         blocked_reason = False
         center_msg = None
+        last_reach = None
         for action, times in zip(parsed.get("actions", []), parsed.get("times", [])):
             action = action.strip()
             inline = None
             im = re.match(r'^(\w+)\([\'"]?(.*?)[\'"]?\)$', action)
             if im:
                 action, inline = im.group(1), im.group(2)
-            res = dispatch_action(action, int(times), notes, inline, mode=mode) or {}
+            center_dir = None
+            if shots_dir and action == "center_object_on_screen":
+                center_dir = os.path.join(shots_dir, f"step{step:02d}_center")
+                os.makedirs(center_dir, exist_ok=True)
+            res = dispatch_action(action, int(times), notes, inline, mode=mode,
+                                  debug_dir=center_dir) or {}
             if res.get("blocked"):
                 blocked_reason = res.get("reason", True)
             if res.get("center_message"):
                 center_msg = res["center_message"]
+            if res.get("last_reach"):
+                last_reach = res["last_reach"]
             acted.append([action, int(times)])
 
         state = _fresh_agent_state()
         state["mode"] = mode
         state["last_action_blocked"] = blocked_reason
         state["last_center"] = center_msg
+        state["last_reach"] = last_reach   # Phase D: measured reach verdict (see AGENT_STATE_DOC p)
         log({"event": "step", "step": step, "mode": mode,
              "nav_note": (response.get("nav_note") or "")[:200] or None,
              "actions": acted, "blocked": blocked_reason or None,
-             "center": center_msg,
+             "center": center_msg, "reach": last_reach,
              "pos": state.get("translation"), "rot": state.get("rotation"),
              "hovered": [state.get("leftHoveredObject"), state.get("rightHoveredObject")],
              "gripped": [state.get("leftGrippedState"), state.get("rightGrippedState")],

@@ -530,4 +530,6 @@ class EmbodiedAgent:
             'nav_note': nav_note,  # non-empty iff the graph dispatcher drove this step
             'text': response_text,
             'agent_mode': agent_mode,
+            'semantic': semantic_response_text,   # mode router: mode / recall / new_semantic_memory
+            'episodic': episodic_response_text,    # reflection: dense_summary / what_worked / what_to_avoid
         }

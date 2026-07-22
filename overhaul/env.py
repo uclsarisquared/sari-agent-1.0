@@ -3,7 +3,6 @@ import asyncio
 import websockets
 import json
 import re
-import math
 from datetime import datetime
 
 from typing import (
@@ -65,6 +64,26 @@ async def SendCommand(command: Dict[str, Any], uri: str):
             response = await websocket.recv()
             return response
 
+def _v1_or_raise(result, cmd, n_tuples, n_lines):
+    """env.py speaks the sim's V1 TEXT protocol: it parses `cmd` replies POSITIONALLY (n_tuples
+    `(x,y,z)` groups over >= n_lines lines). If the sim's WebSocketHandler has
+    `sariSandboxV1CompatibilityLayer` turned OFF it returns JSON instead (one line, no `(...)`
+    groups), which this parser cannot read - and the grip/hover toggles break the same way. Detect
+    that and raise something ACTIONABLE instead of an opaque IndexError/AssertionError."""
+    text = result.decode(errors="replace") if isinstance(result, (bytes, bytearray)) else str(result)
+    lines = text.split("\n")
+    tuples = re.findall(r'\((.*?)\)', text, re.DOTALL)
+    if len(tuples) != n_tuples or len(lines) < n_lines:
+        raise RuntimeError(
+            f"{cmd}: expected the V1 text reply ({n_tuples} (x,y,z) tuples over {n_lines}+ lines) but "
+            f"got {len(tuples)} tuple(s) / {len(lines)} line(s). The sim is almost certainly running "
+            f"with `sariSandboxV1CompatibilityLayer` OFF (it then returns JSON, which env.py's text "
+            f"protocol can't read - TransformAgent/TransformHands and the grip toggles all break). "
+            f"Turn it ON: select the WebSocketHandler in the scene, check 'Sari Sandbox V1 "
+            f"Compatibility Layer', and re-enter Play. Raw reply: {text!r}")
+    return lines, tuples
+
+
 def TransformAgent(translation: Tuple[float],
                    rotation: Tuple[float],
                    uri: str = "ws://localhost:8080/commands") -> Dict[str, Tuple[float]]:
@@ -74,9 +93,8 @@ def TransformAgent(translation: Tuple[float],
         "rotation": rotation
     }, uri))
 
-    extracted_state = re.findall(r'\((.*?)\)', result, re.DOTALL)
-    is_colliding = True if result.split("\n")[2].split(": ")[-1] == "True" else False
-    assert len(extracted_state) == 2, "Expected 2 Tuple[float], got " + str(len(extracted_state))
+    lines, extracted_state = _v1_or_raise(result, "TransformAgent", 2, 3)
+    is_colliding = lines[2].split(": ")[-1].strip() == "True"
     agent_state = {
         'translation': tuple(map(float, extracted_state[0].split(', '))),
         'rotation': tuple(map(float, extracted_state[1].split(', '))),
@@ -123,13 +141,11 @@ def TransformHands(leftTranslation: Tuple[float],
         "rightRotation": rightRotation
     }, uri))
     
-    extracted_state = re.findall(r'\((.*?)\)', result, re.DOTALL)
-    lines = result.split("\n")
+    lines, extracted_state = _v1_or_raise(result, "TransformHands", 4, 9)
     object_hovered_over_left = lines[2].split(": ")[-1]
-    is_gripped_state_left = True if lines[3].split(": ")[-1] == "True" else False
+    is_gripped_state_left = lines[3].split(": ")[-1].strip() == "True"
     object_hovered_over_right = lines[7].split(": ")[-1]
-    is_gripped_state_right = True if lines[8].split(": ")[-1] == "True" else False
-    assert len(extracted_state) == 4, "Expected 4 Tuple[float], got " + str(len(extracted_state))
+    is_gripped_state_right = lines[8].split(": ")[-1].strip() == "True"
     current_state = {
         'leftTranslation': tuple(map(float, extracted_state[0].split(', '))),
         'leftRotation': tuple(map(float, extracted_state[1].split(', '))),
@@ -143,18 +159,24 @@ def TransformHands(leftTranslation: Tuple[float],
     return current_state
 
 def ToggleLeftGrip(uri: str="ws://localhost:8080/commands"):
+    # The single-agent /commands handler names this `ToggleLeftHandGrip`
+    # (SariAgentCommandBehavior.cs). The bare `ToggleLeftGrip`/`ToggleRightGrip` names live only in
+    # SariMultiplayerBehavior.cs (a different ws path); sending them here lands in the sim's
+    # `default: Unknown command` branch, so the hand never grips (translation still works). Verified
+    # live 2026-07-22: `ToggleLeftGrip` -> "Unknown command", `ToggleLeftHandGrip` -> "Left Grip: True".
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
-        "command": "ToggleLeftGrip"
+        "command": "ToggleLeftHandGrip"
     }, uri))
 
     if "True" in result:    return {"gripped": True}
     return {"gripped": False}
 
 def ToggleRightGrip(uri: str="ws://localhost:8080/commands"):
+    # See ToggleLeftGrip: the /commands handler uses `ToggleRightHandGrip`, not `ToggleRightGrip`.
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
-        "command": "ToggleRightGrip"
+        "command": "ToggleRightHandGrip"
     }, uri))
-    
+
     if "True" in result:    return {"gripped": True}
     return {"gripped": False}
 
@@ -187,6 +209,34 @@ def RequestJson(uri: str="ws://localhost:8080/commands"):
     }, uri))
     return result
 
+def RequestLidarCenter(uri: str="ws://localhost:8080/commands") -> Dict[str, Any]:
+    """Depth (metres) along the agent's *actual pitched gaze* at the CENTRE pixel, plus the pose to
+    decompose it. Phase D - the metric distance the manipulation router plans a reach from, replacing
+    the removed monocular depth hint (see slamtest/plans/phaseD_reach_and_grab.md).
+
+    Returns the sim's JSON reply parsed to a dict:
+        {distance, hit, pitch_deg, camera_height, min_range, max_range}
+      - distance     : slant range along the gaze ray (m). On a MISS it equals max_range.
+      - hit          : False when nothing solid is under the centre within range (gap / occlusion /
+                       too far). Callers must NOT plan a move off a miss - distance is meaningless.
+      - pitch_deg    : gaze pitch, + = looking DOWN.  camera_height : ray-origin world Y (m).
+                       Bundled by the sim (LidarSensor.CenterSample) so Python never assumes the
+                       VR-vs-IK prefab pitch or eye height.
+
+    Unlike TransformAgent/TransformHands (V1 regex-TEXT replies), this command returns JSON - parse
+    it as JSON. The hands are LiDAR self-culled (LidarSensor culledBySelf), so an active hand does
+    not occlude this read. A pre-Phase-D sim build omits pitch_deg/camera_height; plan_reach treats
+    that as `unavailable` and the caller falls back to a blind reach.
+    """
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "RequestLidarCenter"
+    }, uri))
+    try:
+        return json.loads(result)
+    except (ValueError, TypeError):
+        # Sim sent a plain-text error (e.g. "Error: no camera found for agent") instead of JSON.
+        return {"hit": False, "error": str(result)}
+
 
 # main controls
 _MOVE_FWD_ = lambda: TransformAgent((0, 0, 0.1), (0, 0, 0))
@@ -213,31 +263,33 @@ _ROT_RIGHT_CLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 
 _ROT_RIGHT_CTRCLOCK_ = lambda: TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, -15, 0))
 _REQUEST_SCREENSHOT_ = lambda prefix="", suffix="", folder_name="", save_image=False: RequestScreenshot(prefix, suffix, folder_name, save_image)
 
-# NOTE: the _MOVE_*_ lambdas above are RAW WORLD-AXIS moves (kept only as low-level primitives).
-# The public move_* functions below are HEADING-RELATIVE and are what the agent/actions.py use.
-def _heading_world_delta(forward, right, uri="ws://localhost:8080/commands"):
-    """Rotate a body-relative (forward, right) step of 0.1 into a world (x, 0, z) delta using the
-    agent's current yaw. TransformAgent translation is WORLD-space - it does NOT respect facing -
-    so move_* must rotate the request themselves, matching the nav layer (explore.py) and the
-    'move_forward moves along your current heading' promise in the system prompt.
-
-    BUG FIXED 2026-07-21: move_forward used to send raw world +Z, so whenever the agent faced -Z
-    (yaw~180, the usual shelf-facing orientation) 'move forward to approach the shelf' drove it
-    BACKWARD. Verified in pickup_runs/0721_152211_graph: move_forward at yaw~200 moved pos +0.5 in
-    world Z (away from the faced shelf). Y is held at 0 so the body stays level even when the camera
-    is pitched at a low/high shelf."""
-    yaw = math.radians(TransformAgent((0, 0, 0), (0, 0, 0), uri)["rotation"][1])
-    s, c = math.sin(yaw), math.cos(yaw)
-    return (forward * s + right * c, forward * c - right * s)
-
+# NOTE: the _MOVE_*_ lambdas above are already the correct BODY-RELATIVE (egocentric) primitives:
+# _MOVE_FWD_ = (0,0,0.1) means "0 right, 0 up, 0.1 forward". The sim rotates that into world space
+# itself (see _move_relative). The public move_* functions below build the same body-relative
+# vectors from a (forward, right) pair and are what the agent/actions.py use.
 def _move_relative(forward, right, units):
+    """Step the agent `units` x 0.1m along a BODY-RELATIVE (forward, right) direction.
+
+    The sim's TranslateAgent treats the incoming translation as EGOCENTRIC - (x=right, y=up,
+    z=forward) - and rotates it into world space itself via EgocentricToWorldTranslation using the
+    agent's current facing. So move_* must send the RAW body-relative vector and must NOT pre-rotate
+    it by yaw; pre-rotating double-rotates the step. Y is held at 0 so the body stays level even
+    when the camera is pitched at a low/high shelf.
+
+    MEASURED / DE-SYNC 2026-07-22: the sim flipped its TranslateAgent contract from world-space to
+    egocentric (SariSandboxV2 commit 3940ce7, merged to main 2026-07-21 22:33 - the WebSocket
+    dispatcher's `case "TransformAgent"` is commented out and FALLS THROUGH to `case
+    "TranslateAgent"`, which now wraps the input in `agent.EgocentricToWorldTranslation(...)`). The
+    previous world-space workaround here (a `_heading_world_delta` that rotated by yaw in Python,
+    added 2026-07-21 daytime against the OLD world-space sim) became a SECOND rotation after that
+    merge, so move_forward drifted off at an angle equal to the agent's yaw - the "forward isn't
+    forward" bug. Fix: send the body-relative vector unrotated and let the sim own the one rotation.
+    Re-verify with probe_translation.py if the sim's dispatcher contract changes again."""
     units = min(units, 10)
     if units <= 0:
         return
-    # Yaw is read once - a pure translation does not rotate the agent, so it is constant here.
-    dx, dz = _heading_world_delta(forward, right)
     for _ in range(units):
-        TransformAgent((dx, 0.0, dz), (0, 0, 0))
+        TransformAgent((right, 0.0, forward), (0, 0, 0))
 
 def move_forward(units):
     if units > 10:
