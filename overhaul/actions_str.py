@@ -49,6 +49,7 @@ MANIPULATION_ACTIONS = (
     "grip_left: Toggle left grip (times value is ignored).\n"
     "grip_right: Toggle right grip (times value is ignored).\n"
     "extend_arm_until_grabbed: Extend the LEFT hand straight forward until a grabbable item is under it, grip it, then retract to the starting pose (times value is ignored). Works ONLY in *manipulation* mode - the hands are inactive in perception/navigation mode, so calling it there does nothing. It does NOT aim and does NOT move the body, so centre the item first; if it reports gripped=False the item was out of reach - move the body closer, then RE-CENTER (center_object_on_screen) before retrying.\n"
+    "checkout_held_item: Emit THIS to check out a held item in ONE deterministic step - it drives to the self-checkout counter, squares onto the scan pad, scans the held item, and bags it in the tray. Do NOT hand-sequence the driving / aligning / scanning / placing yourself - this single action does all of it (times value is ignored). Works ONLY in *manipulation* mode, and ONLY when the CURRENT GOAL is a checkout/scan-and-bag subtask - if your goal is merely to pick something up, do NOT check out; finish by emitting STOP and a later agent handles the checkout. Afterwards, read `last_checkout` in the state: STOP only once it shows scanned AND placed; if it did not scan or bag, re-emit checkout_held_item or reposition per its reason.\n"
 )
 
 ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS

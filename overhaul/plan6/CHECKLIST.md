@@ -159,6 +159,14 @@ zero drops. The original failure mode (item dropped at the first mode transition
     also returns `lateral` now. **M2/M4 effectively PASS** — align converges and the pad centres well
     enough to scan across runs. **`place_held_item` released cleanly** (clip-standoff working); the
     tray envelope still wants the finding-8 re-measure, but the drop mechanics are sound.
+11. **Drop-centring tolerance LOOSENED (user, 2026-07-23, post-acceptance refinement):** the finding-8
+    fix required a dead-centre (`outcome=='success'`, residual ≤ 20 px) tray lock before releasing —
+    stricter than needed; the drop only has to land ON the tray, not at its centre. `place_held_item`
+    now releases when the LiDAR ray (frame centre = the drop point) falls within the inner
+    `PLACE_TRAY_EDGE_MARGIN = 0.6` of the **tray's own bbox** (`_ray_in_box`), so an off-centre but
+    not-near-the-lip lock is accepted; ray out near the lip → re-centre → abort holding. Still safe
+    from finding-8 (the check is against the TRAY box, so an off-centre accept can't drift onto the
+    scanner). Tunable via `edge_margin`; bigger = more permissive but riskier at the lip.
 
 ### Checklist
 
@@ -245,7 +253,7 @@ unverified-at-edge — re-measure via the gate CSV if a drop ever misses).
 
 ---
 
-## 6.3 — Orchestrator hardening: typed subtasks + deterministic completion — **PLANNED 2026-07-23**
+## 6.3 — Orchestrator hardening: typed subtasks + deterministic completion — **BUILT 2026-07-23 (offline + wiring + restructure + map planning); GATE PENDING**
 
 > **Replanned 2026-07-23** to absorb the 6.2 restructure — full plan:
 > `slamtest/plans/phase6/phase6.3_orchestrator_hardening.md`. Key change vs the master plan's 6.3:
@@ -254,47 +262,204 @@ unverified-at-edge — re-measure via the gate CSV if a drop ever misses).
 > (`store_map.checkout_held_item(nav)`, 6.2 finding 7); the VLM emits the typed subtask and calls
 > the one tool, never sequencing align/sweep/place. Pre-flight (Gate 6.2 recorded): SATISFIED
 > 2026-07-23 — 6.3 is unblocked end-to-end.
+>
+> **Extended 2026-07-23 (user request):** the orchestrator was restructured to be eval_pickup-shaped
+> (`run_subtask` → `run_leg` = `run_one` generalised: `--arm {vlm,graph}`, per-leg caps, crash-proof
+> JSONL, honest `end_reason`; eval_pickup FROZEN), and made MAP-AWARE (plan-time resolver, leg
+> ordering, `nearest_checkpoint` feed, compare visited-both). Everything except the live supervised
+> gate is built and offline-verified — **66/66 offline tests pass**; typed decomposer A/B 11/11 clean;
+> a live decompose→plan→order on the gate task resolves the pickup leg to real checkpoints
+> ([26,45,52]) in one resolver call.
 
 ### Checklist
 
-- [ ] **Offline first — typed decomposer A/B** (`plan6/test_files/ab_decompose.py` +
-      `decompose_battery.json`, ~10 prompts: four families + anti-keyword paraphrases like
-      "obtain"/"deposit"/"leave it at the till"); eyeball the JSON before wiring in. One LLM call
-      per prompt, no sim.
-- [ ] **Offline — completion predicates as pure functions** +
-      `plan6/test_files/test_completion_predicates.py` (grant / refuse / the old guards' known
-      misses: released-in-aisle, paraphrased pickup, scanned-but-not-bagged). Refusal cap included.
-- [ ] **Typed decomposer wired**: `decompose_task` returns objects (`type ∈ pickup | checkout |
-      compare | goto`, closed vocabulary); parse-failure fallback → `{"type": "unknown"}` keeps the
-      old keyword guards, logged as `untyped`. Decomposer prompt teaches checkout = scan + bag as
-      ONE subtask (the macro owns the navigation too).
-- [ ] **Dispatch wiring (the deferred 6.2 debt)**: `checkout_held_item` + `go_to_counter` exposed
-      as dispatchable actions (mode-gated like the rest); macro result surfaced as `last_checkout`
-      (the `last_reach`/`last_scan` state-channel pattern). The checkout internals
-      (`align_to_scanner` / `scan_held_item` / `place_held_item`) are NOT individually exposed.
-- [ ] **Code-side completion predicates** in `run_subtask` (the VLM's STOP becomes a *request*
-      code grants or refuses): pickup = grip + name overlap (`eval_pickup.name_matches`);
-      checkout = `last_checkout.scanned` AND `.placed` (both measured) AND no grip; compare =
-      choice named from `targets` (observation logged for 6.4 audit); goto = nearest checkpoint
-      matches; unknown = old keyword guards.
-- [ ] **Refusal cap**: 3 refused halts on a leg → force-continue with the reason in state
-      (`last_halt_refused`); leg marked `halt_forced` (6.4 counts these). The cap forces
-      continuation of the LOOP, never a fake grant.
-- [ ] Compare tasks decompose into **physical inspection** legs (route to both candidates; criterion
-      resolved from the camera, never the product index alone).
-- [ ] **NOT doing**: a verifier LLM grading completion from screenshots — tighten predicates
-      instead; a judge model is last resort and never feeds the headline number. Also NOT
-      re-exposing the checkout internals as agent actions "for flexibility".
+- [x] **Offline — typed decomposer A/B** (`plan6/test_files/ab_decompose.py` + `decompose_battery.json`,
+      11 prompts: four families + anti-keyword paraphrases obtain/deposit/till/pay/fetch). RAN live vs
+      qwen 2026-07-23 → **11/11 typed decompositions parsed with NO `unknown` degradation**, every type
+      sequence matched expectation (dump: `plan6/test_files/ab_decompose_out.json`). See finding 1.
+- [x] **Offline — completion predicates as pure functions** (`subtask_completion.py`) +
+      `plan6/test_files/test_completion_predicates.py` — **28/28 pass**, incl. the three failures the
+      old keyword guards got wrong (wrong-item grab, scanned-but-not-bagged, paraphrased pickup) and
+      the parser's typed/legacy/garbage fallbacks. Runs in ms (the logic is in a sim-free module, NOT
+      subtask_agents which pulls the model stack).
+- [x] **Typed decomposer wired**: `decompose_task` now returns typed dicts via
+      `subtask_completion.parse_decomposition`; parse-failure / untypeable element → `{"type":
+      "unknown"}` handled by the old keyword guards (warned as `untyped`). Prompt teaches checkout =
+      scan + bag as ONE subtask. `run_subtask`/`orchestrate` thread the dict (`text` is agent-facing).
+- [x] **Dispatch wiring (the deferred 6.2 debt)**: `checkout_held_item` exposed as a dispatchable,
+      manipulation-gated macro action — advertised in `actions_str.MANIPULATION_ACTIONS`, dispatched
+      via new `agent._checkout_held_item()` (runs `store_map.checkout_held_item(nav)` on the cached
+      carry-safe nav session), result surfaced as `last_checkout`. Wrong-mode emit blocks and
+      self-corrects via `last_action_blocked` (same loop as `extend_arm_until_grabbed`). The checkout
+      internals (`align_to_scanner`/`scan_held_item`/`place_held_item`) are NOT individually exposed.
+      (`go_to_counter` primitive `agent._navigate_to_counter` stays available; the macro drives itself,
+      so a separate goto-counter dispatch wasn't needed for the fetch-to-counter path.)
+- [x] **Code-side completion predicates** in `run_subtask` (STOP is now a *request* code grants or
+      refuses via `completion_predicate`): pickup = grip + `name_overlap` (re-homed `name_matches`,
+      now shared with eval_pickup); checkout = `last_checkout.scanned` AND `.placed` AND no grip;
+      compare = choice named from `targets` (observation logged, not judged); goto = nearest == target
+      checkpoint; unknown = old keyword guards verbatim.
+- [x] **Refusal cap**: `HALT_REFUSAL_CAP = 3` refused halts on a leg → force-END the leg
+      (`halt_forced=True` in the leg result, reason left in `last_halt_refused`), never a fake grant.
+- [x] Compare decomposes into **physical inspection** legs — validated by the A/B (family 3 →
+      `goto → compare(criterion) → pickup → checkout`); the predicate checks the *choice* in code and
+      logs the observation for the 6.4 camera-grounded audit.
+- [x] **NOT done, on purpose**: no verifier LLM grading completion from screenshots; no re-exposing
+      the checkout internals as separate agent actions.
+
+#### Restructure + map-aware planning (2026-07-23, user request — finding 4)
+
+- [x] **`run_subtask` → `run_leg`** = `eval_pickup.run_one` generalised: per-leg caps
+      (`--max-steps`/`--max-minutes`), crash-proof per-leg JSONL + one-dir-per-leg screenshots,
+      `try/except` execute_lean + 3-error cap, parse-error tolerance, honest `end_reason ∈
+      {halt_granted, halt_forced, step_cap, time_cap, errors}`. Differences from run_one: predicate
+      stop (not auto-grip), semantic/episodic memory PERSISTS across legs, map-aware. **eval_pickup.py
+      FROZEN** (4.2 baseline; harness duplication is the accepted cost). `--match` dropped (the typed
+      pickup predicate grounds success). A failed leg ABORTS remaining legs.
+- [x] **CLI** now eval_pickup-shaped: `--arm {vlm,graph}` (default **graph**), `--task`,
+      `--max-steps`, `--max-minutes`, `--out`, `--run-dir` (+ bare positional task still works). One
+      run-dir per task: `leg<NN>.jsonl` + `leg<NN>/step<NN>.png` + `summary.json` (kills the old
+      SIM_RUNS2/SIM_RUNS3 split).
+- [x] **#1 Plan-time map resolution** (`subtask_planning.plan_legs`, sim-free module +
+      `test_subtask_planning.py` 12/12): resolver runs ONCE per pickup/goto/compare target before any
+      sim motion → `candidates` / `target_checkpoint` / `candidate_sets` on the leg; `feasible=False`
+      flags a doomed leg up front. `agent.seed_nav_candidates()` makes `_graph_navigate` reuse the
+      plan-time candidates instead of re-resolving (no plan/execution disagreement). Location naming
+      stays semantic (decomposer never emits ids).
+- [x] **`nearest_checkpoint` state feed** each step (from the live pose the refresh already fetched +
+      `StoreMap.nearest_checkpoint`, no extra round-trip) → **closes finding 2's goto `[unverified]`
+      gap**; also grows the task-level visit trace.
+- [x] **#3 `order_legs`**: reorders independent (pickup→checkout) pairs nearest-first by hops;
+      conservative (clean-pairs only, else unchanged). **#4 compare visited-both**: compare predicate
+      requires each candidate's checkpoint in the visit trace before granting (defensive `[unverified]`
+      if unresolved).
+- [ ] **Deferred (own step, 6.4 prep)**: decomposer store-index (enhancement #2 — lets budget family
+      fan out to N items + gives compare distinct SKUs; a prompt change needing its own A/B); grounded
+      findings summary (#5). Noted, not built.
+
+### Findings (2026-07-23)
+
+1. **Typed decomposer A/B — 11/11 clean, all sequences sane.** The anti-keyword paraphrases that
+   defeat the old guard ("...deposit them at the till", "pay", "checked out", "fetch...leave it at
+   the self-checkout") ALL produced `pickup → checkout` with checkout as ONE leg — never a goto+place
+   pair. Family 3 produced `goto → compare → pickup → checkout` with a criterion. Two honest limits to
+   carry into 6.4: (a) **family 4 (budget) decomposes to a SINGLE item**, not an accumulate-to-budget
+   loop — the budget rides in the text but the plan doesn't fan out to N items; (b) **compare
+   `targets` are sometimes non-distinct** (`["Pik Nik","Pik Nik"]`, or collapsed to one string) when
+   the prompt doesn't name the two variants — the choice check still works (token overlap), but 6.4's
+   audit should watch it.
+2. **goto predicate feed — NOW WIRED (was the open item; closed by the restructure).** `run_leg`
+   localises `state['nearest_checkpoint']` each step from the live pose + the map, and `plan_legs`
+   resolves `target_checkpoint` at leg start — so a `goto` leg is checked against real checkpoints,
+   not granted `[unverified]`. (The `[unverified]` path survives only as the honest fallback when a
+   target genuinely doesn't resolve.)
+3. **New files**: `subtask_completion.py` + `subtask_planning.py` (light modules),
+   `plan6/test_files/test_completion_predicates.py`, `test_subtask_planning.py`, `decompose_battery.json`,
+   `ab_decompose.py`. **Edited**: `subtask_agents.py` (typed decompose, `run_leg` restructure, plan/order,
+   predicate halt-gate + cap, checkout dispatch, map feed, eval_pickup-shaped `main`), `agent.py`
+   (`_checkout_held_item`, `seed_nav_candidates`, `_graph_navigate` seed-reuse), `actions_str.py`
+   (advertise checkout), `eval_pickup.py` (`name_matches` re-homed — otherwise FROZEN).
+4. **Restructure + map planning — offline-validated (2026-07-23).** `run_leg` is `run_one`
+   generalised (per-leg caps, JSONL, error tolerance, predicate stop, persistent memory, map-aware);
+   `--arm graph` gives the orchestrator the measured-better navigator (long-horizon tasks multiply nav
+   legs). Live check on the gate task: decompose → `plan_legs` resolves `pickup(green Piattos)` to
+   `[26,45,52]` in ONE resolver call, `checkout` resolves nothing (drives itself), `order_legs` no-op
+   (non-pair structure), all feasible. Two A/B limits from finding 1 still stand and are now the honest
+   frontier for the map work: **family-4 budget → single item** (enhancement #2, deferred, would let it
+   fan out) and **compare non-distinct `targets`** (which weakens #4's `candidate_sets` resolution when
+   the two variants aren't named — #2 would fix this too). Both are 6.4-prep, not gate blockers.
+5. **First live pickup leg — resolver+graph WORK; two leg-boundary leaks found + fixed (2026-07-23).**
+   A live run got the full pickup leg right end-to-end: plan-seeded cp45 (after cp45 path-blocked on an
+   earlier run, the graph correctly cycled candidates), center → measured MOVE (slant 1.13 > 0.85) →
+   close → re-center → **grip on the real SKU** `JACK_AND_JILL_PIATTOS_..._40G`. But at the grip it did
+   NOT stop: (a) it kept going after the pickup goal was met — the semantic learner had written leg-2's
+   *"transport to the self-checkout"* intent into PERSISTENT memory, which the router then recalled and
+   pursued ("the task" ambiguity: mission vs leg); and (b) it emitted `checkout_held_item` ON THE PICKUP
+   LEG, and the old mode-gate replied *"route to manipulation first"* — actively steering it to run the
+   whole checkout early (which would empty the hand, then the pickup predicate refuses STOP forever →
+   cap). **Fixes (all built, offline-verified):**
+   - **Leg-scoped tool gate** — `checkout_held_item` is dispatchable ONLY on a `checkout` leg
+     (`dispatch_action(leg_type=...)`, checked BEFORE the mode-gate); a wrong-leg emit is redirected to
+     STOP, not to manipulation. Advertisement text + `MANIPULATION_ACTIONS` updated to say "only during
+     a checkout subtask".
+   - **Measured STOP nudge** — `run_leg` runs the completion predicate SILENTLY each step; when the
+     CURRENT GOAL measurably holds it injects `state['goal_check']` (a first-class state field, doc'd in
+     `sys_inst`) telling the router the leg is done → emit STOP. The agent still chooses (not an
+     auto-end — preserves the stop-condition measurement).
+   - **Completion backstop** — the symmetric twin of the refusal cap: goal met for `COMPLETION_BACKSTOP
+     = 3` consecutive steps without a STOP ends the leg `success=True`, `end_reason="completed_no_stop"`
+     (counted, so 6.4 reports self-stop vs backstop as the completion-detection health signal).
+   - **Prompt sentence** — the `CURRENT GOAL` line now says future goals belong to a different agent;
+     this one is leg-task text (not the decomposer), so its real test is the live gate, not an offline
+     battery.
+6. **False STOP refusal on a real grip — hovered clears after retract; FIXED with a durable
+   `gripped_name` (measured live 2026-07-23).** The next run gripped the right SKU but the pickup
+   halt was refused: *"gripping, but the held item ('null'/'null') does not match target"*. Cause: the
+   predicate matched against the LIVE `<side>HoveredObject` fields, which clear to 'null' once the
+   hand retracts from the shelf — eval_pickup's own comment documents this false-negative (it dodged
+   it by checking at the instant of grip; our halt comes steps later). Fix: `run_leg` captures the
+   grab tool's reported name AT the grip into `state['gripped_name']` (sticky while a hand grips,
+   cleared the moment nothing grips so a stale name can never vouch for an empty hand);
+   `name_matches` now includes it in the match blob (empty for eval_pickup — backward-safe). The
+   check is not loosened: a remembered WRONG item is still refused, and the refusal now names what is
+   actually held. Regression-tested offline (the exact 'null'/'null' scenario + the wrong-item case;
+   35/35).
+7. **Consistency audit of subtask_agents.py + cross-check vs overhaul/slamtest/sim (2026-07-23) — 7
+   issues found, all fixed; 68/68 offline after.** The load-bearing one: **checkout legs were UNSEEDED**,
+   so a navigation-mode step on a checkout leg would make the runtime resolver re-resolve the leg's
+   augmented text — which NAMES the carried product — and could drive the carrying agent BACK to the
+   shelf it just left. Fix: `plan_legs` seeds checkout legs with the counter checkpoint (verified [54]
+   on the real map, zero LLM). Also fixed: stale `goal_check`/backstop streak surviving a halt refusal
+   (agent could see a refusal and a "you're done" nudge simultaneously); the resolver `llm_calls`
+   count (step-1 heuristic → exact `_nav_task`-transition detection); the leg's STARTING checkpoint
+   missing from the visit trace (a compare leg starting at a candidate got no credit); dead code
+   (`reset_hands_in_front2` import, `EXTRACTABLE_JSON`, `sys`); four stale `run_subtask` docstring refs;
+   and `sys_inst` state-doc entries r/s/t for `last_halt_refused` / `last_checkout` /
+   `nearest_checkpoint` (the agent saw these fields raw with no explanation of how to react). Cross-check
+   found nothing missing: perception exports all six functions the checkout macro imports; store_map has
+   the macro + align; the sim side needs nothing new beyond the two already-filed asks
+   (`RequestCheckoutState`, item-world-position). One honest note: `_fresh_agent_state` is shared with
+   eval_pickup, so the new state fields (all `None`/inert there) do appear in the frozen baseline's
+   prompt surface — its loop and metrics are untouched, but a future strict A/B rerun should know the
+   state dict grew.
+8. **`return_to_start` made opt-in (default OFF) — user request (2026-07-23).** It returned to the
+   spawn pose before every run, which is awkward + inefficient for interactive use and adds no
+   capability (it's eval-reproducibility machinery: makes a batteried run start each task identically;
+   pose-only, never `env.Reset()`). Now `reset_start=False` by default; CLI flag flipped from
+   `--no-reset` to `--reset-start` (opt-in). 6.4's `eval_longhorizon` will pass `reset_start=True` for
+   comparable metrics. Bonus: leg ordering now uses the agent's ACTUAL current pose
+   (`_current_nearest_cp`, a zero-delta pose read) instead of an assumed spawn corner, so multi-fetch
+   ordering is correct whether or not the reset ran.
+9. **Saved logging images capped at 1080p; functional images stay native — user request
+   (2026-07-23).** The rule: on-disk debug frames are capped at 1920×1080; anything a model/algorithm
+   consumes (VLM input, OCR crop, verifier frame, depth map, zoom tile) stays native. Most of this
+   already existed — `env.downscale_for_storage` + `MAX_SAVE 1920×1080`, and env's `save_image=True`
+   path already caps on disk while returning full-res bytes (so every `RequestScreenshot(save_image=
+   True)` and `capture_walk` was already handled; depth maps deliberately excluded). Newly routed
+   through it: the harness step frames (`subtask_agents.run_leg`, `eval_pickup.run_one` — the VLM gets
+   the NATIVE bytes via base64; only the `stepNN.png` on disk is capped) and perception's two
+   debug-only annotated frames (`annotated_target.png`, `_draw_debug_frame`) via a new PIL sibling
+   `env.downscale_pil_for_storage`. Left native by design: `store_map.NavSession.screenshot`
+   (locate/verify VLM input), `locate_task` zoom tiles, OCR crops, depth. The probe crosshair frames
+   (`reach_probe`/`place_probe`) already comply transitively — they load from the already-capped
+   `ClientScreenshot.png`. Verified: 4K→1920×1080 (aspect kept), ≤1080p passes byte-for-byte, native
+   return preserved; offline suite green.
 
 ### Gate 6.3 — one supervised end-to-end run 🎮
 
-> `"get the green Piattos and bring it to the checkout counter"` watched live: sane typed
-> decomposition (a `pickup` leg + a `checkout` leg, no invented locations), pickup halt refused
-> until a real grip on a name-matching item, checkout halt refused until the macro reports
-> scanned AND placed, findings summary between legs, refusal cap never silently fires.
+> `python subtask_agents.py "get the green Piattos and bring it to the checkout counter"` (defaults to
+> `--arm graph`) watched live: sane typed decomposition (a `pickup` leg + a `checkout` leg, no invented
+> locations — CONFIRMED offline, resolves the pickup to `[26,45,52]`), pickup halt refused until a real
+> grip on a name-matching item, checkout halt refused until the macro reports scanned AND placed,
+> findings summary between legs, refusal cap never silently fires; `summary.json` + per-leg JSONL land
+> in the run-dir (`overhaul/subtask_run_outputs/<ts>_graph/`).
 > **Pass = one clean run + honest notes on every intervention.**
+>
+> **Result: PENDING** — needs the sim in Play mode + a human watching. All code built and
+> offline-verified (66/66); this is the only remaining 6.3 step.
 
-**Result:** —
+**Result: PENDING** — needs the sim in Play mode + a human watching. All code is built and
+offline-verified; this is the only remaining 6.3 step.
 
 ---
 

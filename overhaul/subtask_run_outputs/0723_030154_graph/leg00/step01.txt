@@ -1,0 +1,40 @@
+=== STEP 1 | mode=perception | halt=False ===
+
+--- NAV NOTE ---
+## ARRIVED VIA NAVIGATOR: checkpoint 45, facing a shelf holding Chips, Noodles. This shelf unit displays a mix of Filipino snack chips and instant noodle products, arranged with chips (Piattos, Clover Chips, Pringles, Criss Cross, Corn Chips) on the upper shelves and instant noodle/pancit canton packets and cup noodles on lower shelves, with a stocking table below holding more noodle products. If the target is not visible here, choose *navigation* mode again and you will be taken to the next candidate location.
+
+
+--- MODE ROUTER (semantic) ---
+```json
+{
+  "new_semantic_memory": "The agent starts at the back of the store near aisle 2. Green Piattos are a specific snack item located in the chips section. Checkpoint 45 is explicitly noted to contain Piattos on its upper shelves.",
+  "recall": "The goal is to pick up green Piattos. The semantic memory indicates that Checkpoint 45 (Chips, Noodles) contains Piattos on the upper shelves. The agent is currently at the back of the store and needs to navigate to the chips aisle. I will navigate towards the aisle marked 'Chips' to locate the target.",
+  "mode": "navigation"
+}
+```
+
+--- VLM ACTOR OUTPUT ---
+```json
+{
+  'reasoning': 'I have arrived at the shelf containing chips and noodles. The target item, green Piattos, is clearly visible on the upper shelf, slightly to the left of the center of my view. To prepare for grabbing, I need to center the target on the screen. I will use the perception action to center the object.',
+  'actions': ['center_object_on_screen'],
+  'times': [1],
+  'notes': {
+    'main_goal': 'Pick up the green Piattos.',
+    'sub_goal': 'Center the green Piattos on the screen.',
+    'key_info': 'Green Piattos are visible on the upper shelf, left of center.',
+    'status': 'Target located. Centering for manipulation.',
+    'item_name': 'green Piattos',
+    'checklist': '[ ] green Piattos'
+  }
+}
+```
+
+--- EPISODIC REFLECTION ---
+```json
+{
+  "dense_summary": "The agent arrived at Checkpoint 45 (Chips, Noodles) in perception mode. It identified the target, green Piattos, on the upper shelf, slightly left of center. The agent executed the 'center_object_on_screen' action to align the target for potential manipulation.",
+  "what_worked": "The agent successfully utilized semantic memory to navigate to the correct aisle (Checkpoints 45) and correctly identified the target object (green Piattos) within the visual field. Using 'center_object_on_screen' was the correct strategic choice to prepare for interaction, ensuring the target is optimally positioned for subsequent actions like grabbing.",
+  "what_to_avoid": "The agent should avoid relying on manual panning (pan_left/pan_right) for final alignment, as 'center_object_on_screen' provides a more robust and verified centering. In future steps, if the grab fails, the agent should trust visual cues regarding the object's position and orientation rather than assuming numerical coordinates are perfectly aligned, and potentially re-center or adjust tilt if the object is on a high shelf."
+}
+```

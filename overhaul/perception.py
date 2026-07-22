@@ -170,7 +170,8 @@ def annotate_target(ymin, xmin, ymax, xmax, file_path='screenshots/ClientScreens
     y0, y1 = max(0, min(y0, H - 1)), max(0, min(y1, H - 1))
     draw.rectangle([x0, y0, x1, y1], outline="red", width=3)
     draw.text((x0, max(0, y0 - 12)), "Target", fill="red")
-    image.save('screenshots/annotated_target.png')
+    # Debug-only annotated frame: cap on disk at 1080p (drawn at capture res, which may be 4K).
+    downscale_pil_for_storage(image).save('screenshots/annotated_target.png')
 
 
 def _draw_debug_frame(frame_path, boxes, chosen, aim_xy, out_path):
@@ -196,7 +197,8 @@ def _draw_debug_frame(frame_path, boxes, chosen, aim_xy, out_path):
         ax, ay = int(aim_xy[0] * sx), int(aim_xy[1] * sy)
         draw.line([(ax - 28, ay), (ax + 28, ay)], fill="lime", width=3)
         draw.line([(ax, ay - 28), (ax, ay + 28)], fill="lime", width=3)
-        img.save(out_path)
+        # Debug-only frame: cap on disk at 1080p (the detection ran on the full-res `image`, not this).
+        downscale_pil_for_storage(img).save(out_path)
     except Exception as e:
         print(f"[CENTER] debug frame save failed: {type(e).__name__}: {e}")
 
@@ -785,9 +787,31 @@ def scan_held_item(hand="left", baseline=None, max_extend=25, fuzzy_ratio=0.8, d
 # fully (an item passing through the scan zone is fine, and it is never released there).
 PLACE_CLIP_STANDOFF_M = 0.1
 
+# How off-centre a tray lock may be and still release (user, 2026-07-23): the drop does NOT need to be
+# dead-centre, only ON the tray and not out at the lip. The LiDAR samples FRAME CENTRE (= the drop
+# point); we accept when that point lands within the inner `edge_margin` fraction of the tray's OWN
+# bounding box - so at 0.6 the ray may sit up to 60% of the way from the box centre toward an edge,
+# leaving a 40% margin to the lip. Bigger = more permissive (fewer aborts) but riskier near the lip
+# (the aim confound - items catching the near lip roll off). Measured against the TRAY box, so an
+# off-centre accept can NOT drift onto the scanner (that was finding-8's center_to_COUNTER failure).
+PLACE_TRAY_EDGE_MARGIN = 0.6
+
+
+def _ray_in_box(box, edge_margin):
+    """True if the LiDAR sample point (frame centre) falls within the inner `edge_margin` fraction of
+    `box`. Robust to aim_norm: computed from the box + the fixed frame centre, not the residual."""
+    if not box:
+        return False
+    ray_x, ray_y = ORIGINAL_WIDTH / 2.0, ORIGINAL_HEIGHT / 2.0
+    half_w = max(1.0, (box["xmax"] - box["xmin"]) / 2.0)
+    half_h = max(1.0, (box["ymax"] - box["ymin"]) / 2.0)
+    return (abs(ray_x - box["cx"]) <= half_w * edge_margin
+            and abs(ray_y - box["cy"]) <= half_h * edge_margin)
+
 
 def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend=25,
-                    clip_standoff=PLACE_CLIP_STANDOFF_M, debug_dir=None):
+                    clip_standoff=PLACE_CLIP_STANDOFF_M, edge_margin=PLACE_TRAY_EDGE_MARGIN,
+                    debug_dir=None):
     """Release the held item onto the checkout bagging tray - the ONE deliberate release in the whole
     checkout chain (everywhere else the grip stays closed). Phase 6.2.
 
@@ -802,11 +826,14 @@ def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend
     verdict (crouch/bail/recenter/unavailable) OR a centre that never locks aborts WITHOUT releasing -
     better to keep carrying than drop the item off the tray.
 
-    RELEASE-GATE (fixed 2026-07-23 after a live run dropped on the scanner pad): a STALLED/INCOMPLETE
-    centre used to fall through to a release, dropping the item wherever the camera gave up. Now the
-    release requires a SUCCESSFUL centre on the tray - a stall re-centres, and repeated stalls abort
-    holding. The target is center_to_tray, NOT center_to_counter (the counter surface's bbox stalls
-    up close and lands near the scanner - that was the same bug's other half).
+    RELEASE-GATE (fixed 2026-07-23 after a live run dropped on the scanner pad; loosened same day):
+    a STALLED/INCOMPLETE centre used to fall through to a release, dropping the item wherever the
+    camera gave up. The release no longer requires a dead-centre lock - it requires the LiDAR ray (the
+    drop point) to fall within the inner `edge_margin` of the TRAY box (_ray_in_box): off-centre is
+    fine, near-the-lip is not, so a stall with the tray still well in frame is accepted. If the ray is
+    out near the lip / off the box, it re-centres; repeated failures abort HOLDING. Safe because the
+    check is against center_to_tray's OWN box, so an off-centre accept can't drift onto the scanner
+    (finding-8 was center_to_counter, whose bbox stalled near the scanner).
 
     CLIP-STANDOFF (user measured, 2026-07-23): the hand can clip THROUGH the counter in the sim, so the
     release does NOT extend to the reach clamp - it stops when the hand's forward z reaches
@@ -850,16 +877,17 @@ def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend
     ready = False
     for iters in range(1, max_approach_iters + 1):
         res = center_to_tray(aim_norm=aim, debug_dir=debug_dir)
-        outcome = res.get("outcome")
-        if outcome == "not_detected":
+        box = res.get("box")
+        if res.get("outcome") == "not_detected" or box is None:
             return {"placed": False, "released": False, "verdict": "not_detected", "distance": None,
                     "surface_height": None, "iters": iters,
                     "reason": "bagging tray not detected - re-approach the counter or pan it into view"}
-        if outcome != "success":
-            # detected but not centred (stalled/incomplete): the centre ray isn't on the tray - do not
-            # plan or release off it. Re-centre next iteration.
-            print(f"  [place] centre not locked ({outcome}, residual {res.get('residual_px')}) - "
-                  f"re-centring (iter {iters}/{max_approach_iters}), NOT releasing")
+        if not _ray_in_box(box, edge_margin):
+            # The drop point (frame centre) is out near the tray lip / off the box - not dead-centre is
+            # fine, but this is too far. Re-centre; do NOT release here.
+            off = (round(ORIGINAL_WIDTH / 2.0 - box["cx"]), round(ORIGINAL_HEIGHT / 2.0 - box["cy"]))
+            print(f"  [place] drop point near the tray edge (ray offset {off} px, outcome "
+                  f"{res.get('outcome')}) - re-centring (iter {iters}/{max_approach_iters}), NOT releasing")
             continue
         plan = plan_place(RequestLidarCenter(), PLACE_ENVELOPE)
         v = plan["verdict"]

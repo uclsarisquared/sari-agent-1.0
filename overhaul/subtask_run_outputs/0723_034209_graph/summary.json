@@ -1,0 +1,42 @@
+{
+  "task": "Get the green Piattos and bring it to the checkout counter",
+  "arm": "graph",
+  "success": true,
+  "legs_planned": 2,
+  "legs_completed": 2,
+  "resolver_calls": 1,
+  "llm_calls": 27,
+  "wall_s": 677.5,
+  "legs": [
+    {
+      "type": "pickup",
+      "text": "Pick up the green Piattos.",
+      "t_manip": 109.9,
+      "t_grip": 199.9,
+      "t_checkout": null,
+      "success": true,
+      "timesteps": 5,
+      "llm_calls": 15,
+      "errors": 0,
+      "halts_refused": 0,
+      "halt_forced": false,
+      "end_reason": "halt_granted",
+      "wall_s": 212.1
+    },
+    {
+      "type": "checkout",
+      "text": "Take the held green Piattos to the self-checkout: scan it and bag it.",
+      "t_manip": 62.8,
+      "t_grip": 38.0,
+      "t_checkout": 367.4,
+      "success": true,
+      "timesteps": 3,
+      "llm_calls": 9,
+      "errors": 0,
+      "halts_refused": 0,
+      "halt_forced": false,
+      "end_reason": "halt_granted",
+      "wall_s": 377.6
+    }
+  ]
+}

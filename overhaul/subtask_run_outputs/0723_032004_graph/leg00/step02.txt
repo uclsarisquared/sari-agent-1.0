@@ -1,0 +1,36 @@
+=== STEP 2 | mode=manipulation | halt=False ===
+
+--- MODE ROUTER (semantic) ---
+```json
+{
+  "new_semantic_memory": "At Checkpoint 45, the green Piattos (Sour Cream & Onion flavor) are located on the upper shelf of the snack unit, positioned between yellow Moby Caramel Puffs and white Clover Chips bags. The shelf also contains Lucky Me Pancit Canton noodles on the lower tier.",
+  "recall": "The target 'green Piattos' is visually confirmed on the upper shelf at Checkpoint 45. The previous step's 'center_object_on_screen' action returned SUCCESS, meaning the target is now aligned with the camera's crosshair. The agent is positioned to interact with the item.",
+  "mode": "manipulation"
+}
+```
+
+--- VLM ACTOR OUTPUT ---
+```json
+{
+  'reasoning': "The target 'green Piattos' has been successfully centered on screen (last_center shows SUCCESS). The agent is now in manipulation mode, which is required for grabbing actions. Since the target is centered and within view, I should use extend_arm_until_grabbed to extend the left hand forward until it grips the item. This is the standard grabbing procedure when the target is centered and the agent is in manipulation mode.",
+  'actions': ['extend_arm_until_grabbed'],
+  'times': [1],
+  'notes': {
+    'main_goal': 'Pick up the green Piattos',
+    'sub_goal': 'Grab the green Piattos using extend_arm_until_grabbed',
+    'key_info': 'Target is centered (last_center: SUCCESS), agent is in manipulation mode, ready to grab',
+    'status': 'Target centered, proceeding to grab',
+    'item_name': 'green Piattos',
+    'checklist': '[ ] green Piattos'
+  }
+}
+```
+
+--- EPISODIC REFLECTION ---
+```json
+{
+  "dense_summary": "The agent successfully navigated to Checkpoint 45 and identified the target 'green Piattos' on the upper shelf. After centering the object on screen, the agent switched to manipulation mode and executed 'extend_arm_until_grabbed' to attempt picking up the item. The sequence demonstrates correct procedural flow from navigation to perception and finally to manipulation.",
+  "what_worked": "The agent effectively followed the standard interaction protocol: navigate to the correct checkpoint, visually locate the target, center it using 'center_object_on_screen', and then attempt to grab using 'extend_arm_until_grabbed'. The use of semantic memory to locate the correct aisle (Checkpoint 45) and the reliance on visual confirmation before acting were key successes. The transition from perception to manipulation mode was handled correctly.",
+  "what_to_avoid": "The agent should avoid attempting to grab items without first ensuring they are perfectly centered, as 'extend_arm_until_grabbed' relies on the camera's center. Additionally, the agent must continue to trust visual cues (the green packaging) over any abstract numerical targets or coordinates. If the grab fails, the agent should not immediately retry without re-centering or adjusting position, as the item might be out of reach or misaligned."
+}
+```

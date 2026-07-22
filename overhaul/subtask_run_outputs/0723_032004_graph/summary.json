@@ -1,0 +1,11 @@
+{
+  "task": "get the green Piattos and bring it to the checkout counter",
+  "arm": "graph",
+  "success": true,
+  "legs_planned": 2,
+  "legs_completed": 0,
+  "resolver_calls": 1,
+  "llm_calls": 2,
+  "wall_s": 390.5,
+  "legs": []
+}

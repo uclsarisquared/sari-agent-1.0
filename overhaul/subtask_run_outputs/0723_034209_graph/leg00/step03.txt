@@ -1,0 +1,40 @@
+=== STEP 3 | mode=perception | halt=False ===
+
+--- NAV NOTE ---
+## MOVED 3 STEP(S) (~0.3 m) FORWARD to close the measured reach gap - you are still facing the same shelf. RE-CENTER on the target with center_object_on_screen (the move shifted it off-centre), then retry the grab in *manipulation*.
+
+
+--- MODE ROUTER (semantic) ---
+```json
+{
+  "new_semantic_memory": "The green Piattos bags are located on the upper shelf of the snack fixture at Checkpoint 45, positioned between yellow Moby bags and orange Pringles cans. The shelf is approximately 1.1 meters away from the standing position, requiring the agent to move forward to reach the items.",
+  "recall": "The target green Piattos are on the upper shelf at Checkpoint 45. The last reach check indicated the agent is too far away (1.10 m vs 0.85 m reach). The agent needs to move forward to close the gap before attempting to grab again.",
+  "mode": "navigation"
+}
+```
+
+--- VLM ACTOR OUTPUT ---
+```json
+{
+  'reasoning': "The previous grab attempt failed because the target was too far away (1.10 m vs 0.85 m reach). The system has moved me forward 3 steps (~0.3 m) to close the gap. Now I am in *perception* mode and need to re-center the target on the screen before attempting to grab again. I will use 'center_object_on_screen' to align the camera with the green Piattos.",
+  'actions': ['center_object_on_screen'],
+  'times': [1],
+  'notes': {
+    'main_goal': 'Pick up the green Piattos.',
+    'sub_goal': 'Re-center the green Piattos after moving closer.',
+    'key_info': 'Moved forward 3 steps to close the distance gap. Target is still visible but may be off-center.',
+    'status': 'Re-centering the target before retrying the grab.',
+    'item_name': 'green Piattos',
+    'checklist': '[ ] green Piattos'
+  }
+}
+```
+
+--- EPISODIC REFLECTION ---
+```json
+{
+  "dense_summary": "The agent navigated from the counter to Checkpoint 45 to locate green Piattos. After successfully centering the target, the initial grab attempt failed due to insufficient reach (1.10m vs 0.85m). The system automatically moved the agent forward to close the gap. The agent then correctly switched to perception mode to re-center the target on the screen in preparation for a second grab attempt.",
+  "what_worked": "The agent effectively used semantic memory to locate the correct aisle and visual cues to identify the specific product. The strategy of centering the object before attempting to grab was crucial for alignment. Additionally, the agent correctly interpreted the feedback from the failed grab, recognizing the need to re-center the view after the positional adjustment, ensuring the target remains aligned for the next manipulation attempt.",
+  "what_to_avoid": "The agent should avoid assuming that being at the correct checkpoint guarantees the item is within immediate reach. In future interactions, always trust visual cues over numerical targets; if a grab fails due to distance, do not blindly retry without re-centering the object visually after moving. Ensure the object is clearly visible and centered before switching to manipulation mode to prevent grab failures due to misalignment or distance issues."
+}
+```

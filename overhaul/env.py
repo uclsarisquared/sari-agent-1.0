@@ -67,6 +67,22 @@ def downscale_for_storage(image_bytes, max_w=MAX_SAVE_W, max_h=MAX_SAVE_H):
         return image_bytes
 
 
+def downscale_pil_for_storage(img, max_w=MAX_SAVE_W, max_h=MAX_SAVE_H):
+    """PIL-image sibling of downscale_for_storage: return `img` shrunk to fit max_w x max_h (aspect
+    preserved), or the SAME image if already within bounds. Never upscales; best-effort (returns the
+    original on any error). For LOGGING/debug frames drawn at capture resolution - NEVER a functional
+    image (a VLM input, an OCR crop, a depth map)."""
+    try:
+        from PIL import Image
+        w, h = img.size
+        if w <= max_w and h <= max_h:
+            return img
+        scale = min(max_w / w, max_h / h)
+        return img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+    except Exception:
+        return img
+
+
 async def SendCommand(command: Dict[str, Any], uri: str):
     async with websockets.connect(uri, max_size=None) as websocket:
         await websocket.send(json.dumps(command))

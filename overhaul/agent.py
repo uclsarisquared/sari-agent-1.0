@@ -241,6 +241,7 @@ class EmbodiedAgent:
         self._nav_candidates = []       # resolver output for the current task, in visit order
         self._nav_visited = set()
         self._nav_task = None
+        self._nav_seeded = None         # 6.3 #1: plan-time candidates, if the orchestrator pre-resolved
         self._hands_active = None       # None = unknown; set on first _set_hands call
         self._hand_pose = None          # None = unknown; 'rest' when the router has parked the hand (6.1)
 
@@ -310,6 +311,17 @@ class EmbodiedAgent:
             self._graph_nav = (sm, nav)
         return self._graph_nav
 
+    def seed_nav_candidates(self, candidates, target_name=None):
+        """Phase 6.3 #1: pre-seed the graph navigator with PLAN-TIME resolved candidates so
+        _graph_navigate does NOT re-run the resolver at runtime - the orchestrator already resolved
+        this leg's target once, at plan time (subtask_agents.plan_legs). Pass a candidate list to seed,
+        or None/[] to clear (the next leg re-resolves fresh). Resets `_nav_task` so the next
+        _graph_navigate re-initialises for this leg and picks up the seed. No-op in the vlm arm (that
+        arm never calls _graph_navigate)."""
+        self._nav_seeded = list(candidates) if candidates else None
+        self._nav_seeded_name = target_name
+        self._nav_task = None
+
     def _graph_navigate(self, main_task: str):
         """Execute one navigation-mode entry deterministically. Returns an arrival note for
         the VLM's next (perception) step, plus a FRESH screenshot - the one captured before
@@ -325,20 +337,31 @@ class EmbodiedAgent:
         sm, nav = self._graph_nav_session()
 
         if self._nav_task != main_task:
-            # Resolver backend is selectable; default qwen (see __init__). Both return
-            # (result_dict, envelope) with the same (system, prompt, schema, images) call shape.
-            if self.resolver_backend == "claude-cli":
-                _resolve_call = lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im)
+            if self._nav_seeded:
+                # 6.3 #1: the orchestrator already resolved this leg at plan time - reuse those
+                # candidates instead of paying for the resolver again (plan and execution can't then
+                # disagree about where the target lives). Ordering is still runtime code's job below.
+                self._nav_candidates = [c for c in self._nav_seeded if c in sm.by_id]
+                self._nav_resolution = {"candidates": self._nav_candidates,
+                                        "target_name": getattr(self, "_nav_seeded_name", None),
+                                        "seeded": True}
+                logger.info(f"[graph-nav] using {len(self._nav_candidates)} PLAN-SEEDED candidate(s): "
+                            f"{self._nav_candidates}")
             else:
-                _resolve_call = lambda s, p, sc, im=(): locate_task.qwen_json(s, p, sc, im)
-            resolution, _ = locate_task.resolve(_resolve_call, sm, main_task)
+                # Resolver backend is selectable; default qwen (see __init__). Both return
+                # (result_dict, envelope) with the same (system, prompt, schema, images) call shape.
+                if self.resolver_backend == "claude-cli":
+                    _resolve_call = lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im)
+                else:
+                    _resolve_call = lambda s, p, sc, im=(): locate_task.qwen_json(s, p, sc, im)
+                resolution, _ = locate_task.resolve(_resolve_call, sm, main_task)
+                self._nav_resolution = resolution
+                cands = resolution.get("candidates") or []
+                self._nav_candidates = [c for c in cands if c in sm.by_id]
+                logger.info(f"[graph-nav] resolved {resolution.get('target_name')!r} "
+                            f"tier={resolution.get('tier')} candidates={self._nav_candidates}")
             self._nav_task = main_task
             self._nav_visited = set()
-            self._nav_resolution = resolution
-            cands = resolution.get("candidates") or []
-            self._nav_candidates = [c for c in cands if c in sm.by_id]
-            logger.info(f"[graph-nav] resolved {resolution.get('target_name')!r} "
-                        f"tier={resolution.get('tier')} candidates={self._nav_candidates}")
             if not self._nav_candidates:
                 return ("## NAVIGATOR: could not resolve the target to any known location. "
                         "Proceed by exploring visually.\n", None)
@@ -400,6 +423,26 @@ class EmbodiedAgent:
             note = (f"## ARRIVED VIA NAVIGATOR: the checkout counter (checkpoint {res['checkpoint']}). "
                     f"Centre the counter surface (center_to_counter), then place the held item.\n")
         return note, fresh
+
+    def _checkout_held_item(self):
+        """Phase 6.3 dispatch: run the deterministic checkout MACRO (store_map.checkout_held_item) on
+        the held item - drive to the counter, align on the scan pad, scan, and bag - as ONE call the
+        VLM triggers with the `checkout_held_item` action. The VLM never sequences the align/scan/place
+        steps (CLAUDE.md doctrine: geometry is deterministic; the VLM judges only what is in front of
+        it); its only meaningful move on a checkout leg is to emit this. Returns the macro's
+        {success, scanned, placed, aligned, steps, reason} dict, which run_leg surfaces as
+        `last_checkout` for the checkout completion predicate to grant/refuse the STOP.
+
+        Reuses the cached carry-safe nav session (stow_hands=False) and the 6.1 pattern: assert the
+        state-tracked REST pose first so the held item rides the drive; the macro owns its own
+        GRAB/REST around each hand action (it does not stow), so the tracker stays valid."""
+        from store_map import checkout_held_item
+        _sm, nav = self._graph_nav_session()
+        self._set_hand_pose("rest")   # 6.1: hands stay ACTIVE at REST so the carried item survives
+        res = checkout_held_item(nav)
+        print(f"[checkout] success={res.get('success')} scanned={res.get('scanned')} "
+              f"placed={res.get('placed')} aligned={res.get('aligned')} - {res.get('reason')}")
+        return res
 
     def _metric_approach(self, move_steps: int):
         """Execute the MEASURED forward nudge from a `MOVE` reach verdict IN PLACE, without hopping

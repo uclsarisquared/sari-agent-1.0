@@ -1,0 +1,10 @@
+=== STEP 5 | mode=None | halt=True ===
+
+--- MODE ROUTER (semantic) ---
+(n/a)
+
+--- VLM ACTOR OUTPUT ---
+STOP action received, terminating execution...
+
+--- EPISODIC REFLECTION ---
+(n/a)

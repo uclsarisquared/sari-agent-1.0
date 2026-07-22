@@ -1,0 +1,36 @@
+=== STEP 2 | mode=manipulation | halt=False ===
+
+--- MODE ROUTER (semantic) ---
+```json
+{
+  "new_semantic_memory": "The green Piattos bags are located on the middle shelf of the snack fixture at Checkpoint 45, positioned between yellow Moby bags and orange Pringles cans. They are clearly visible and accessible from the current standing position.",
+  "recall": "The target green Piattos are centered on screen and within reach at Checkpoint 45. The previous centering action was successful. The agent is positioned to grab the item.",
+  "mode": "manipulation"
+}
+```
+
+--- VLM ACTOR OUTPUT ---
+```json
+{
+  'reasoning': "The target green Piattos is centered on screen and I am now in *manipulation* mode. The previous step confirmed the target was centered. I am close enough to the shelf to attempt a grab. I will use 'extend_arm_until_grabbed' to reach out with the left hand and grip the item.",
+  'actions': ['extend_arm_until_grabbed'],
+  'times': [1],
+  'notes': {
+    'main_goal': 'Pick up the green Piattos.',
+    'sub_goal': 'Grab the green Piattos.',
+    'key_info': 'Target is centered and within reach. Mode is manipulation.',
+    'status': 'Attempting to grab the green Piattos.',
+    'item_name': 'green Piattos',
+    'checklist': '[ ] green Piattos'
+  }
+}
+```
+
+--- EPISODIC REFLECTION ---
+```json
+{
+  "dense_summary": "The agent successfully navigated from the counter to Checkpoint 45, identified the green Piattos on the upper shelf, and centered the camera on the target. Transitioning to manipulation mode, the agent executed 'extend_arm_until_grabbed' to attempt picking up the item.",
+  "what_worked": "The agent effectively utilized semantic memory to locate the correct checkpoint and visual cues to identify the specific target item. The sequence of centering the object before attempting to grab it was crucial for alignment. The transition from perception to manipulation mode was handled correctly, allowing the agent to execute the grab action.",
+  "what_to_avoid": "The agent should avoid relying solely on numerical coordinates or abstract checkpoint numbers without verifying visual confirmation. In future interactions, always trust visual cues over numerical targets; ensure the object is clearly visible and centered before switching to manipulation mode to prevent grab failures due to misalignment. If the grab fails, the agent should re-center the object and adjust its position rather than blindly retrying."
+}
+```

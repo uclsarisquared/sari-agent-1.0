@@ -37,7 +37,7 @@ if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
 from agent import EmbodiedAgent, ucl_qwen_config
-from env import _REQUEST_SCREENSHOT_
+from env import _REQUEST_SCREENSHOT_, downscale_for_storage
 from subtask_agents import dispatch_action, _fresh_agent_state, write_step_output
 from hand_reset import reset_hands_in_front2
 
@@ -62,10 +62,10 @@ TASKS = [
 EXTRACT = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
 
-def name_matches(state, keywords):
-    fields = [state.get("leftHoveredObject") or "", state.get("rightHoveredObject") or ""]
-    blob = " ".join(str(f) for f in fields).lower()
-    return any(k in blob for k in keywords)
+# name_matches re-homed to subtask_completion (Phase 6.3) so the pickup completion predicate and this
+# eval share ONE implementation - import it, don't redefine. (Behaviour preserved; the imported version
+# additionally lower-cases each keyword, which only makes matching more forgiving.)
+from subtask_completion import name_matches
 
 
 def return_to_start(agent):
@@ -135,8 +135,10 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
         m["timesteps"] = step
         img_bytes = _REQUEST_SCREENSHOT_()["image"]
         if shots_dir:
+            # Cap the SAVED debug frame at 1080p; the VLM below gets NATIVE bytes. Storage-only, so the
+            # frozen-baseline metrics are unaffected (the agent never reads this file back).
             with open(os.path.join(shots_dir, f"step{step:02d}.png"), "wb") as fh:
-                fh.write(img_bytes)
+                fh.write(downscale_for_storage(img_bytes))
         imageb64 = base64.b64encode(img_bytes).decode("utf-8")
         request = {"task": task, "image": imageb64, "state": state}
         try:
