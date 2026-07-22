@@ -48,7 +48,9 @@ TYPED_DECOMPOSER_SYSTEM = (
     "JSON array of subtask OBJECTS - no prose, no markdown fences around anything else.\n\n"
     "Each object MUST have a \"type\" (one of exactly: pickup, checkout, compare, goto) and a \"text\" "
     "(the natural-language instruction the agent will act on). Type-specific fields:\n"
-    "  - pickup:   \"target\"   = the product to grab, as specifically as the task names it.\n"
+    "  - pickup:   \"target\"   = the product to grab, as specifically as the task names it. Optional "
+    "\"count\" = how many to hold at once (default 1, max 2 - the agent has two hands, one item per "
+    "hand).\n"
     "  - checkout: (no extra field required) - take the CURRENTLY HELD item to the self-checkout, "
     "scan it, and bag it. This is ONE subtask: the agent has a single tool that drives to the "
     "counter, scans, and bags. NEVER split checkout into a separate 'go to the counter' + 'place it'.\n"
@@ -59,9 +61,16 @@ TYPED_DECOMPOSER_SYSTEM = (
     "(e.g. 'Checkpoint 32', 'the checkout counter'). Never invent shelf numbers or location names.\n\n"
     "Rules:\n"
     "  - Each subtask ends in a clear, verifiable physical state change.\n"
+    "  - Plan ONLY what the task asks for. Add a checkout subtask ONLY when the task says to "
+    "bring/buy/scan/check out the item. A bare 'pick up X' produces pickup subtask(s) ONLY - never "
+    "an invented checkout or goto.\n"
     "  - 'Bring/carry/take X to the counter' after a pickup is a single `checkout` subtask, not a "
     "goto+place pair.\n"
     "  - A bare 'pick up X' is a single-element array with one pickup subtask.\n"
+    "  - 'Pick up N X' with N at most 2 is ONE pickup subtask with \"count\": N, never N separate "
+    "pickup subtasks - the agent carries one item per hand. Only a quantity ABOVE 2 needs multiple "
+    "pickups, and then only with somewhere the task says to put items down in between (e.g. a "
+    "checkout after each pair).\n"
     "  - For a comparison ('the larger of...', 'the cheaper...'), route the agent to the candidates "
     "with goto/pickup as needed and use a compare subtask to make the visual decision.\n\n"
     "Example input: \"pick up the milk and bring it to the counter\"\n"
@@ -71,6 +80,10 @@ TYPED_DECOMPOSER_SYSTEM = (
     "\n\nExample input: \"pick up the orange Pringles\"\n"
     "Example output: "
     "[{\"type\": \"pickup\", \"target\": \"orange Pringles\", \"text\": \"Pick up the orange Pringles.\"}]"
+    "\n\nExample input: \"pick up 2 Jin Ramen\"\n"
+    "Example output: "
+    "[{\"type\": \"pickup\", \"target\": \"Jin Ramen\", \"count\": 2, "
+    "\"text\": \"Pick up 2 Jin Ramen - one in each hand.\"}]"
 )
 
 
@@ -111,6 +124,13 @@ def parse_decomposition(raw: str, original_task: str) -> list:
         for field in ("target", "location", "targets", "criterion"):
             if item.get(field) is not None:
                 norm[field] = item[field]
+        # `count` is normalized here (int, >=1) so every downstream reader gets a clean value; an
+        # unparseable count is dropped (default-1 behaviour) rather than poisoning the leg.
+        if item.get("count") is not None:
+            try:
+                norm["count"] = max(1, int(item["count"]))
+            except (TypeError, ValueError):
+                pass
         out.append(norm)
     return out or [{"type": "unknown", "text": original_task}]
 
@@ -144,7 +164,8 @@ def name_matches(state: dict, keywords) -> bool:
     `<side>HoveredObject` fields clear to 'null' once the hand retracts from the shelf (a measured
     false-negative: the item is still held, but hovered no longer names it). `gripped_name` is the
     durable record run_leg keeps while a hand is gripping; it is '' for callers (eval_pickup) that
-    don't set it, so this stays backward-safe."""
+    don't set it, so this stays backward-safe. Dual-hand: run_leg space-joins BOTH hands' recorded
+    names into it (per-hand detail in `gripped_names`), so a match on EITHER held item counts."""
     fields = [state.get("leftHoveredObject") or "", state.get("rightHoveredObject") or "",
               state.get("gripped_name") or ""]
     blob = " ".join(str(f) for f in fields).lower()
@@ -179,16 +200,57 @@ _DROP_KW = ("drop", "place", "put down", "set down", "release", "leave")
 def predicate_pickup(sub: dict, state: dict) -> tuple:
     """Grant iff a hand grips AND (when a target names a product) the gripped/hovered name overlaps
     it. Refuses the exact failure the old drop-agnostic guard could not see on a paraphrase, and the
-    wrong-item grab a bare grip-check would pass."""
+    wrong-item grab a bare grip-check would pass.
+
+    `count` (default 1, from the decomposer contract): how many of the target must be held AT ONCE -
+    'pick up 2 X' is one leg with count=2, not two legs (a second same-SKU pickup leg would grant
+    instantly on the first leg's carry). Counting needs run_leg's per-hand `gripped_names`; a runner
+    without it (eval_pickup's flat loop) degrades to the single-item check, flagged [unverified
+    count] - honest, never a silent block the wiring can't feed."""
+    try:
+        count = max(1, int(sub.get("count") or 1))
+    except (TypeError, ValueError):
+        count = 1
     if not _gripping(state):
         return False, "pickup not complete: no hand is gripping anything yet"
     target = sub.get("target") or ""
-    if target and not name_overlap(state, target):
-        held = (state.get("gripped_name") or state.get("leftHoveredObject")
-                or state.get("rightHoveredObject"))
-        return False, (f"gripping, but the held item ({held!r}) does not match target {target!r} - "
-                       "grab the right item")
-    return True, "pickup complete: gripping the target item"
+    if count > 1:
+        names = state.get("gripped_names")
+        if not isinstance(names, dict):
+            if target and not name_overlap(state, target):
+                held = (state.get("gripped_name") or state.get("leftHoveredObject")
+                        or state.get("rightHoveredObject"))
+                return False, (f"gripping, but the held item ({held!r}) does not match target "
+                               f"{target!r} - grab the right item")
+            return True, (f"pickup granted [unverified count: runner tracks no per-hand names, "
+                          f"cannot verify {count} held]")
+        kws = _tokens(target)
+        matched = [side for side in ("left", "right")
+                   if state.get(f"{side}GrippedState")
+                   and (not kws or any(k in str(names.get(side) or "").lower() for k in kws))]
+        if len(matched) >= count:
+            return True, f"pickup complete: holding {len(matched)} matching item(s) ({count} required)"
+        held_desc = {s: names.get(s) for s in ("left", "right") if state.get(f"{s}GrippedState")}
+        return False, (f"pickup not complete: holding {len(matched)} of {count} "
+                       f"{target or 'item'!s} (hands: {held_desc}) - the agent has two hands, "
+                       "grab another with the free hand")
+    if target:
+        if not name_overlap(state, target):
+            held = (state.get("gripped_name") or state.get("leftHoveredObject")
+                    or state.get("rightHoveredObject"))
+            return False, (f"gripping, but the held item ({held!r}) does not match target {target!r} - "
+                           "grab the right item")
+        return True, "pickup complete: gripping the target item"
+    # Dual-hand (2026-07-23), UNTARGETED pickups only: a grip carried IN from a previous leg must not
+    # satisfy THIS leg's pickup. run_leg sets `new_grip_this_leg` when a hand that was empty at leg
+    # start grips; when the runner provides it (eval_pickup's flat loop does not - key absent skips
+    # the check, old behaviour), an untargeted pickup needs a NEW grip, not just any grip. A TARGETED
+    # pickup grants on the name match above regardless - the right item in hand is the right item,
+    # whichever leg grabbed it.
+    if state.get("new_grip_this_leg") is False:
+        return False, ("pickup not complete: still holding only the item carried in from a previous "
+                       "subtask - grab THIS subtask's item (a hand is free)")
+    return True, "pickup complete: gripping an item"
 
 
 def predicate_checkout(sub: dict, state: dict) -> tuple:
@@ -203,7 +265,15 @@ def predicate_checkout(sub: dict, state: dict) -> tuple:
         return False, f"checkout incomplete: item not scanned - {lc.get('reason', 'retry / re-align')}"
     if not lc.get("placed"):
         return False, f"checkout incomplete: scanned but not bagged - {lc.get('reason', 'retry the bag')}"
-    if _gripping(state):
+    # Dual-hand (2026-07-23): only the hand the macro CHECKED OUT must be empty - the other hand may
+    # legitimately still carry a second item (it gets its own checkout). Any-hand check kept as the
+    # fallback for an old-style result with no `hand` field.
+    hand = lc.get("hand")
+    if hand in ("left", "right"):
+        if state.get(f"{hand}GrippedState"):
+            return False, (f"checkout reported placed but the {hand} hand (the one it bagged from) "
+                           f"is still gripping - inconsistent, retry")
+    elif _gripping(state):
         return False, "checkout reported placed but a hand is still gripping - inconsistent, retry"
     return True, "checkout complete: item scanned and bagged (both measured)"
 
@@ -274,6 +344,12 @@ def predicate_unknown(sub: dict, state: dict) -> tuple:
     if is_pickup and not grip:
         return False, "STOP blocked (untyped): pick-up task but nothing is gripped"
     if is_drop and grip:
+        # Dual-hand (2026-07-23): a drop leg that RELEASED a leg-start grip is done even if the other
+        # hand still carries its own item. run_leg sets `released_grip_this_leg`; runners that don't
+        # (eval_pickup's flat loop - key absent, falsy) keep the old any-grip block.
+        if state.get("released_grip_this_leg"):
+            return True, ("halt granted (untyped): drop task released its item (the other hand's "
+                          "carried item is its own subtask's business)")
         return False, "STOP blocked (untyped): drop task but a hand is still gripping"
     return True, "halt granted (untyped): no keyword guard blocks it"
 

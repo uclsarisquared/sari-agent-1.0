@@ -689,7 +689,7 @@ def _fuzzy_new_lines(before, after, ratio=0.8):
     return new
 
 
-def scan_held_item(hand="left", baseline=None, max_extend=25, fuzzy_ratio=0.8, debug_dir=None):
+def scan_held_item(hand="auto", baseline=None, max_extend=25, fuzzy_ratio=0.8, debug_dir=None):
     """Scan the item currently held in `hand` by sweeping it through the checkout scan zone WITHOUT
     releasing it, then confirm off the POS screen. Phase 6.2 - promoted from place_probe.sweep after
     the in-hand-sweep mechanic passed live (M1/M3/M5, 2 datapoints, 2026-07-22: item scanned and
@@ -721,8 +721,14 @@ def scan_held_item(hand="left", baseline=None, max_extend=25, fuzzy_ratio=0.8, d
     is the MEASURED signal (OCR delta); the gate also records the human `scanned_verified` separately
     and never promotes one to the other.
     """
-    hand = str(hand).lower()
-    assert hand in ("left", "right"), "hand must be 'left' or 'right'"
+    # 'auto' resolves to the hand that IS holding (left-first when both hold - name 'right' to scan
+    # the other item); an explicit empty hand is refused. Subsumes the old empty-hand guard.
+    from manipulation import resolve_release_hand
+    hand, refuse_reason = resolve_release_hand(hand)
+    if hand is None:
+        print(f"[scan_held_item] REFUSED: {refuse_reason}")
+        return {"scanned": False, "still_holding": False, "receipt": [], "new_lines": [],
+                "screen_detected": False, "reason": refuse_reason + " - nothing to scan"}
     extend_fn = _XTNFWD_LEFT_ if hand == "left" else _XTNFWD_RIGHT_
     pull_fn = _PLLBCK_LEFT_ if hand == "left" else _PLLBCK_RIGHT_
     grip_key = "leftGrippedState" if hand == "left" else "rightGrippedState"
@@ -730,13 +736,6 @@ def scan_held_item(hand="left", baseline=None, max_extend=25, fuzzy_ratio=0.8, d
 
     def _hand_state():
         return TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
-
-    # Guard: the sweep scans the HELD item. Refuse an empty hand (mirror of the grab guard) rather
-    # than sweeping air and reporting a confusing miss.
-    if not _hand_state().get(grip_key):
-        print(f"[scan_held_item] hand={hand} REFUSED: not holding an item")
-        return {"scanned": False, "still_holding": False, "receipt": [], "new_lines": [],
-                "screen_detected": False, "reason": "not holding an item - nothing to scan"}
 
     set_hand_pose("grab", hand=hand)
     moved = 0
@@ -776,7 +775,7 @@ def scan_held_item(hand="left", baseline=None, max_extend=25, fuzzy_ratio=0.8, d
     print(f"[scan_held_item] hand={hand} scanned={scanned} still_holding={still_holding} "
           f"screen_detected={bool(box)} new_lines={new}")
     return {"scanned": scanned, "still_holding": still_holding, "receipt": receipt,
-            "new_lines": new, "screen_detected": bool(box), "reason": reason}
+            "new_lines": new, "screen_detected": bool(box), "reason": reason, "hand": hand}
 
 
 # The hand can clip THROUGH the counter/tray in the sim (a physics limitation we cannot fix - user,
@@ -809,7 +808,7 @@ def _ray_in_box(box, edge_margin):
             and abs(ray_y - box["cy"]) <= half_h * edge_margin)
 
 
-def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend=25,
+def place_held_item(hand="auto", aim_norm=None, max_approach_iters=4, max_extend=25,
                     clip_standoff=PLACE_CLIP_STANDOFF_M, edge_margin=PLACE_TRAY_EDGE_MARGIN,
                     debug_dir=None):
     """Release the held item onto the checkout bagging tray - the ONE deliberate release in the whole
@@ -850,9 +849,14 @@ def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend
 
     Returns {'placed', 'released', 'verdict', 'distance', 'surface_height', 'iters', 'reason'} -
     surfaced as `last_place`."""
-    from manipulation import plan_place, PLACE_ENVELOPE, set_hand_pose as _set_pose
-    hand = str(hand).lower()
-    assert hand in ("left", "right"), "hand must be 'left' or 'right'"
+    from manipulation import plan_place, PLACE_ENVELOPE, set_hand_pose as _set_pose, resolve_release_hand
+    # 'auto' resolves to the hand that IS holding (left-first when both hold - name 'right' to place
+    # the other item); an explicit empty hand is refused. Subsumes the old empty-hand guard.
+    hand, refuse_reason = resolve_release_hand(hand)
+    if hand is None:
+        print(f"[place_held_item] REFUSED: {refuse_reason}")
+        return {"placed": False, "released": False, "verdict": "no_item", "distance": None,
+                "surface_height": None, "iters": 0, "reason": refuse_reason + " - nothing to place"}
     extend_fn = _XTNFWD_LEFT_ if hand == "left" else _XTNFWD_RIGHT_
     pull_fn = _PLLBCK_LEFT_ if hand == "left" else _PLLBCK_RIGHT_
     grip_fn = ToggleLeftGrip if hand == "left" else ToggleRightGrip
@@ -862,11 +866,6 @@ def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend
 
     def _hand_state():
         return TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
-
-    if not _hand_state().get(grip_key):
-        print(f"[place_held_item] hand={hand} REFUSED: not holding an item")
-        return {"placed": False, "released": False, "verdict": "no_item", "distance": None,
-                "surface_height": None, "iters": 0, "reason": "not holding an item - nothing to place"}
 
     # ---- Approach: centre the tray, depth-gate the standoff, creep until 'placeable' -------------
     # The release ONLY fires on a 'placeable' verdict taken under a SUCCESSFUL centre (ready=True).
@@ -944,7 +943,7 @@ def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend
           f"verdict={plan['verdict']} slant={plan['distance']:.2f} release_z={release_z:.2f} stop={stop}")
     return {"placed": placed, "released": released, "verdict": plan["verdict"],
             "distance": plan["distance"], "surface_height": plan["surface_height"],
-            "release_z": release_z, "iters": iters, "reason": reason}
+            "release_z": release_z, "iters": iters, "reason": reason, "hand": hand}
 
 
 def detect_object_via_gemini(target_name):

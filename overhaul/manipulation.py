@@ -80,9 +80,9 @@ def grab_and_read_item(hand="left", max_attempts=30, text_read_fn=None):
     if accessed:
         move_backward(units=5)
         reset_agent_cam_to_forward()
-        reset_hands_in_front2(extra_elevation=-0.1, hand="left")
+        reset_hands_in_front2(extra_elevation=-0.1, hand=hand)
         raise_hand_to_eye_level(hand=hand)
-        return rotate_and_read(hand="left", text_read_fn=text_read_fn)
+        return rotate_and_read(hand=hand, text_read_fn=text_read_fn)
     return ["No object grabbed"]
 
 
@@ -91,10 +91,28 @@ def grab_and_read_item(hand="left", max_attempts=30, text_read_fn=None):
 # REST pose so a carried item is never dropped by a mode change - it rides at REST. The two poses are
 # the user's manual calibration (2026-07-22), LEFT-hand agent-local xyz, validated live by the step-0
 # probe (plan6/step0_hand_pose_probe.py, user-confirmed working 2026-07-22).
-REST_POSE = (-0.213, -0.09, 0.26)  # out-of-frame resting pose: navigate, perceive, and CARRY here
-                                   # (z revised 0.2 -> 0.26, user-validated 2026-07-22)
-GRAB_POSE = (-0.01, 0.006, 0.33)   # centred forward "ready to grab" pose - TOOL-INTERNAL (see below)
+# HAND FRAME DEFINITION (dual-hand, 2026-07-23). All poses here are AGENT-LOCAL xyz, the frame
+# TransformHands reports in: +x = the AGENT'S RIGHT, +y = up, +z = forward. "Left hand" = the hand
+# resting on the agent's LEFT side (negative x); "right hand" = its counterpart at positive x. The
+# calibration below is the LEFT hand's (user-measured 2026-07-22); the RIGHT hand is defined as that
+# same pose MIRRORED across the sagittal plane x = 0 - i.e. x negated, y and z unchanged (user
+# directive 2026-07-23: the right hand's rest/active positions are the left's mirror along x).
+REST_POSE = (-0.213, -0.09, 0.26)  # LEFT-hand out-of-frame resting pose: navigate, perceive, CARRY
+                                   # (z revised 0.2 -> 0.26, user-validated 2026-07-22).
+                                   # Right hand rests at (+0.213, -0.09, 0.26) via pose_for_hand.
+GRAB_POSE = (-0.01, 0.006, 0.33)   # LEFT-hand centred forward "ready to grab" pose - TOOL-INTERNAL
+                                   # (see below). Right hand: (+0.01, 0.006, 0.33) via pose_for_hand.
 _NAMED_POSES = {"rest": REST_POSE, "grab": GRAB_POSE}
+
+
+def pose_for_hand(pose, hand):
+    """Resolve a pose (name or LEFT-frame xyz) to the given hand's agent-local coordinates.
+    left -> unchanged; right -> x negated (the sagittal mirror defined above). Callers therefore
+    always author poses in the LEFT hand's frame, and this is the ONE place the mirror lives."""
+    target = _NAMED_POSES[pose] if isinstance(pose, str) else tuple(pose)
+    if str(hand).lower() == "right":
+        return (-target[0], target[1], target[2])
+    return target
 _HAND_MOVE_RANGE = 0.5   # Unity clamps each TransformHands delta component here (TranslateHand, ~656)
 _POSE_TOL = 0.012        # m; "arrived" once the reported translation is within this of the target
 
@@ -117,8 +135,10 @@ def set_hand_pose(pose, hand="left", max_iters=5):
 
     Only the mode router (agent._set_hand_pose -> 'rest') and the grab/place tools (transient 'grab')
     call this. TransformHands takes agent-local DELTAS, so this drives by (target - reported) each step.
+    Named poses are LEFT-calibrated; for the RIGHT hand they are mirrored across x (pose_for_hand).
+    An explicit xyz pose is mirrored the same way, so callers always pass LEFT-frame coordinates.
     """
-    target = _NAMED_POSES[pose] if isinstance(pose, str) else tuple(pose)
+    target = pose_for_hand(pose, hand)
     tkey = "leftTranslation" if hand == "left" else "rightTranslation"
     cur = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))[tkey]
     for _ in range(max_iters):
@@ -135,11 +155,56 @@ def set_hand_pose(pose, hand="left", max_iters=5):
     return resid <= _POSE_TOL, cur, resid
 
 
-def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=20.0):
+# ===== Dual-hand selection policy (2026-07-23) ==================================================
+# Every grab-side tool takes hand='left'|'right'|'auto'. 'auto' resolves DETERMINISTICALLY from the
+# live grip state (one TransformHands no-op read) - the VLM picks a side only when it wants to:
+#   grabbing   -> a FREE hand, LEFT preferred (the left is the measured calibration; the right is its
+#                 x-mirror). Both full -> None: refuse, don't force-open (that drops a carried item).
+#   releasing  -> the hand that IS holding (scan/place/drop act on a held item). Both holding ->
+#                 LEFT first (stable order, the caller can name 'right' to pick the other item).
+#                 Neither holding -> None: refuse.
+
+def hand_grip_states():
+    hs = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+    return {"left": bool(hs.get("leftGrippedState")), "right": bool(hs.get("rightGrippedState"))}
+
+
+def resolve_grab_hand(hand="auto"):
+    """Return ('left'|'right', None) or (None, reason) for a tool that wants an EMPTY hand."""
+    hand = str(hand).lower()
+    grips = hand_grip_states()
+    if hand in ("left", "right"):
+        if grips[hand]:
+            return None, f"the {hand} hand is already holding an item"
+        return hand, None
+    assert hand == "auto", "hand must be 'left', 'right' or 'auto'"
+    for side in ("left", "right"):
+        if not grips[side]:
+            return side, None
+    return None, "both hands are already holding an item - check out or drop one first"
+
+
+def resolve_release_hand(hand="auto"):
+    """Return ('left'|'right', None) or (None, reason) for a tool that acts on a HELD item."""
+    hand = str(hand).lower()
+    grips = hand_grip_states()
+    if hand in ("left", "right"):
+        if not grips[hand]:
+            return None, f"the {hand} hand is not holding an item"
+        return hand, None
+    assert hand == "auto", "hand must be 'left', 'right' or 'auto'"
+    for side in ("left", "right"):
+        if grips[side]:
+            return side, None
+    return None, "no hand is holding an item"
+
+
+def extend_arm_until_grabbed(times=1, hand="auto", max_extend=25, max_pitch_deg=20.0):
     """Set the GRAB pose, extend the hand straight forward until a grabbable item comes under it, grip
     it, then retract to REST (Phase 6.1 - the tool owns both poses). If the hand reaches its limit
     empty-handed, report out-of-reach and let the CALLER reposition - this tool no longer moves the
-    body. LEFT hand by default.
+    body. hand='auto' (default) picks a FREE hand via resolve_grab_hand (left preferred, right when
+    the left is carrying); 'left'/'right' forces a side, refused if that hand is full.
 
     Phase 6.1 hand-pose ownership: this tool sets GRAB_POSE at entry and restores REST_POSE on EVERY
     exit path (success, miss, exception), so a gripped item rides back to the carry pose. It also
@@ -180,8 +245,12 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=
     Returns {'gripped': bool, 'hovered': <id|None>[, 'reason': str]}, or
     {'blocked': True, 'reason': 'hand already holding an item'} if it refused (full-hand guard).
     """
-    hand = str(hand).lower()
-    assert hand in ("left", "right"), "hand must be 'left' or 'right'"
+    # Resolve the side FIRST (auto -> a free hand; explicit -> validated free). This replaces the old
+    # entry-time full-hand guard: a full/unavailable hand is refused here, never force-opened.
+    hand, refuse_reason = resolve_grab_hand(hand)
+    if hand is None:
+        print(f"[extend_arm_until_grabbed] REFUSED: {refuse_reason}")
+        return {"blocked": True, "reason": refuse_reason}
     if hand == "left":
         extend_fn, pull_fn, grip_fn = _XTNFWD_LEFT_, _PLLBCK_LEFT_, _GRIP_LEFT_
         trans_key, hover_key, grip_key = "leftTranslation", "leftHoveredObject", "leftGrippedState"
@@ -233,14 +302,9 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=
             pull_fn()
         return gripped, hovered
 
-    # Phase 6.1 full-hand guard: refuse to grab while already holding. A closed hand at entry is NOT
-    # force-opened (that would drop the carried item). A true hold vs a stray close isn't reliably
-    # distinguishable from grip-state alone, so per the phase6 plan that recovery lives at task start
-    # (harness), never mid-task - here we simply refuse and leave the hand where it is.
-    entry = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
-    if entry.get(grip_key):
-        print(f"[extend_arm_until_grabbed] hand={hand} REFUSED: hand already holding an item")
-        return {"blocked": True, "reason": "hand already holding an item"}
+    # Phase 6.1 full-hand guard now lives in resolve_grab_hand above: a closed hand is refused, never
+    # force-opened (that would drop the carried item); recovery from a stray close is task-start
+    # (harness) business, never mid-task.
 
     # The tool OWNS the GRAB pose: set it now, and restore REST on EVERY exit (success, miss, and
     # exception - via the finally) so a gripped item rides back to the carry pose and the mode
@@ -268,7 +332,7 @@ def extend_arm_until_grabbed(times=1, hand="left", max_extend=25, max_pitch_deg=
 
         print(f"[extend_arm_until_grabbed] hand={hand} hovered={hovered!r} gripped={gripped}"
               + (f" | {reason}" if reason else ""))
-        result = {"gripped": gripped, "hovered": None if hovered in _EMPTY else hovered}
+        result = {"gripped": gripped, "hovered": None if hovered in _EMPTY else hovered, "hand": hand}
         if reason:
             result["reason"] = reason
         return result

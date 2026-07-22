@@ -91,7 +91,17 @@ def test_drives_right_hand_only():
     assert arrived
     # left must be untouched (only the right delta slot was used)
     assert tuple(fake.left) == (1.0, 1.0, 1.0)
-    assert all(abs(reported[k] - M.GRAB_POSE[k]) <= M._POSE_TOL for k in range(3))
+    # the named poses are LEFT-calibrated; the right hand gets the x-mirror (pose_for_hand)
+    mirrored = M.pose_for_hand("grab", "right")
+    assert all(abs(reported[k] - mirrored[k]) <= M._POSE_TOL for k in range(3))
+
+
+def test_pose_for_hand_mirrors_x_for_right():
+    assert M.pose_for_hand("rest", "left") == M.REST_POSE
+    rx, ry, rz = M.pose_for_hand("rest", "right")
+    assert (rx, ry, rz) == (-M.REST_POSE[0], M.REST_POSE[1], M.REST_POSE[2])
+    # explicit xyz poses are treated as LEFT-frame and mirrored the same way
+    assert M.pose_for_hand((0.2, 0.1, 0.3), "right") == (-0.2, 0.1, 0.3)
 
 
 def test_frame_mismatch_reports_not_arrived():

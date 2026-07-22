@@ -315,19 +315,22 @@ class EmbodiedAgent:
         self._hand_pose = None
 
     def _set_hand_pose(self, pose: str):
-        """Ensure the LEFT hand is ACTIVE and parked at the named pose ('rest'). Phase 6.1 replaces
-        _set_hands(active) on the nav/perception path: hands are no longer disabled, so a carried item
-        is never dropped by a mode change - it rides at REST. Transition-only: the websocket drive
-        fires only when the tracked pose changes (no per-step spam). The GRAB pose is NEVER set here -
-        it is tool-internal (manipulation.extend_arm_until_grabbed and 6.2's place tool)."""
+        """Ensure BOTH hands are ACTIVE and parked at the named pose ('rest') - the right hand at the
+        left pose's x-mirror (manipulation.pose_for_hand, dual-hand 2026-07-23), so an item carried in
+        EITHER hand rides safely. Phase 6.1 replaces _set_hands(active) on the nav/perception path:
+        hands are no longer disabled, so a carried item is never dropped by a mode change - it rides at
+        REST. Transition-only: the websocket drive fires only when the tracked pose changes (no
+        per-step spam). The GRAB pose is NEVER set here - it is tool-internal
+        (manipulation.extend_arm_until_grabbed and 6.2's scan/place tools)."""
         self._set_hands(True)                 # always active during a task; no-op if already active
         if self._hand_pose == pose:
             return
         from manipulation import set_hand_pose
-        arrived, reported, resid = set_hand_pose(pose)
-        if not arrived:
-            logger.warning(f"[hand-pose] '{pose}' did not converge (resid={resid:.3f} m, "
-                           f"reported={tuple(round(v, 3) for v in reported)}) - frame/clamp issue?")
+        for side in ("left", "right"):
+            arrived, reported, resid = set_hand_pose(pose, hand=side)
+            if not arrived:
+                logger.warning(f"[hand-pose] {side} '{pose}' did not converge (resid={resid:.3f} m, "
+                               f"reported={tuple(round(v, 3) for v in reported)}) - frame/clamp issue?")
         self._hand_pose = pose
 
     def _invalidate_hand_pose(self):
@@ -579,10 +582,11 @@ class EmbodiedAgent:
                     f"Centre the counter surface (center_to_counter), then place the held item.\n")
         return note, fresh
 
-    def _checkout_held_item(self):
+    def _checkout_held_item(self, hand="auto"):
         """Phase 6.3 dispatch: run the deterministic checkout MACRO (store_map.checkout_held_item) on
         the held item - drive to the counter, align on the scan pad, scan, and bag - as ONE call the
-        VLM triggers with the `checkout_held_item` action. The VLM never sequences the align/scan/place
+        VLM triggers with the `checkout_held_item` action (or the `_left`/`_right` variants, which pin
+        `hand`; the default 'auto' resolves to the holding hand, left-first when both hold). The VLM never sequences the align/scan/place
         steps (CLAUDE.md doctrine: geometry is deterministic; the VLM judges only what is in front of
         it); its only meaningful move on a checkout leg is to emit this. Returns the macro's
         {success, scanned, placed, aligned, steps, reason} dict, which run_leg surfaces as
@@ -594,7 +598,7 @@ class EmbodiedAgent:
         from store_map import checkout_held_item
         _sm, nav = self._graph_nav_session()
         self._set_hand_pose("rest")   # 6.1: hands stay ACTIVE at REST so the carried item survives
-        res = checkout_held_item(nav)
+        res = checkout_held_item(nav, hand=hand)
         print(f"[checkout] success={res.get('success')} scanned={res.get('scanned')} "
               f"placed={res.get('placed')} aligned={res.get('aligned')} - {res.get('reason')}")
         return res

@@ -82,6 +82,21 @@ def test_parse_garbage_falls_back_to_single_unknown():
         assert out == [{"type": "unknown", "text": "ORIGINAL TASK"}], raw
 
 
+def test_parse_count_normalized():
+    # count survives the parse as a clamped int; a string count from the LLM is coerced.
+    raw = '[{"type": "pickup", "target": "Jin Ramen", "count": "2", "text": "Pick up 2 Jin Ramen."}]'
+    out = parse_decomposition(raw, "orig")
+    assert out[0]["count"] == 2
+
+
+def test_parse_count_garbage_dropped_and_zero_clamped():
+    raw = ('[{"type": "pickup", "target": "a", "count": "lots", "text": "t"}, '
+           '{"type": "pickup", "target": "b", "count": 0, "text": "t"}]')
+    out = parse_decomposition(raw, "orig")
+    assert "count" not in out[0]        # unparseable -> default-1 behaviour, not a crash
+    assert out[1]["count"] == 1         # clamped to at least 1
+
+
 def test_parse_never_emits_type_outside_vocab():
     raw = '[{"type":"pickup","text":"a"},{"type":"weird","text":"b"},"c"]'
     out = parse_decomposition(raw, "orig")
@@ -145,6 +160,49 @@ def test_pickup_refused_wrong_item():
 def test_pickup_no_target_grants_on_any_grip():
     st = _state(rightGrippedState=True, rightHoveredObject="WHATEVER")
     assert _granted({"type": "pickup"}, st) is True
+
+
+# --- pickup predicate: count (dual-hand quantity, 2026-07-23) ---------------
+
+def test_pickup_count2_refused_with_one_held():
+    # The 'pick up 2 X' leg: one matching item in hand is NOT done - the refusal points the agent
+    # at its free hand instead of letting a single grab satisfy the quantity.
+    st = _state(leftGrippedState=True,
+                gripped_names={"left": "JIN_RAMEN_MILD_120G", "right": None})
+    ok, reason = completion_predicate({"type": "pickup", "target": "Jin Ramen", "count": 2}, st)
+    assert ok is False and "1 of 2" in reason and "free hand" in reason
+
+
+def test_pickup_count2_granted_with_both_hands_matching():
+    st = _state(leftGrippedState=True, rightGrippedState=True,
+                gripped_names={"left": "JIN_RAMEN_MILD_120G", "right": "JIN_RAMEN_SPICY_120G"})
+    assert _granted({"type": "pickup", "target": "Jin Ramen", "count": 2}, st) is True
+
+
+def test_pickup_count2_wrong_second_item_refused():
+    # Two hands gripping but only one holds the target - the quantity is of MATCHING items.
+    st = _state(leftGrippedState=True, rightGrippedState=True,
+                gripped_names={"left": "JIN_RAMEN_MILD_120G", "right": "COKE_ZERO_330"})
+    ok, reason = completion_predicate({"type": "pickup", "target": "Jin Ramen", "count": 2}, st)
+    assert ok is False and "1 of 2" in reason
+
+
+def test_pickup_count2_untargeted_counts_any_grips():
+    st = _state(leftGrippedState=True, rightGrippedState=True,
+                gripped_names={"left": "ANYTHING", "right": "WHATEVER"})
+    assert _granted({"type": "pickup", "count": 2}, st) is True
+
+
+def test_pickup_count2_degrades_without_per_hand_names():
+    # A runner that never sets gripped_names (eval_pickup's flat loop) cannot COUNT items - the
+    # predicate degrades to the single-item check and says so, rather than blocking on wiring it
+    # can't feed (the goto/compare [unverified] pattern).
+    st = _state(leftGrippedState=True, gripped_name="JIN_RAMEN_MILD_120G")
+    ok, reason = completion_predicate({"type": "pickup", "target": "Jin Ramen", "count": 2}, st)
+    assert ok is True and "unverified count" in reason
+    # ...but a wrong-item grip is still refused even on the degraded path.
+    st = _state(leftGrippedState=True, gripped_name="COKE_ZERO_330")
+    assert _granted({"type": "pickup", "target": "Jin Ramen", "count": 2}, st) is False
 
 
 # --- checkout predicate ----------------------------------------------------

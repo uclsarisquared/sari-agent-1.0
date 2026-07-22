@@ -473,7 +473,7 @@ def align_to_scanner(nav, target_slant=0.85, max_lateral_iters=3, max_advance_it
 
 
 # ===== Phase 6.2 (restructured): the deterministic checkout macro ================================
-def checkout_held_item(nav, hand="left", drive=True, bag_if_unscanned=False, debug_dir=None):
+def checkout_held_item(nav, hand="auto", drive=True, bag_if_unscanned=False, debug_dir=None):
     """Check out the item currently in hand: drive to the checkout (optional), align on the scan pad,
     scan the held item, then bag it in the tray - the ONE deterministic macro, NO LLM inside. This is
     the single tool the 6.3 typed `checkout`/`place` subtask dispatches to; the VLM never sequences the
@@ -500,22 +500,21 @@ def checkout_held_item(nav, hand="left", drive=True, bag_if_unscanned=False, deb
     this macro never promotes measured to verified."""
     from perception import (scan_held_item, place_held_item, center_to_screen,
                             center_to_scanner, read_text_in_box)
-    from manipulation import set_hand_pose
+    from manipulation import set_hand_pose, resolve_release_hand
     from env import TransformHands
 
-    hand = str(hand).lower()
-    grip_key = "leftGrippedState" if hand == "left" else "rightGrippedState"
     steps = {"counter": None, "align": None, "scan": None, "place": None}
-
-    def _holding():
-        return bool(TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)).get(grip_key))
 
     def _out(scanned, placed, aligned, reason):
         return {"success": bool(scanned and placed), "scanned": scanned, "placed": placed,
-                "aligned": aligned, "steps": steps, "reason": reason}
+                "aligned": aligned, "steps": steps, "reason": reason, "hand": hand}
 
-    if not _holding():
-        return _out(False, False, False, "not holding an item - nothing to check out")
+    # 'auto' resolves ONCE here to the hand that IS holding (left-first when both hold; name 'right'
+    # to check out the other item) and is threaded through the whole chain, so the scan and the place
+    # act on the SAME hand even if the other one grabs/releases mid-macro. Subsumes the holding guard.
+    hand, refuse_reason = resolve_release_hand(hand)
+    if hand is None:
+        return _out(False, False, False, refuse_reason + " - nothing to check out")
 
     # 1. Drive to the checkout (carry-safe: REST first, then go_to_counter resyncs + faces cp54).
     if drive:

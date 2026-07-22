@@ -31,7 +31,11 @@ Usage:
     python subtask_agents.py --task "..." --reset-start   # eval-reproducibility: start from spawn
 
 The agent starts from wherever it is by default; `--reset-start` is opt-in machinery for a batteried
-eval (6.4), not needed for an interactive run.
+eval (6.4), not needed for an interactive run. `--restart-env` is a separate opt-in that hard-resets
+the STORE (items back on shelves, prior checkouts undone) so a fresh task doesn't inherit the last
+run's displaced items:
+
+    python subtask_agents.py "pick up 2 Jin Ramen" --restart-env
 """
 
 import argparse
@@ -194,7 +198,14 @@ def _last_reach_line(plan, gripped=None):
 # free-function action refs. Gated to manipulation mode alongside the raw hand actions (mode
 # coherence, 6.1) - a wrong-mode emit is blocked and the router flips to manipulation next step, the
 # same self-correcting loop extend_arm_until_grabbed already relies on.
-_MACRO_ACTIONS = {"checkout_held_item"}
+# Dual-hand (2026-07-23): each macro/grab family is {bare-name: 'auto', _left: 'left', _right: 'right'};
+# 'auto' resolves deterministically from grip state (manipulation.resolve_grab_hand/_release_hand).
+_MACRO_ACTIONS = {"checkout_held_item": "auto",
+                  "checkout_held_item_left": "left",
+                  "checkout_held_item_right": "right"}
+_GRAB_ACTIONS = {"extend_arm_until_grabbed",
+                 "extend_arm_until_grabbed_left",
+                 "extend_arm_until_grabbed_right"}
 
 
 def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None,
@@ -213,24 +224,25 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         item). A wrong-mode emit blocks and the router flips to manipulation next step.
 
     `leg_type=None` disables the leg gate (eval_pickup, which has no legs, calls it that way)."""
-    if action == "checkout_held_item" and leg_type is not None and leg_type != "checkout":
-        print(f"[BLOCKED] 'checkout_held_item' belongs to the *checkout* subtask, not this "
+    if action in _MACRO_ACTIONS and leg_type is not None and leg_type != "checkout":
+        print(f"[BLOCKED] '{action}' belongs to the *checkout* subtask, not this "
               f"'{leg_type}' leg. If the CURRENT GOAL is complete, choose STOP to hand off.")
-        return {"blocked": True, "reason": ("checkout_held_item belongs to the checkout subtask; "
+        return {"blocked": True, "reason": (f"{action} belongs to the checkout subtask; "
                 "if your CURRENT GOAL is complete choose STOP to hand off (do not check out here)")}
     if (action in MANIPULATION_ACTIONS_REF or action in _MACRO_ACTIONS) \
             and mode is not None and mode != "manipulation":
         print(f"[BLOCKED] '{action}' only works in *manipulation* mode (current mode: {mode}); "
               f"the hands are inactive otherwise. Skipped - route to manipulation first.")
         return {"blocked": True, "reason": f"{action} requires manipulation mode (was {mode})"}
-    if action == "checkout_held_item":
+    if action in _MACRO_ACTIONS:
         # The 6.3 deterministic checkout macro - drive to the counter, align, scan, bag - one call.
-        # Needs the agent for its live nav session; run_leg passes it through.
+        # Needs the agent for its live nav session; run_leg passes it through. The variant name pins
+        # the hand ('auto' = the holding hand, left-first when both hold).
         if agent is None:
-            print("[WARN] checkout_held_item dispatched without an agent - cannot reach the nav "
-                  "session; skipped.")
-            return {"blocked": True, "reason": "checkout_held_item needs the agent (no nav session)"}
-        return agent._checkout_held_item() or {}
+            print(f"[WARN] {action} dispatched without an agent - cannot reach the nav "
+                  f"session; skipped.")
+            return {"blocked": True, "reason": f"{action} needs the agent (no nav session)"}
+        return agent._checkout_held_item(hand=_MACRO_ACTIONS[action]) or {}
     if action in NAVIGATION_ACTIONS_REF:
         action_ref = NAVIGATION_ACTIONS_REF[action]
     elif action in PERCEPTION_ACTIONS_REF:
@@ -253,7 +265,7 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         return action_ref(target_info, debug_dir=debug_dir) or {}
     elif action in ("retrieve_item", "approach_object"):
         return action_ref(main_goal) or {}
-    elif action == "extend_arm_until_grabbed":
+    elif action in _GRAB_ACTIONS:
         # Phase D: MEASURE before the blind reach. RequestLidarCenter reads depth along the pitched
         # gaze (hands are LiDAR self-culled, so an active hand does not occlude it); plan_reach turns
         # it into a verdict. The tool still never moves the body - a move/crouch/bail/recenter verdict
@@ -269,14 +281,16 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         if plan is None or plan["verdict"] == "unavailable":
             result = action_ref(time_units) or {}
             if not result.get('gripped', False):
-                print("[GRAB] extend_arm_until_grabbed did not grip — item out of reach, reposition.")
+                print(f"[GRAB] {action} (hand={result.get('hand', '?')}) did not grip — "
+                      f"item out of reach, reposition.")
             return result
         if plan["verdict"] == "reachable":
             result = action_ref(time_units) or {}
             result["reach_verdict"] = "reachable"
             result["last_reach"] = _last_reach_line(plan, gripped=result.get("gripped", False))
             if not result.get('gripped', False):
-                print(f"[GRAB] plan_reach said reachable but the grab missed - {plan['reason']}; "
+                print(f"[GRAB] plan_reach said reachable but the grab (hand="
+                      f"{result.get('hand', '?')}) missed - {plan['reason']}; "
                       f"the reach envelope may need retuning.")
             return result
         # move / crouch / bail / recenter: skip the blind reach, report the measured verdict.
@@ -433,10 +447,16 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
     halt_refusals = 0
     goal_met_streak = 0        # consecutive steps the completion predicate would grant (backstop)
     last_actor_text = ""       # actor's last REAL output (compare predicate's choice check)
-    gripped_name = None        # SKU the grab tool reported AT the grip - the durable record the pickup
-                               # predicate matches on (live hovered clears to 'null' once the hand
-                               # retracts from the shelf; measured live 2026-07-23: a held Piattos read
-                               # 'null'/'null' at the halt step and the STOP was wrongly refused)
+    # SKU the grab tool reported AT the grip, PER HAND - the durable record the pickup predicate
+    # matches on (live hovered clears to 'null' once the hand retracts from the shelf; measured live
+    # 2026-07-23: a held Piattos read 'null'/'null' at the halt step and the STOP was wrongly
+    # refused). Per-hand (dual-hand 2026-07-23): one slot per side, so carrying an item in each hand
+    # keeps BOTH names - the old single slot lost the first item's name at the second grab.
+    gripped_names = {"left": None, "right": None}
+    # Dual-hand (2026-07-23): sides already gripping at LEG START. A pickup leg must produce a NEW
+    # grip - without this, an item carried in from a previous leg would satisfy an untargeted pickup
+    # predicate the moment the leg begins (any-hand _gripping is True the whole time).
+    start_grips = {side for side in ("left", "right") if state.get(f"{side}GrippedState")}
 
     for step in range(1, max_steps + 1):
         if (time.time() - t0) / 60 > max_minutes:
@@ -552,17 +572,19 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
                 center_msg = res["center_message"]
             if res.get("last_reach"):
                 last_reach = res["last_reach"]
-            if raw_action == "checkout_held_item" and not res.get("blocked"):
+            if raw_action in _MACRO_ACTIONS and not res.get("blocked"):
                 checkout_result = res
-            if raw_action == "extend_arm_until_grabbed" and not res.get("blocked"):
+            if raw_action in _GRAB_ACTIONS and not res.get("blocked"):
                 # blocked = wrong-mode, not a distance failure; a measured move/crouch/bail/recenter
                 # carries its own recovery in last_reach - only a reachable-but-missed grab is a failure.
                 verdict = res.get("reach_verdict")
                 if verdict in (None, "reachable") and not res.get("gripped", False):
                     grab_failed = True
                 if res.get("gripped") and res.get("hovered"):
-                    # Capture the SKU AT the grip - the durable name record (hovered clears later).
-                    gripped_name = res["hovered"]
+                    # Capture the SKU AT the grip, filed under the hand that grabbed it - the durable
+                    # name record (hovered clears later). The grab result names its hand since the
+                    # dual-hand change; default left covers a hypothetical old-style result.
+                    gripped_names[res.get("hand") or "left"] = res["hovered"]
             acted.append([raw_action, int(tt)])
 
         # ---- refresh state from the sim, localise on the map, grow the visit trace -------------
@@ -586,11 +608,26 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
         gripping_now = bool(state.get("leftGrippedState") or state.get("rightGrippedState"))
         if gripping_now and m["t_grip"] is None:
             m["t_grip"] = round(time.time() - t0, 1)
-        # Sticky while a hand grips; cleared the moment nothing grips (release/checkout/drop), so a
-        # stale name can never vouch for an empty hand.
-        if not gripping_now:
-            gripped_name = None
-        state["gripped_name"] = gripped_name
+        # Sticky while THAT hand grips; cleared the moment it releases (checkout/drop), so a stale
+        # name can never vouch for an empty hand - per hand, so the other hand's record survives.
+        for side in ("left", "right"):
+            if not state.get(f"{side}GrippedState"):
+                gripped_names[side] = None
+        state["gripped_names"] = dict(gripped_names)
+        # Back-compat blob: name_matches folds this into its search text; joining both names means a
+        # targeted pickup grants when EITHER held item is the target (the right item in hand is the
+        # right item, whichever hand holds it).
+        state["gripped_name"] = " ".join(n for n in gripped_names.values() if n) or None
+        # True once a hand that was EMPTY at leg start grips - the pickup predicate's "this leg
+        # actually grabbed something" signal under dual-hand carry.
+        state["new_grip_this_leg"] = any(
+            state.get(f"{side}GrippedState") and side not in start_grips
+            for side in ("left", "right"))
+        # True once a hand that was GRIPPING at leg start released - the untyped drop guard's "this
+        # leg actually put something down" signal (a second carried item no longer stalls the STOP).
+        state["released_grip_this_leg"] = any(
+            side in start_grips and not state.get(f"{side}GrippedState")
+            for side in ("left", "right"))
 
         # 6.3 completion nudge + backstop: run the SAME predicate the STOP request will face, SILENTLY,
         # each step. When the CURRENT GOAL measurably holds, put that in front of the router (goal_check)
@@ -614,7 +651,7 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
              "reach": last_reach, "near_cp": near, "pos": state.get("translation"),
              "hovered": [state.get("leftHoveredObject"), state.get("rightHoveredObject")],
              "gripped": [state.get("leftGrippedState"), state.get("rightGrippedState")],
-             "gripped_name": gripped_name,
+             "gripped_names": dict(gripped_names),
              "checkout": checkout_result, "goal_met": met, "status": notes.get("status")})
 
         if goal_met_streak >= COMPLETION_BACKSTOP:
@@ -658,7 +695,7 @@ def _current_nearest_cp(sm):
 
 
 def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
-                resolver_backend="qwen", reset_start=False):
+                resolver_backend="qwen", reset_start=False, restart_env=False):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then
     run each with run_leg until the AGENT stops (predicate-granted) or a per-leg cap fires. Shared
     semantic/episodic memory + a between-leg findings summary carry context forward. A leg that does
@@ -675,7 +712,18 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     is EVAL-reproducibility machinery, not an agent capability: it makes a batteried run (6.4's
     eval_longhorizon) start every task from the identical pose so metrics compare. A plain interactive
     run leaves it OFF - the agent starts from wherever it is (returning to spawn every time is awkward
-    and adds nothing the resolver + graph nav don't already handle)."""
+    and adds nothing the resolver + graph nav don't already handle).
+
+    restart_env (default FALSE): hard-reset the STORE to its pristine initial state before the first
+    leg via env.Reset() (Unity's ResetEnvironment) - items back on shelves, prior checkouts undone,
+    agent teleported to spawn. Distinct from reset_start, which only MOVES the agent and leaves the
+    shelf state a previous run displaced. Use it when a fresh task must not inherit the last run's
+    grabbed/checked-out items (e.g. re-running 'pick up 2 Jin Ramen' after a run that already removed
+    two). NOTE: eval_pickup's docstrings say 'never call Reset()' because ResetEnvironment used to
+    DOUBLE every non-RetailItem object (price tags, cans); that warning PREDATES the C# fix -
+    ResetEnvironment now calls ItemPoolingManager.ClearPool() + ShelfBuilder.DeleteAllPriceTags()
+    before reloading (DataHandler.cs:617). Verify the duplication is gone on your build before relying
+    on this in a batteried eval; it stays OFF by default."""
     client = _llm_client()
     init_logger(run_name=f"subtask-{datetime.now():%m%d_%H%M%S}")
     agent = EmbodiedAgent(vlm_config=VLM_CONFIG, associative_config=ASSOCIATIVE_CONFIG,
@@ -697,6 +745,20 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     resolve_call = make_resolve_call(resolver_backend)
     legs, n_resolves = plan_legs(sm, resolve_call, subtasks)
     task_llm += n_resolves
+
+    # -- hard STORE reset (OPT-IN, default off): put the shelves back before the task starts, so a
+    #    fresh run doesn't inherit items a previous run grabbed/checked out. Done FIRST (before the
+    #    pose reset and before ordering) so return_to_start re-syncs the nav pose to the post-reset
+    #    spawn and order_legs reads the true start. See the docstring re: the (now-fixed) duplication
+    #    warning in eval_pickup.
+    if restart_env:
+        try:
+            from env import Reset as _reset_env
+            _reset_env()
+            time.sleep(1.5)   # let Unity destroy + LoadStore() re-instantiate before the first frame
+            print("[ORCHESTRATOR] hard env reset (ResetEnvironment): store restored to initial state.")
+        except Exception as e:  # noqa: BLE001 - a reset hiccup shouldn't abort the whole task
+            print(f"[ORCHESTRATOR] restart_env skipped ({type(e).__name__}: {e})")
 
     # -- per-TASK reset (OPT-IN, default off): eval-reproducibility only; see the docstring. Done
     #    BEFORE ordering so legs order from the true post-reset start. Pose-only, never between legs.
@@ -803,12 +865,18 @@ def main():
     ap.add_argument("--reset-start", action="store_true",
                     help="drive to the fixed spawn pose once before starting (eval-reproducibility; "
                          "OFF by default - a plain run starts from the agent's current pose)")
+    ap.add_argument("--restart-env", action="store_true",
+                    help="hard-reset the STORE to its initial state before starting (Unity's "
+                         "ResetEnvironment: items back on shelves, prior checkouts undone, agent to "
+                         "spawn). OFF by default - use it so a fresh task doesn't inherit the last "
+                         "run's grabbed/checked-out items. (Unlike --reset-start, which only moves "
+                         "the agent.)")
     args = ap.parse_args()
 
     task = args.task_opt or args.task or input("Task: ")
     orchestrate(task, arm=args.arm, caps=(args.max_steps, args.max_minutes), out=args.out,
                 run_dir=args.run_dir, resolver_backend=args.resolver_backend,
-                reset_start=args.reset_start)
+                reset_start=args.reset_start, restart_env=args.restart_env)
 
 
 if __name__ == "__main__":

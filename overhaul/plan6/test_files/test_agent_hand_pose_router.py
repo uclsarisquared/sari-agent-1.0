@@ -43,11 +43,16 @@ except ImportError:
 class Spies:
     def __init__(self):
         self.active = []      # SetHandsActive(active) history
-        self.poses = []       # set_hand_pose(pose) history
+        self.poses = []       # set_hand_pose(pose) history (one entry per hand driven)
+        self.hands = []       # which hand each drive targeted (dual-hand: left+right per pose set)
         self.arrived = True   # flip to test the non-convergence warning path
         env.SetHandsActive = lambda active, *a, **k: self.active.append(active)
-        M.set_hand_pose = lambda pose, *a, **k: (self.poses.append(pose)
-                                                 or (self.arrived, (0.0, 0.0, 0.0), 0.0))
+
+        def _spy_pose(pose, *a, hand="left", **k):
+            self.poses.append(pose)
+            self.hands.append(hand)
+            return (self.arrived, (0.0, 0.0, 0.0), 0.0)
+        M.set_hand_pose = _spy_pose
 
 
 def _agent():
@@ -62,7 +67,8 @@ def test_first_set_activates_and_drives_rest():
     a = _agent()
     a._set_hand_pose("rest")
     assert s.active == [True], "first call must activate the hands"
-    assert s.poses == ["rest"], "first call must drive REST"
+    assert s.poses == ["rest", "rest"] and s.hands == ["left", "right"], \
+        "first call must drive REST on BOTH hands (dual-hand)"
     assert a._hands_active is True and a._hand_pose == "rest"
 
 
@@ -73,7 +79,7 @@ def test_repeat_is_a_noop_no_spam():
     a._set_hand_pose("rest")
     a._set_hand_pose("rest")
     assert s.active == [True], "hands already active -> no repeat SetHandsActive"
-    assert s.poses == ["rest"], "pose unchanged -> no repeat drive (fire-on-change)"
+    assert s.poses == ["rest", "rest"], "pose unchanged -> no repeat drive (fire-on-change)"
 
 
 def test_invalidate_forces_next_rest_to_redrive():
@@ -84,7 +90,7 @@ def test_invalidate_forces_next_rest_to_redrive():
     assert a._hand_pose is None and a._hands_active is True
     assert s.active == [True], "invalidate must NOT toggle hands off"
     a._set_hand_pose("rest")            # poses: [rest, rest]  <- re-driven after manipulation
-    assert s.poses == ["rest", "rest"], "REST must be re-asserted after a manipulation step"
+    assert s.poses == ["rest"] * 4, "REST must be re-asserted (both hands) after a manipulation step"
 
 
 def test_hard_stow_then_next_task_reactivates_and_redrives():
@@ -96,7 +102,7 @@ def test_hard_stow_then_next_task_reactivates_and_redrives():
     assert s.active == [True, False]
     a._set_hand_pose("rest")            # new task
     assert s.active == [True, False, True], "new task must re-activate the hands"
-    assert s.poses == ["rest", "rest"], "new task must re-drive REST"
+    assert s.poses == ["rest"] * 4, "new task must re-drive REST (both hands)"
 
 
 def test_grab_pose_is_never_set_by_router():

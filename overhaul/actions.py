@@ -39,6 +39,17 @@ from perception import (
 from manipulation import extend_arm_until_grabbed
 
 
+# Dual-hand variants (2026-07-23): the bare action auto-selects a FREE hand (left preferred, right
+# when the left is carrying - manipulation.resolve_grab_hand); the _left/_right variants pin the side
+# for when the VLM wants a specific hand (e.g. keep an item in one hand while grabbing another).
+def extend_arm_until_grabbed_left(times=1):
+    return extend_arm_until_grabbed(times, hand="left")
+
+
+def extend_arm_until_grabbed_right(times=1):
+    return extend_arm_until_grabbed(times, hand="right")
+
+
 NAVIGATION_ACTIONS_REF = {
     "move_forward": move_forward,
     "move_backward": move_backward,
@@ -72,4 +83,6 @@ MANIPULATION_ACTIONS_REF = {
     'grip_left': grip_left,
     'grip_right': grip_right,
     'extend_arm_until_grabbed': extend_arm_until_grabbed,
+    'extend_arm_until_grabbed_left': extend_arm_until_grabbed_left,
+    'extend_arm_until_grabbed_right': extend_arm_until_grabbed_right,
 }
