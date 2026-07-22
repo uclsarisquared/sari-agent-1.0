@@ -41,6 +41,9 @@ def main():
     ap.add_argument("--tol", type=float, default=20.0)
     ap.add_argument("--gain", type=float, default=0.8,
                     help="damping on each correction (<1 undershoots; curbs overshoot/ringing)")
+    ap.add_argument("--front-bias", type=float, default=0.25,
+                    help="look-1 seed's pull toward the FRONT item of a row (0 = pure "
+                         "nearest-to-aim, the old behaviour; A/B against that)")
     args = ap.parse_args()
 
     from env import RequestScreenshot, SetHandsActive
@@ -70,7 +73,7 @@ def main():
         snap("center_before.png")
         result = center_object_on_screen(f"main_goal={args.target}", aim_norm=tuple(args.aim),
                                          max_iters=args.max_iters, tol_px=args.tol, gain=args.gain,
-                                         debug_dir=run_dir)
+                                         front_bias=args.front_bias, debug_dir=run_dir)
         snap("center_after.png")
     finally:
         SetHandsActive(True)

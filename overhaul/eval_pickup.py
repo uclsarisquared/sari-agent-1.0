@@ -45,11 +45,18 @@ from hand_reset import reset_hands_in_front2
 # excluded on purpose: grabbing through glass doors is an unmeasured sim behaviour, and this
 # A/B is about navigation, not door physics).
 TASKS = [
-    ("Find and pick up a can of Century Tuna.", ("century", "tuna")),
-    ("Find and pick up a can of Piattos chips.", ("piattos",)),
-    ("Find and pick up a pack of instant noodles.", ("noodle", "pancit", "canton", "ramen", "mi goreng", "lucky")),
-    ("Find and pick up the Ritz crackers.", ("ritz",)),
-    ("Find and pick up a bag of Clover Chips.", ("clover",)),
+    ("Get crackers in a wrapper, not a box."),
+    ("Get green colored chips."),
+    ("Get orange pringles."),
+    ("Get an item that weighs more than 100 grams."),
+    ("Get an imported drink."),
+    ("Get crackers but not from Glico."),
+    ("Find chips that costs less than 30 Pesos."),
+    ("Find a product with stevia."),
+    ("Find Bingo Corned Beef. If you see one in the bottom shelf, pick that one."),
+    ("Find an item near the checkout."),
+    ("Find a large Pik Nik."),
+    ("Find a canned food and check its price.")
 ]
 
 EXTRACT = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
@@ -233,8 +240,8 @@ def main():
                     help="Comma-separated keywords that count as success for --task (substring "
                          "match on the gripped/hovered object name). If omitted, success stays "
                          "False but the picked-up item is still reported.")
-    ap.add_argument("--max-steps", type=int, default=12)
-    ap.add_argument("--max-minutes", type=float, default=8.0)
+    ap.add_argument("--max-steps", type=int, default=150)
+    ap.add_argument("--max-minutes", type=float, default=40.0)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 

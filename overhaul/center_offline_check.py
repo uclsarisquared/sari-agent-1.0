@@ -7,6 +7,11 @@ reports, per image:
   * detected label + bbox centre
   * residual from frame centre (pixels and normalised)
   * the rotation the OLD model (px / 19.2) vs the NEW model (atan / FOCAL_PX) would command
+  * SEED A/B: over ALL detected instances (_detect_boxes_px), which one the OLD look-1 seed
+    (pure nearest-to-aim) vs the NEW front-biased seed (--front-bias) locks onto, and whether
+    they disagree. This is how you validate the front-of-row seed on a saved frame BEFORE
+    trusting the default: eyeball look<i>_bbox.png / the printed boxes and confirm the NEW pick
+    is the item actually in FRONT.
 
 What it PROVES offline: the detector is deterministic at temp 0 (--repeat), and how far the
 two projection models disagree on the commanded angle. What it does NOT prove: closed-loop
@@ -110,6 +115,36 @@ def check_image(path, target, repeat):
           f"(delta pitch {op - np_:+.2f}, yaw {oy - ny:+.2f})")
 
 
+def check_seed(path, target, front_bias):
+    """A/B the look-1 SEED offline: detect ALL instances, then show which one the OLD seed
+    (nearest-to-aim, front_bias=0) vs the NEW front-biased seed locks - and flag when they
+    disagree (the front-of-row fix actually changing the pick). Boxes are listed largest-area
+    first, since area is the front-of-row proxy the new seed weights."""
+    from perception import (_detect_boxes_px, _seed_front_instance,
+                            ORIGINAL_WIDTH, ORIGINAL_HEIGHT)
+    from PIL import Image
+    img = Image.open(path)
+    aim_x, aim_y = ORIGINAL_WIDTH / 2, ORIGINAL_HEIGHT / 2
+    boxes = _detect_boxes_px(img, f"main_goal={target}")
+    if not boxes:
+        print("  seed A/B: no instances detected")
+        return
+
+    def _area(b):
+        return (b['xmax'] - b['xmin']) * (b['ymax'] - b['ymin'])
+
+    old = _seed_front_instance(boxes, aim_x, aim_y, 0.0)          # pure nearest-to-aim
+    new = _seed_front_instance(boxes, aim_x, aim_y, front_bias)   # front-biased
+    print(f"  seed A/B ({len(boxes)} instance(s), front_bias={front_bias}):")
+    for b in sorted(boxes, key=_area, reverse=True):
+        tag = ("OLD " if b is old else "    ") + ("NEW" if b is new else "")
+        d = ((b['cx'] - aim_x) ** 2 + (b['cy'] - aim_y) ** 2) ** 0.5
+        print(f"    center=({b['cx']:>4.0f},{b['cy']:>4.0f}) area={_area(b):>9.0f}px^2 "
+              f"dist_to_aim={d:>4.0f}px  {tag}")
+    print("    -> " + ("DIFFERENT pick (front-bias changed the lock)" if old is not new
+                       else "same pick (front-bias made no difference on this frame)"))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -117,6 +152,8 @@ def main():
     ap.add_argument("--target", default=None, help="target description for the detector")
     ap.add_argument("--repeat", type=int, default=1,
                     help="detect N times per image to show temp-0 determinism")
+    ap.add_argument("--front-bias", type=float, default=0.25,
+                    help="front-of-row seed strength for the seed A/B (0 = old nearest-to-aim)")
     ap.add_argument("--selftest", action="store_true",
                     help="check the projection math only (no images, no network)")
     args = ap.parse_args()
@@ -133,6 +170,7 @@ def main():
         paths.extend(glob.glob(pat) or [pat])
     for p in paths:
         check_image(p, args.target, args.repeat)
+        check_seed(p, args.target, args.front_bias)
 
 
 if __name__ == "__main__":

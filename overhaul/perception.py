@@ -284,8 +284,49 @@ def bbox_to_rotation(cx, cy, aim_x, aim_y, focal_px=FOCAL_PX):
     return pitch, yaw
 
 
+def _seed_front_instance(boxes, aim_x, aim_y, front_bias):
+    """Pick which detected instance the centring loop LOCKS onto at look 1 - biased toward the
+    FRONT-of-row item. Returns one box dict FROM `boxes` (must be non-empty). PURE (no sim/I/O)
+    so it can be A/B'd offline on saved frames - see center_offline_check.py.
+
+    Why this exists (measured failure mode): a row of near-identical products stacks in DEPTH, so
+    several instances land almost on top of each other near the aim in the 2D frame. Pure
+    nearest-to-aim (the prior seed) can't tell the item in FRONT from the one behind it and would
+    sometimes lock the BACK one - which then also corrupts the reach, because RequestLidarCenter's
+    centre ray hits whatever is actually in front along the gaze, not the boxed back item.
+
+    The frontmost instance is CLOSEST to the camera, and a closer item projects a LARGER bbox (and,
+    occluding the ones behind it, a more complete one). So area is a cheap depth proxy - but only
+    WITHIN a same-size row; across different SKUs it is size, not depth. We therefore keep the seed
+    NEAR the aim (so the loop can still centre it and doesn't lock a big off-target item) and let
+    area only break the choice among the near cluster:
+
+        score(b) = dist_to_aim^2 / diag^2  -  front_bias * area(b) / frame_area      (minimise)
+
+    Both terms are normalised to [0,1] (frame diagonal, frame area), so front_bias is a single
+    dimensionless, resolution-independent knob:
+      * front_bias = 0.0  -> exact prior behaviour (pure nearest-to-aim) - use for A/B.
+      * larger front_bias -> stronger pull to the bigger/nearer instance; too large hijacks the
+        seed to the biggest box anywhere in frame. The default is UNVALIDATED - A/B on saved frames
+        with center_offline_check.py before trusting it (project doctrine: measure, don't assume).
+
+    Only the look-1 SEED uses this; after that the loop tracks the locked instance by predicted
+    position (PPD_YAW/PPD_PITCH), so front/back is decided once, here."""
+    if front_bias <= 0.0 or len(boxes) == 1:
+        return min(boxes, key=lambda b: (b['cx'] - aim_x) ** 2 + (b['cy'] - aim_y) ** 2)
+    diag2 = float(ORIGINAL_WIDTH ** 2 + ORIGINAL_HEIGHT ** 2)
+    frame_area = float(ORIGINAL_WIDTH * ORIGINAL_HEIGHT)
+
+    def _score(b):
+        d2 = ((b['cx'] - aim_x) ** 2 + (b['cy'] - aim_y) ** 2) / diag2
+        area = max(0.0, (b['xmax'] - b['xmin']) * (b['ymax'] - b['ymin'])) / frame_area
+        return d2 - front_bias * area
+
+    return min(boxes, key=_score)
+
+
 def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_px=20.0,
-                            gain=0.8, max_step_deg=12.0, debug_dir=None):
+                            gain=0.8, max_step_deg=12.0, front_bias=0.25, debug_dir=None):
     """Rotate the camera until the target's bbox centre sits on the aim point - CLOSED-LOOP.
 
     Was a single open-loop shot with a wrong linear gain (see the FOCAL_PX note): detect
@@ -320,8 +361,18 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     otherwise hop between instances as the view shifts - a step that "moves" the target further
     than any camera rotation could is that hop, not a gain error, and it was the loop's actual
     failure to converge. So detection returns ALL instances (_detect_boxes_px) and the loop
-    stays on ONE: nearest the aim on look 1 (centre the most central instance), then nearest to
-    where that instance is PREDICTED to land (PPD_YAW/PPD_PITCH) on every look after.
+    stays on ONE: the FRONT-of-row instance on look 1 (front_bias / _seed_front_instance), then
+    nearest to where that instance is PREDICTED to land (PPD_YAW/PPD_PITCH) on every look after.
+
+    front_bias: how strongly the look-1 SEED prefers the FRONT item of a row over merely the box
+      nearest the aim. A row of identical products stacks in depth and clusters near the aim in 2D,
+      so nearest-to-aim alone sometimes locked the BACK one (and, since the reach's RequestLidarCenter
+      ray hits whatever is in front along the gaze, that mismatched the grab too). The frontmost
+      instance is closest and projects the LARGEST bbox, so this biases the seed toward area among
+      the near cluster (see _seed_front_instance). front_bias=0.0 restores the pure nearest-to-aim
+      seed - use it to A/B this as one variable. The default is UNVALIDATED: A/B on saved frames
+      (center_offline_check.py) before trusting it. It touches ONLY look-1 seeding; the tracking
+      logic below is unchanged.
 
     aim_norm: normalised (x, y) aim point. (0.5, 0.5) is the geometric centre. The grab
       sweet-spot sits BELOW centre - the extended hand shows up around y~0.67 (see
@@ -366,11 +417,14 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
             print(f"[CENTER] look {i}: target not detected - not rotating (let the caller search).")
             break
         detected = True
-        # Stay on ONE instance: nearest the aim on look 1, thereafter nearest to where the
-        # tracked instance was predicted to land. This is what stops the hop between identical
-        # items as they cross near the aim.
-        anchor = (aim_x, aim_y) if locked is None else locked
-        box = min(boxes, key=lambda b: (b['cx'] - anchor[0]) ** 2 + (b['cy'] - anchor[1]) ** 2)
+        # Stay on ONE instance. Look 1 SEEDS on the FRONT-of-row instance (front_bias), not merely
+        # the box nearest the aim - a stacked row of identical items would otherwise sometimes lock
+        # the one behind. Every look after tracks THAT instance: nearest to where it was predicted
+        # to land. This is what stops the hop between identical items as they cross near the aim.
+        if locked is None:
+            box = _seed_front_instance(boxes, aim_x, aim_y, front_bias)
+        else:
+            box = min(boxes, key=lambda b: (b['cx'] - locked[0]) ** 2 + (b['cy'] - locked[1]) ** 2)
         annotate_target(box['ymin'], box['xmin'], box['ymax'], box['xmax'])
         if debug_dir:
             _draw_debug_frame(filepath, boxes, box, (aim_x, aim_y),
