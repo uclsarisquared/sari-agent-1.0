@@ -91,7 +91,8 @@ def grab_and_read_item(hand="left", max_attempts=30, text_read_fn=None):
 # REST pose so a carried item is never dropped by a mode change - it rides at REST. The two poses are
 # the user's manual calibration (2026-07-22), LEFT-hand agent-local xyz, validated live by the step-0
 # probe (plan6/step0_hand_pose_probe.py, user-confirmed working 2026-07-22).
-REST_POSE = (-0.213, -0.09, 0.2)   # out-of-frame resting pose: navigate, perceive, and CARRY here
+REST_POSE = (-0.213, -0.09, 0.26)  # out-of-frame resting pose: navigate, perceive, and CARRY here
+                                   # (z revised 0.2 -> 0.26, user-validated 2026-07-22)
 GRAB_POSE = (-0.01, 0.006, 0.33)   # centred forward "ready to grab" pose - TOOL-INTERNAL (see below)
 _NAMED_POSES = {"rest": REST_POSE, "grab": GRAB_POSE}
 _HAND_MOVE_RANGE = 0.5   # Unity clamps each TransformHands delta component here (TranslateHand, ~656)
@@ -381,3 +382,128 @@ def plan_reach(sample, envelope=REACH_ENVELOPE):
                          reason=f"move_forward {move_steps} (~{move_steps * envelope['move_unit']:.1f} m): "
                                 f"slant distance {d:.2f} m > reach {max_reach:.2f} m; close the horizontal "
                                 f"gap from {horizontal_gap:.2f} to ~{needed_gap:.2f} m")
+
+
+# ===== Phase 6.2: depth-gated PLACE planning ====================================================
+# plan_place is plan_reach's sibling for RELEASING onto the bagging tray. Same measured model - the
+# held item hangs off the hand which extends along the CAMERA GAZE, so whether a release lands on the
+# surface is decided by the SLANT distance to the centred surface - but a place can have BOTH a far
+# bound (too far -> the item falls SHORT of the tray) and a near bound (too close -> the hand can't
+# clear the tray's front lip). See fit_place_envelope.py, which fits the range and FLAGS a near bound.
+#
+# PLACE_ENVELOPE - PROVENANCE (honest, 2026-07-23): the boundary is bracketed from two probe sessions,
+# NOT a single clean fit, because the landing rows and the miss rows live in different runs:
+#   - LANDS at slant <= 1.29 m  (first place_probe run, finding 2, 2026-07-22)
+#   - MISSES at 1.36 / 1.44 / 1.48 m (M7 run, place_envelope.csv) and 1.64 m (first run)
+# So the far edge sits in (1.29, 1.36): midpoint 1.325 - MARGIN 0.04 = 1.28 -> place_max = 1.28.
+# NO near bound was observed (every miss was FARTHER than every land), so place_min = None (the
+# too-close verdict stays dormant). CAVEAT: the current place_envelope.csv holds ONLY the M7 misses;
+# the <=1.29 land row is from the earlier session and is not in the file, so `fit_place_envelope.py`
+# cannot re-derive place_max until a landing row is logged again. Re-fit from a CSV that has BOTH
+# sides before trusting a tighter number. There is also an unresolved aim confound (Option B, deferred
+# by user 2026-07-23): the misses could be "fell short" OR "rolled off the front edge" (center_to_counter's
+# un-dialed aim) - if the gate shows drops rolling off, dial COUNTER_AIM_NORM deeper and re-measure;
+# the envelope may then widen.
+PLACE_ENVELOPE = {
+    "place_max": 1.28,   # release lands on the tray iff slant distance <= this (m)
+    "place_min": None,   # no near bound observed; None disables the too-close ('back') verdict
+    "move_unit": 0.10,   # metres per move_forward unit (env.py _move_relative)
+    "move_cap":  10,     # move_forward clamps a single call to 10 units
+}
+
+
+def _place_result(verdict, sample=None, move_steps=0, surface_height=None,
+                  horizontal_gap=None, reason=""):
+    s = sample or {}
+    return {
+        "verdict": verdict,            # placeable | move | back | crouch | bail | recenter | unavailable
+        "move_steps": int(move_steps),
+        "distance": s.get("distance"),
+        "pitch_deg": s.get("pitch_deg"),
+        "camera_height": s.get("camera_height"),
+        "surface_height": surface_height,
+        "horizontal_gap": horizontal_gap,
+        "reason": reason,
+    }
+
+
+def plan_place(sample, envelope=PLACE_ENVELOPE):
+    """Turn ONE RequestLidarCenter sample of the bagging tray into a place verdict - the deterministic
+    geometry brain of the bag step. PURE (no sim, no I/O), unit-tested in test_plan_place.py.
+
+    Same slant-distance model as plan_reach (the item extends along the gaze), with a place-specific
+    range: place iff place_min <= slant <= place_max (place_min None => no near bound).
+
+    Geometry (slant range d, gaze pitch theta [+ = down], camera world-Y cam_h):
+        vertical_offset = d * sin(theta)     # + = surface BELOW the camera
+        horizontal_gap  = d * cos(theta)     # forward distance (a body move is horizontal)
+        surface_height  = cam_h - vertical_offset
+    Moving forward shrinks horizontal_gap (so slant) but not vertical_offset, so the smallest slant a
+    move can reach is |vertical_offset|; if that already exceeds place_max, moving can't help.
+
+    Verdicts:
+      placeable   - place_min <= slant <= place_max: release now.
+      move        - too far (slant > place_max) but |vertical_offset| <= place_max: move forward, re-center, retry.
+      back        - too close (slant < place_min): move backward, re-center, retry. Only if place_min is set.
+      crouch      - too far AND surface more than place_max BELOW the camera: crouch to close it, re-measure.
+      bail        - too far AND surface more than place_max ABOVE the camera (not a countertop): can't place.
+      recenter    - miss (nothing solid at centre): don't plan off a meaningless distance.
+      unavailable - sample lacks pose (old sim build): caller falls back.
+    """
+    if not sample or sample.get("error"):
+        return _place_result("recenter", sample,
+                             reason=f"lidar error: {(sample or {}).get('error', 'no sample')}")
+    if sample.get("pitch_deg") is None or sample.get("camera_height") is None:
+        return _place_result("unavailable", sample,
+                             reason="sample has no pose (pitch_deg/camera_height) - the sim needs the "
+                                    "Phase-D recompile; falling back to a blind place")
+    if not sample.get("hit", False):
+        return _place_result("recenter", sample,
+                             reason="no surface at frame centre (aimed past the tray / at the floor) - "
+                                    "re-center on the tray and retry")
+
+    d = float(sample["distance"])
+    theta = math.radians(float(sample["pitch_deg"]))
+    cam_h = float(sample["camera_height"])
+    vertical_offset = d * math.sin(theta)        # + = surface below the camera
+    horizontal_gap = d * math.cos(theta)
+    surface_height = cam_h - vertical_offset
+    place_max = envelope["place_max"]
+    place_min = envelope.get("place_min")
+
+    # Near bound (only if measured): too close, the hand can't clear the tray lip - back off.
+    if place_min is not None and d < place_min:
+        needed_gap = math.sqrt(max(0.0, place_min ** 2 - vertical_offset ** 2))
+        move_steps = max(1, min(envelope["move_cap"],
+                                math.ceil((needed_gap - horizontal_gap) / envelope["move_unit"])))
+        return _place_result("back", sample, move_steps=move_steps, surface_height=surface_height,
+                             horizontal_gap=horizontal_gap,
+                             reason=f"too close: slant {d:.2f} m < place_min {place_min:.2f} m - "
+                                    f"move_backward {move_steps} and re-center")
+
+    if d <= place_max:
+        return _place_result("placeable", sample, surface_height=surface_height,
+                             horizontal_gap=horizontal_gap,
+                             reason=f"placeable: slant distance {d:.2f} m <= place_max {place_max:.2f} m")
+
+    if abs(vertical_offset) > place_max:
+        # The vertical gap alone exceeds place_max; moving forward cannot bring the slant under it.
+        if vertical_offset > 0:      # surface below the camera -> crouching lowers the camera toward it
+            return _place_result("crouch", sample, surface_height=surface_height,
+                                 horizontal_gap=horizontal_gap,
+                                 reason=f"surface is {vertical_offset:.2f} m below the camera "
+                                        f"(> place_max {place_max:.2f} m) - crouch, then re-center and re-measure")
+        return _place_result("bail", sample, surface_height=surface_height,
+                             horizontal_gap=horizontal_gap,
+                             reason=f"surface is {-vertical_offset:.2f} m above the camera "
+                                    f"(> place_max {place_max:.2f} m) - not a countertop; can't place here")
+
+    # Placeable once close enough: move forward to bring the slant down to place_max.
+    needed_gap = math.sqrt(max(0.0, place_max ** 2 - vertical_offset ** 2))
+    move_steps = max(1, min(envelope["move_cap"],
+                            math.ceil((horizontal_gap - needed_gap) / envelope["move_unit"])))
+    return _place_result("move", sample, move_steps=move_steps, surface_height=surface_height,
+                         horizontal_gap=horizontal_gap,
+                         reason=f"move_forward {move_steps} (~{move_steps * envelope['move_unit']:.1f} m): "
+                                f"slant distance {d:.2f} m > place_max {place_max:.2f} m; close the "
+                                f"horizontal gap from {horizontal_gap:.2f} to ~{needed_gap:.2f} m")

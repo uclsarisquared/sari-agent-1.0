@@ -42,7 +42,11 @@ from frontier_planner import _inflate_occupied  # noqa: E402
 from topology import route_hints  # noqa: E402
 from explore import step_agent  # noqa: E402
 from walk_map import load_annotations, check_alignment, effective_kind_of  # noqa: E402
-from env import SetHandsActive, SetCrouch, RequestScreenshot  # noqa: E402
+from env import (  # noqa: E402
+    SetHandsActive, SetCrouch, RequestScreenshot, RequestLidarCenter,
+    move_forward, move_backward, move_left, move_right,
+)
+from mapping import normalize_deg  # noqa: E402
 
 DEFAULT_OUTPUT_DIR = os.path.join(_SLAM_DIR, "output")
 
@@ -288,3 +292,246 @@ class NavSession:
         if self._stowed:
             SetHandsActive(True, uri=self.args.uri)
             self._stowed = False
+
+
+# ===== Phase 6.2: deterministic "go to the checkout counter" =====================================
+def go_to_counter(nav, resync=True):
+    """Drive a live NavSession to the checkout counter (the cp54 landmark) and face it - the
+    fixed-target navigation mirror of perception.center_to_counter, and the 'go to the counter'
+    primitive the place subtask needs. The counter is a KNOWN singleton landmark, so this needs NO
+    resolver LLM: it looks cp54 up directly (StoreMap.counter_checkpoint) and A*-drives there.
+
+    Deterministic-over-topology by design (phase6 plan, "cp54 standoff"): prefer this approach step
+    (code, regenerable, A/B-able) over re-docking cp54 in the frozen topology (a data migration with
+    route-hint/annotation fallout).
+
+    resync (default True) re-reads NavSession's cached pose from the sim first - the phase4.2 desync
+    landmine: VLM/manipulation/manual-WASD actions move the agent behind NavSession's back, so the
+    A* start would otherwise be stale. Set False only if the caller just synced.
+
+    CARRY-SAFETY IS THE CALLER'S JOB (as in agent._graph_navigate): assert the REST hand pose before
+    calling this so a held item rides the drive. NavSession must have been built stow_hands=False
+    (the default stows hands, which drops a carried item and undoes Phase 6.1). This function does not
+    touch the hands - it must not bypass the agent's state-tracked _set_hand_pose.
+
+    Returns {'arrived': bool, 'checkpoint': id|None, 'x', 'z', 'yaw'} (or a 'reason' if there is no
+    landmark node in the graph at all)."""
+    cp = nav.sm.counter_checkpoint()
+    if cp is None:
+        return {"arrived": False, "checkpoint": None,
+                "reason": "no landmark/counter checkpoint in the graph"}
+    if resync:
+        nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+    arrived = nav.goto(cp)
+    x, z, yaw, _near = nav.where()
+    return {"arrived": bool(arrived), "checkpoint": cp, "x": x, "z": z, "yaw": yaw}
+
+
+# ===== Phase 6.2 (restructured): square onto the barcode scan pad (the "last metre") =============
+# The `aligned` verdict is on the LATERAL offset to the pad, not the raw yaw angle. Measured 2026-07-23
+# from 2 live checkout runs: the sweep scanned at 0.033 m (yaw 2.2 deg) and 0.047 m (yaw 3.2 deg) lateral.
+# The lateral strafe moves in 0.10 m steps and rounds, so it cannot converge finer than 0.05 m - which is
+# also above both measured-OK offsets. So 0.05 m ties the verdict to the strafe's own resolution.
+ALIGN_LATERAL_TOL_M = 0.05
+
+
+def align_to_scanner(nav, target_slant=0.85, max_lateral_iters=3, max_advance_iters=6, resync=True,
+                     debug_dir=None):
+    """Square the agent onto the checkout scan pad from the counter checkpoint - the visual-servo
+    'last metre' the occupancy grid is too coarse to place (0.1 m cells vs a centimetre-scale pad).
+    Phase 6.2, promoted from place_probe's `align` + `adv`, which centred + aligned well enough to
+    scan on both live chain runs (2026-07-22).
+
+    Deterministic-over-topology by design (the frozen-map-preferred Option A): all existing
+    primitives - center_to_scanner (perception) + strafe/advance (env) + the graph's perpendicular -
+    so this is regenerable and A/B-able rather than a re-dock of cp54 in the frozen topology. Splice a
+    scan-dock node only if this measures flaky (the same trigger the phase6 plan set for cp54).
+
+    PRECONDITION: at/near the counter (call go_to_counter first) and CARRYING (hands at REST, active).
+    Like go_to_counter, this does NOT touch the hands - the caller keeps the item riding at REST.
+
+    Two loops:
+      1. Lateral: center_to_scanner -> yaw error vs cp54's perpendicular (from the graph) -> strafe
+         slant*sin(yaw_off) -> re-face the perpendicular -> re-centre. <= max_lateral_iters; converged
+         at <= one pan step (2.5 deg) of residual yaw.
+      2. Advance: close the pad's centre-LiDAR slant to `target_slant` (SCAN_REACH_M, measured
+         comfortable at 0.84-0.89 m), re-centring the scanner after each move.
+
+    Returns {'aligned': bool, 'slant': float|None, 'residual_yaw': float, 'checkpoint': id|None,
+    'iters': int, 'reason': str} - surfaced as `last_align`. `aligned` iff the pad was detected, the
+    yaw residual is within one pan step, AND the final slant <= target_slant + a small margin (the
+    item is within the hand's reach of the pad). An honest False tells the caller to re-approach or
+    fall back, never a silent miss."""
+    from perception import center_to_scanner   # lazy: perception pulls the OpenAI client (live-only)
+
+    cp_id = nav.sm.counter_checkpoint()
+    if cp_id is None:
+        return {"aligned": False, "slant": None, "residual_yaw": 0.0, "checkpoint": None,
+                "iters": 0, "reason": "no landmark/counter checkpoint in the graph"}
+    if resync:
+        nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+    perp = perpendicular_yaw(nav.sm.by_id[cp_id])
+
+    detected = False
+    yaw_off = 0.0
+    iters = 0
+    # ---- Loop 1: lateral alignment --------------------------------------------------------------
+    for iters in range(1, max_lateral_iters + 1):
+        res = center_to_scanner(debug_dir=debug_dir)
+        if res.get("outcome") == "not_detected" or res.get("box") is None:
+            return {"aligned": False, "slant": None, "residual_yaw": yaw_off, "checkpoint": cp_id,
+                    "iters": iters, "reason": "scan pad not detected - re-approach the counter or "
+                    "pan it into view (center_to_scanner failed)"}
+        detected = True
+        nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+        yaw_off = normalize_deg(nav.rot[1] - perp)
+        s = RequestLidarCenter()
+        if not s.get("hit"):
+            return {"aligned": False, "slant": None, "residual_yaw": yaw_off, "checkpoint": cp_id,
+                    "iters": iters, "reason": "no LiDAR hit at the pad centre after centring"}
+        lateral = float(s["distance"]) * math.sin(math.radians(yaw_off))
+        steps = round(abs(lateral) / 0.10)
+        if abs(yaw_off) <= 2.5 or steps == 0:
+            break                                  # converged
+        nav.pos, nav.rot = face(nav.args, nav.pos, nav.rot, perp)
+        (move_right if lateral > 0 else move_left)(steps)
+
+    # ---- Loop 2: advance to the scan-reach slant ------------------------------------------------
+    slant = None
+    for _ in range(max_advance_iters):
+        s = RequestLidarCenter()
+        if not s.get("hit"):
+            center_to_scanner(debug_dir=debug_dir)   # re-centre and re-read
+            continue
+        slant = float(s["distance"])
+        theta = math.radians(float(s["pitch_deg"]))
+        vertical = slant * math.sin(theta)
+        gap = slant * math.cos(theta)
+        if target_slant <= vertical:
+            break                                  # target is below the vertical drop - as close as moving gets
+        needed = math.sqrt(target_slant ** 2 - vertical ** 2)
+        steps = round((gap - needed) / 0.10)
+        if steps == 0:
+            break                                  # at the scan-reach slant
+        (move_forward if steps > 0 else move_backward)(min(abs(steps), 10))
+        center_to_scanner(debug_dir=debug_dir)     # a move de-centres the pad
+
+    # Final read for the honest verdict - re-measure BOTH the slant and the yaw/lateral from the ACTUAL
+    # final pose (the advance loop may have drifted laterally). The verdict is on the LATERAL offset,
+    # not the raw yaw angle: what the scan needs is the item transiting the pad, which is a lateral
+    # distance, and at close range a few degrees of yaw is only centimetres. CALIBRATED from 2 live
+    # runs (2026-07-23): the sweep SCANNED at lateral 0.033 m (yaw -2.2 deg) AND 0.047 m (yaw +3.2 deg);
+    # the old `abs(yaw) <= 2.5` verdict wrongly failed the 3.2 deg run even though it scanned. The
+    # strafe cannot converge finer than ~0.05 m anyway (half a 0.10 m step - round(x/0.10)==0 <=> x<0.05),
+    # so ALIGN_LATERAL_TOL_M ties the verdict to the strafe's own resolution AND the measured-OK bound.
+    nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+    yaw_off = normalize_deg(nav.rot[1] - perp)
+    s = RequestLidarCenter()
+    slant = float(s["distance"]) if s.get("hit") else slant
+    lateral = abs(slant * math.sin(math.radians(yaw_off))) if slant is not None else None
+    within_reach = slant is not None and slant <= target_slant + 0.05
+    lateral_ok = lateral is not None and lateral <= ALIGN_LATERAL_TOL_M
+    aligned = bool(detected and lateral_ok and within_reach)
+    if aligned:
+        reason = (f"squared on the pad (lateral {lateral * 1000:.0f} mm, residual yaw {yaw_off:+.1f} deg, "
+                  f"slant {slant:.2f} m)")
+    elif not within_reach:
+        reason = (f"aligned laterally but pad still {slant:.2f} m away (> {target_slant} m reach) - "
+                  "advance closer, or the dock geometry blocks it (consider a spliced scan dock)")
+    else:
+        lat_str = "n/a" if lateral is None else f"{lateral * 1000:.0f} mm"
+        reason = (f"lateral offset {lat_str} > {ALIGN_LATERAL_TOL_M * 1000:.0f} mm "
+                  f"(residual yaw {yaw_off:+.1f} deg) - re-approach the counter, or splice a scan-dock "
+                  "node (Option B)")
+    print(f"[align_to_scanner] aligned={aligned} lateral={None if lateral is None else round(lateral, 3)} "
+          f"residual_yaw={yaw_off:+.1f} slant={slant} iters={iters}")
+    return {"aligned": aligned, "slant": slant, "residual_yaw": yaw_off, "lateral": lateral,
+            "checkpoint": cp_id, "iters": iters, "reason": reason}
+
+
+# ===== Phase 6.2 (restructured): the deterministic checkout macro ================================
+def checkout_held_item(nav, hand="left", drive=True, bag_if_unscanned=False, debug_dir=None):
+    """Check out the item currently in hand: drive to the checkout (optional), align on the scan pad,
+    scan the held item, then bag it in the tray - the ONE deterministic macro, NO LLM inside. This is
+    the single tool the 6.3 typed `checkout`/`place` subtask dispatches to; the VLM never sequences the
+    mechanical steps (CLAUDE.md doctrine: geometry is deterministic; the VLM judges only what is in
+    front of it). Composes the four built + calibrated primitives, validated end-to-end by two live
+    smoke runs (2026-07-23):
+
+        [go_to_counter] -> align_to_scanner -> (baseline receipt) -> scan_held_item -> place_held_item
+
+    The POS-screen baseline is read AFTER aligning (only then is the screen close/square enough to OCR -
+    smoke finding), then the pad is re-acquired (reading the screen yaws the body to it) so the sweep
+    goes the right way; this makes `scanned` an honest receipt DELTA, not an absolute read.
+
+    PRECONDITION: holding an item (refused otherwise). NavSession must be stow_hands=False (carry-safe);
+    this sets REST before the drive and each primitive owns its own GRAB/REST around the hand.
+
+    bag_if_unscanned (default False): if the sweep does NOT register a scan, the item is NOT bagged - an
+    unscanned item is task-incomplete, and dropping it anyway would hide the failure. The macro returns
+    scanned=False, still holding, for the caller to retry / re-align. Set True only to force a bag.
+
+    Returns {success, scanned, placed, aligned, steps{counter,align,scan,place}, reason}. success =
+    scanned AND placed - both MEASURED (OCR delta / released-under-a-placeable-verdict). Honest scoring
+    only: the human/gate owns `scanned_verified` (beep) and `placed_verified` (in-tray screenshot);
+    this macro never promotes measured to verified."""
+    from perception import (scan_held_item, place_held_item, center_to_screen,
+                            center_to_scanner, read_text_in_box)
+    from manipulation import set_hand_pose
+    from env import TransformHands
+
+    hand = str(hand).lower()
+    grip_key = "leftGrippedState" if hand == "left" else "rightGrippedState"
+    steps = {"counter": None, "align": None, "scan": None, "place": None}
+
+    def _holding():
+        return bool(TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)).get(grip_key))
+
+    def _out(scanned, placed, aligned, reason):
+        return {"success": bool(scanned and placed), "scanned": scanned, "placed": placed,
+                "aligned": aligned, "steps": steps, "reason": reason}
+
+    if not _holding():
+        return _out(False, False, False, "not holding an item - nothing to check out")
+
+    # 1. Drive to the checkout (carry-safe: REST first, then go_to_counter resyncs + faces cp54).
+    if drive:
+        set_hand_pose("rest", hand=hand)
+        res = go_to_counter(nav)
+        steps["counter"] = res
+        if not res.get("arrived"):
+            return _out(False, False, False,
+                        f"could not reach the counter: {res.get('reason', 'path blocked')}")
+
+    # 2. Align on the scan pad.
+    al = align_to_scanner(nav, debug_dir=debug_dir)
+    steps["align"] = al
+    aligned = bool(al.get("aligned"))
+
+    # 3. Baseline receipt from the ALIGNED pose (screen legible now), then re-acquire the pad so the
+    #    sweep goes toward it (center_to_screen yaws the body to the screen; this is rotation-only, so
+    #    the slant align set is preserved).
+    sres = center_to_screen(debug_dir=debug_dir)
+    baseline = read_text_in_box(sres.get("box")) if sres.get("box") else []
+    center_to_scanner(debug_dir=debug_dir)
+
+    # 4. Scan the held item (item stays in hand).
+    sc = scan_held_item(hand=hand, baseline=baseline, debug_dir=debug_dir)
+    steps["scan"] = sc
+    scanned = bool(sc.get("scanned"))
+    if not sc.get("still_holding"):
+        return _out(scanned, False, aligned,
+                    "the grip opened during the sweep - item dropped, aborting before bagging")
+
+    # 5. Bag it - but not an UNSCANNED item unless forced (dropping it would hide the scan failure).
+    if not scanned and not bag_if_unscanned:
+        return _out(False, False, aligned,
+                    "item did not scan - not bagging an unscanned item (still holding); "
+                    "re-run or check alignment")
+    pl = place_held_item(hand=hand, debug_dir=debug_dir)
+    steps["place"] = pl
+    placed = bool(pl.get("placed"))
+
+    reason = ("checked out: scanned and bagged" if (scanned and placed)
+              else f"scanned={scanned} placed={placed} - {pl.get('reason', 'see steps')}")
+    return _out(scanned, placed, aligned, reason)

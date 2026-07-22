@@ -373,6 +373,34 @@ class EmbodiedAgent:
                     f"candidate location.\n")
         return note, fresh
 
+    def _navigate_to_counter(self):
+        """Deterministically drive to the checkout counter (the cp54 landmark) - the place subtask's
+        'go to the counter' primitive, the navigation mirror of perception.center_to_counter. NO
+        resolver LLM: the counter is a known singleton (store_map.go_to_counter looks cp54 up direct).
+        Returns (arrival_note, fresh_png) exactly like _graph_navigate, so the actor's next
+        (perception/place) step sees the post-drive frame, not the pre-drive one.
+
+        Reuses the cached graph-nav session (stow_hands=False) and the same 6.1 carry-safe pattern as
+        _graph_navigate: assert the STATE-TRACKED REST pose here, then let go_to_counter resync + drive
+        (it does not touch the hands, so the tracker stays valid). NOTE: this is the primitive; making
+        it LLM-selectable from the mode machine / typed subtasks is 6.3 dispatch wiring (A/B'd there),
+        not done here."""
+        from store_map import go_to_counter
+        from env import RequestScreenshot
+
+        _sm, nav = self._graph_nav_session()
+        self._set_hand_pose("rest")   # 6.1: hands stay ACTIVE at REST through the drive (carry-safe)
+        res = go_to_counter(nav)
+        fresh = RequestScreenshot(save_image=False, uri=nav.args.uri)["image"]
+        if not res.get("arrived"):
+            note = (f"## NAVIGATOR: could not reach the checkout counter "
+                    f"(checkpoint {res.get('checkpoint')}; {res.get('reason', 'path blocked')}). "
+                    f"You are at ({res.get('x', 0.0):.2f}, {res.get('z', 0.0):.2f}). Assess visually.\n")
+        else:
+            note = (f"## ARRIVED VIA NAVIGATOR: the checkout counter (checkpoint {res['checkpoint']}). "
+                    f"Centre the counter surface (center_to_counter), then place the held item.\n")
+        return note, fresh
+
     def _metric_approach(self, move_steps: int):
         """Execute the MEASURED forward nudge from a `MOVE` reach verdict IN PLACE, without hopping
         graph candidates. Returns (note, fresh_png) mirroring _graph_navigate.

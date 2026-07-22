@@ -28,7 +28,7 @@ The four measurements (each maps to commands below):
       feature), don't try to hide it.
 
 REST / GRAB poses are the user's manual calibration (2026-07-22), left-hand agent-local xyz:
-    REST = (-0.213, -0.09, 0.2)     GRAB = (-0.01, 0.006, 0.33)
+    REST = (-0.213, -0.09, 0.26)    GRAB = (-0.01, 0.006, 0.33)
 This probe DOES NOT commit these anywhere - step 1 (set_hand_pose in agent.py) does. Here they are
 just the pose the closed-loop `set_hand_pose` below drives to, so we can SEE whether a resting hand
 is a workable idea at all. If the closed loop can't reach REST (reported translation won't converge),
@@ -69,7 +69,7 @@ for _p in (_ROOT, _SLAM):
         sys.path.insert(0, _p)
 
 # Left-hand agent-local poses (user calibration 2026-07-22). Local, not world: |GRAB| ~= 0.33 m.
-REST_LOCAL = (-0.213, -0.09, 0.2)
+REST_LOCAL = (-0.213, -0.09, 0.26)
 GRAB_LOCAL = (-0.01, 0.006, 0.33)
 HAND_MOVE_RANGE = 0.5      # Unity clamps a single TransformHands delta component at this (TranslateHand)
 POSE_TOL = 0.012           # m; "arrived" when the reported translation is within this of the target
@@ -119,7 +119,7 @@ class Probe:
         with open(self.notes, "w", encoding="utf-8") as f:
             f.write(
                 "# Phase 6.1 step 0 - hand-pose measurements\n\n"
-                "REST = (-0.213, -0.09, 0.2)   GRAB = (-0.01, 0.006, 0.33)   (left-hand agent-local)\n\n"
+                "REST = (-0.213, -0.09, 0.26)   GRAB = (-0.01, 0.006, 0.33)   (left-hand agent-local)\n\n"
                 "## M1 - Does REST keep the hand out of the camera frame?\n"
                 "- at a SHELF:  \n- in an AISLE:  \n- verdict (REST usable? re-pick pose?):  \n\n"
                 "## M2 - Does REST survive LiDAR (clearance gate)?\n"

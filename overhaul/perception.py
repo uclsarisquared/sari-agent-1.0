@@ -90,6 +90,10 @@ EXTRACTABLE_JSON_PATTERN = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTAL
 
 from env import *
 from manipulation import *
+# `import *` skips underscore names, so pull the per-step hand primitives scan_held_item needs
+# explicitly (the public extend_left_hand_forward loops N steps without returning per-step state;
+# the sweep needs the state each 0.025 m to detect the stall). Same lambdas the probe used.
+from env import _XTNFWD_LEFT_, _PLLBCK_LEFT_, _XTNFWD_RIGHT_, _PLLBCK_RIGHT_
 
 
 _ocr = None
@@ -404,9 +408,12 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
 
     Returns the last TransformAgent state dict, augmented with 'centered' (bool), 'detected'
     (bool), 'residual_px' (dx, dy at the final look), 'iters' (looks taken), 'outcome'
-    (success | not_detected | stalled | incomplete) and 'center_message' (a human-readable line
+    (success | not_detected | stalled | incomplete), 'center_message' (a human-readable line
     the runner surfaces to the agent as `last_center`, so the actor and the episodic learner know
-    whether centring worked instead of guessing)."""
+    whether centring worked instead of guessing), and 'box' - the final locked bbox dict
+    (xmin/ymin/xmax/ymax/cx/cy in the ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame, plus label),
+    or None if the target was never detected. 'box' lets a caller OCR/crop exactly what was
+    centred (e.g. read the POS screen inside its own bbox) without re-detecting."""
     aim_x = aim_norm[0] * ORIGINAL_WIDTH
     aim_y = aim_norm[1] * ORIGINAL_HEIGHT
     state = TransformAgent((0, 0, 0), (0, 0, 0))  # read current pose (no-op move)
@@ -415,6 +422,7 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     detected = False        # did the detector ever return the target?
     stalled = False         # did the residual stop shrinking (target likely at the frame edge)?
     locked = None           # predicted (x, y) of the tracked instance; None until look 1 picks one
+    box = None              # last locked box (xmin/ymin/xmax/ymax/cx/cy/label); None if never detected
     prev_mag = None
     no_improve = 0
     i = 0
@@ -498,8 +506,417 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     print(f"[CENTER] result: {message}")
     state = dict(state)
     state.update({'centered': centered, 'detected': detected, 'residual_px': residual,
-                  'iters': i, 'outcome': outcome, 'center_message': message})
+                  'iters': i, 'outcome': outcome, 'center_message': message, 'box': box})
     return state
+
+
+# ===== Phase 6.2: fixed-input centring on the checkout counter ===================================
+# center_to_counter is center_object_on_screen with the target and aim PINNED, so the scripted place
+# gate (and later the 6.3 actor) centre the counter with NO free-text target to misspell and no aim to
+# re-guess per call - the same "deterministic where we can be" philosophy as the rest of the pipeline.
+# The counter is a big, matte, unambiguous surface, so this SHOULD be the easy case for the centring
+# loop. If instead the front-item bias (commit 7042d09) pulls the look-1 seed onto a product sitting
+# ON the counter, that is a FINDING - fall back to the Phase-2 perpendicular yaw that NavSession.goto
+# already faces landmarks with, and trust the yaw - not a blocker (phase6 plan, "Centring the counter").
+#
+# UNMEASURED (2026-07-22): both constants below are PROVISIONAL - place_probe.py sets them from live
+# reads before this is trusted (project doctrine: measure, don't assume).
+#   - COUNTER_AIM_NORM is a knob because the counter TOP sits BELOW camera height: the LiDAR sample
+#     plan_place wants (a point ON the surface, not the front lip) may need the aim BELOW centre, the
+#     way the grab sweet-spot aims at y~0.67. Default dead-centre so the probe can A/B lowering it as
+#     one variable.
+#   - front_bias defaults to 0.0 here (pure nearest-to-aim), NOT the centring tool's 0.25: a single
+#     flat surface has no front-of-row depth stack to disambiguate, and 0.0 removes the one knob most
+#     likely to hijack the seed onto an item on the counter. A/B against 0.25 only if centring misses.
+COUNTER_TARGET_INFO = ("main_goal=the checkout counter surface - the flat countertop you set items "
+                       "down on, not the items on it "
+                       "The top surface of the counter, not the entire counter.")
+COUNTER_AIM_NORM = (0.5, 0.5)   # provisional; place_probe measures whether the aim should sit lower
+
+
+def center_to_counter(aim_norm=COUNTER_AIM_NORM, front_bias=0.0, **kwargs):
+    """center_object_on_screen bound to the checkout counter: fixed target + aim, zero-argument for the
+    caller. The scripted 6.2 gate and the 6.3 actor both centre the counter through THIS, so there is
+    no target string to misspell and no aim to re-guess per call. Returns exactly what
+    center_object_on_screen returns (the 'centered'/'outcome'/'center_message' contract is unchanged).
+
+    Note for callers CARRYING an item: do NOT stow the hands around this call (that drops the item and
+    undoes Phase 6.1). The REST carry pose is out of frame and LiDAR-culled, so centring reads a clean
+    frame with the hand active. See the module note above for the provisional constants and the
+    front-item-bias fallback."""
+    return center_object_on_screen(COUNTER_TARGET_INFO, aim_norm=aim_norm,
+                                   front_bias=front_bias, **kwargs)
+
+
+# ===== Phase 6.2 (restructured): fixed-input centring on the barcode scanner =====================
+# The scan sibling of center_to_counter: cp54 is a SELF-CHECKOUT (POS screen + barcode scanner +
+# bagging tray, probe finding 2026-07-22), and the scan sequence needs the agent square on the
+# SCANNER PAD specifically - the tray centring above aims at the wrong third of the furniture.
+#
+# UNMEASURED (2026-07-22): wording and aim are PROVISIONAL seeds - place_probe's `scanner` command
+# (probe M2) measures whether the detector locks the pad, and the winning wording/aim get pinned
+# here, same as the counter's did. Prompt changes A/B on identical frames per project doctrine.
+#   - The pad is SMALL and dark (black scan pad under the scanner housing's red LED window) - the
+#     opposite detection regime from the big matte countertop. The wording names the visually
+#     loudest cue (the red LED window) and excludes the two look-alike neighbours (POS screen =
+#     also a dark rectangle; tray = also recessed/dark).
+#   - front_bias stays 0.0 for the same reason as the counter: no depth stack to disambiguate, and
+#     the bias is the knob most likely to hijack the seed onto an item or the screen.
+SCANNER_TARGET_INFO = ("main_goal=the barcode scanner on the checkout counter - the black square "
+                       "scan pad below the scanner head with the red LED window. Not the POS "
+                       "screen, not the bagging tray, and not any product.")
+SCANNER_AIM_NORM = (0.5, 0.5)   # provisional; place_probe `scanner [y]` dials it like `center [y]` did
+
+
+def center_to_scanner(aim_norm=SCANNER_AIM_NORM, front_bias=0.0, **kwargs):
+    """center_object_on_screen bound to the checkout's barcode scan pad: fixed target + aim, so the
+    scan sequence (align_to_scanner -> scan_held_item) centres the pad with no free-text target to
+    misspell. Returns exactly what center_object_on_screen returns ('centered'/'outcome'/
+    'center_message' contract unchanged).
+
+    Callers are CARRYING by construction (you centre the scanner in order to scan the held item) -
+    do NOT stow the hands around this call; the REST carry pose is out of frame and LiDAR-culled.
+    See the module note above: wording/aim are provisional until probe M2 pins them."""
+    return center_object_on_screen(SCANNER_TARGET_INFO, aim_norm=aim_norm,
+                                   front_bias=front_bias, **kwargs)
+
+
+# ===== Phase 6.2 (restructured): centre on the BAGGING TRAY ======================================
+# The bag step's own target, split OFF center_to_counter after a live run (2026-07-23) dropped an item
+# on the SCANNER PAD: center_to_counter targets "the counter surface", whose bbox up close is huge and
+# ill-defined - its centre wobbles over the scan pad and STALLS, and even a clean centre lands on the
+# countertop near the scanner, not the recessed bagging bin. So the tray gets a dedicated canned target
+# the way the pad and screen did. The bin is a distinct recessed rectangle, so it SHOULD centre more
+# stably than the whole counter - but that (and the aim) are UNMEASURED: probe/gate confirms, then pins.
+# CONSEQUENCE (flagged, not hidden): PLACE_ENVELOPE's place_max=1.28 m was measured centring the COUNTER
+# SURFACE, not the tray - it must be RE-MEASURED with this target before the bag numbers are trusted.
+TRAY_TARGET_INFO = ("main_goal=the bagging tray - the empty recessed rectangular bin next to the "
+                    "self-checkout where you drop bagged items. Not the flat counter top, not the "
+                    "black barcode scan pad, not the POS screen, and not any product.")
+TRAY_AIM_NORM = (0.5, 0.5)   # provisional; dial deeper (y>0.5) if releases catch the tray's near lip
+
+
+def center_to_tray(aim_norm=TRAY_AIM_NORM, front_bias=0.0, **kwargs):
+    """center_object_on_screen bound to the bagging tray: fixed target + aim, the bag step's centring.
+    Returns the center_object_on_screen contract (incl. 'box'/'outcome'). Callers are CARRYING by
+    construction (you centre the tray to drop into it) - do NOT stow the hands. Wording/aim are
+    PROVISIONAL until a live probe/gate pins them, and the place envelope must be re-measured against
+    THIS target (see the module note above)."""
+    return center_object_on_screen(TRAY_TARGET_INFO, aim_norm=aim_norm,
+                                   front_bias=front_bias, **kwargs)
+
+
+# ===== Phase 6.2 (restructured): centre + region-OCR the POS screen ==============================
+# The scan has NO websocket query (BarcodeScanner.cs), so the measured scan signal is the receipt on
+# the POS screen. Reading the WHOLE frame drags in shelf text, product labels, the "Start" button -
+# noise that swamps the receipt lines. So: centre the SCREEN as a target, then OCR only its bbox
+# (read_text_in_box). Same canned-target pattern as the counter/scanner; wording is PROVISIONAL
+# until probe M5 pins it (the receipt text is big/flat/high-contrast - the easy case for both the
+# detector and paddleocr, but MEASURE it).
+SCREEN_TARGET_INFO = ("main_goal=the self-checkout POS screen - the bright rectangular monitor "
+                      "showing the receipt / item list and the green Start button. Not the barcode "
+                      "scan pad, not the bagging tray, not any product.")
+SCREEN_AIM_NORM = (0.5, 0.5)
+
+
+def center_to_screen(aim_norm=SCREEN_AIM_NORM, front_bias=0.0, **kwargs):
+    """center_object_on_screen bound to the POS screen: fixed target + aim. Its returned 'box' is
+    the whole point here - pass it to read_text_in_box to OCR the receipt inside its own rectangle
+    rather than the whole frame. Callers are CARRYING by construction (you read the screen to
+    confirm the held item scanned); do NOT stow the hands. Wording is provisional until M5."""
+    return center_object_on_screen(SCREEN_TARGET_INFO, aim_norm=aim_norm,
+                                   front_bias=front_bias, **kwargs)
+
+
+def read_text_in_box(box, pad_frac=0.04, image_path='screenshots/ClientScreenshot.png'):
+    """OCR only the region of `image_path` under `box` (a center_object_on_screen 'box' dict, whose
+    xmin/ymin/xmax/ymax are in the ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame). Scales the box
+    to the actual image size the same way annotate_target does, pads it by `pad_frac` of its size so
+    a slightly-tight detection doesn't clip the edge glyphs, crops, and runs paddleocr on the crop.
+
+    Cropping first is the whole win over read_text(): the POS receipt is a small bright rectangle in
+    a busy frame, and full-frame OCR mixes in shelf/label/button text. Returns [] on a None box or
+    any failure (OCR must never take down the caller). Reads the CURRENT screenshot by default -
+    center_to_screen leaves its final look in ClientScreenshot.png, consistent with the box."""
+    if not box:
+        return []
+    try:
+        img = Image.open(image_path).convert("RGB")
+        W, H = img.size
+        sx, sy = W / ORIGINAL_WIDTH, H / ORIGINAL_HEIGHT
+        x0, x1 = sorted((box['xmin'] * sx, box['xmax'] * sx))
+        y0, y1 = sorted((box['ymin'] * sy, box['ymax'] * sy))
+        px, py = (x1 - x0) * pad_frac, (y1 - y0) * pad_frac
+        x0, x1 = max(0, int(x0 - px)), min(W, int(x1 + px))
+        y0, y1 = max(0, int(y0 - py)), min(H, int(y1 + py))
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            return []
+        crop = img.crop((x0, y0, x1, y1))
+        buf = os.path.join("screenshots", "_ocr_crop.png")
+        crop.save(buf)
+        result = _get_ocr().ocr(buf)
+        if not result or not result[0]:
+            return []
+        return [line[1][0].strip() for line in result[0] if line[1][0].strip()]
+    except Exception as e:
+        print(f"[OCR] read_text_in_box failed ({type(e).__name__}: {e})")
+        return []
+
+
+def _fuzzy_new_lines(before, after, ratio=0.8):
+    """Multiset diff of OCR line lists tolerant of per-frame character jitter. A line in `after`
+    counts as NEW iff no not-yet-consumed line in `before` matches it with a difflib ratio >= `ratio`.
+    Consuming matches keeps multiset semantics (a second identical receipt line is genuinely new),
+    while the fuzzy compare stops OCR noise (`JIN_RAKEN` one frame, `JIN_RAMEN` the next) from
+    re-counting an already-present line as new - the exact-string bug the probe exposed. PURE, so it
+    is unit-tested offline (plan6/test_files/test_scan_diff.py)."""
+    import difflib
+    pool = list(before)
+    new = []
+    for a in after:
+        hit = -1
+        best = ratio
+        for idx, b in enumerate(pool):
+            r = difflib.SequenceMatcher(None, a, b).ratio()
+            if r >= best:
+                best, hit = r, idx
+        if hit >= 0:
+            pool.pop(hit)          # consumed - a real duplicate later still reads as new
+        else:
+            new.append(a)
+    return new
+
+
+def scan_held_item(hand="left", baseline=None, max_extend=25, fuzzy_ratio=0.8, debug_dir=None):
+    """Scan the item currently held in `hand` by sweeping it through the checkout scan zone WITHOUT
+    releasing it, then confirm off the POS screen. Phase 6.2 - promoted from place_probe.sweep after
+    the in-hand-sweep mechanic passed live (M1/M3/M5, 2 datapoints, 2026-07-22: item scanned and
+    stayed held both runs at slant 0.84-0.89 m; OCR read real catalog IDs off the receipt).
+
+    PRECONDITION: the agent is already ALIGNED on the scan pad (store_map.align_to_scanner) with the
+    item in hand. This tool does NOT move the body or the camera onto the pad - it sweeps the HAND
+    from where the agent stands, so a misaligned caller simply won't scan (an honest miss, not a
+    crash). The full-hand REST/GRAB ownership mirrors extend_arm_until_grabbed.
+
+    SEQUENCE: guard (must be holding; REFUSE otherwise) -> GRAB pose -> extend fully toward the pad
+    (the hand's stall / Unity 0.5 clamp is the stop; the user-enlarged Easy trigger box covers the
+    whole scan region, so a full extension transits it - there is NO stop-distance calibration) ->
+    retract exactly as far as extended -> restore REST. The grip is NEVER opened: a held item keeps
+    its Barcode MeshCollider live as a trigger (RetailItemRuntimeService.cs), so the sweep scans
+    without dropping. There is no drop-scan fallback (deleted by decision 2026-07-22).
+
+    VERIFICATION (no checkout websocket query exists yet - a filed RequestCheckoutState is the durable
+    fix): with the hand back at REST (out of frame, no occlusion), center_to_screen locks the POS
+    monitor and read_text_in_box OCRs the receipt inside its own bbox. A NEW receipt line vs
+    `baseline` (the receipt lines seen BEFORE this scan) => scanned. The diff is FUZZY (_fuzzy_new_lines)
+    so OCR char jitter across frames does not fake a scan. `baseline` MUST be threaded across a
+    multi-item session (the receipt accumulates - the previous item's line is still on screen); pass
+    the returned `receipt` as the next call's baseline. baseline=None treats the checkout as empty
+    (correct for the first scan of a fresh checkout, the common gate case).
+
+    Returns {'scanned': bool, 'still_holding': bool, 'receipt': [lines], 'new_lines': [lines],
+    'screen_detected': bool, 'reason': str} - surfaced to the actor/learner as `last_scan`. `scanned`
+    is the MEASURED signal (OCR delta); the gate also records the human `scanned_verified` separately
+    and never promotes one to the other.
+    """
+    hand = str(hand).lower()
+    assert hand in ("left", "right"), "hand must be 'left' or 'right'"
+    extend_fn = _XTNFWD_LEFT_ if hand == "left" else _XTNFWD_RIGHT_
+    pull_fn = _PLLBCK_LEFT_ if hand == "left" else _PLLBCK_RIGHT_
+    grip_key = "leftGrippedState" if hand == "left" else "rightGrippedState"
+    trans_key = "leftTranslation" if hand == "left" else "rightTranslation"
+
+    def _hand_state():
+        return TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+
+    # Guard: the sweep scans the HELD item. Refuse an empty hand (mirror of the grab guard) rather
+    # than sweeping air and reporting a confusing miss.
+    if not _hand_state().get(grip_key):
+        print(f"[scan_held_item] hand={hand} REFUSED: not holding an item")
+        return {"scanned": False, "still_holding": False, "receipt": [], "new_lines": [],
+                "screen_detected": False, "reason": "not holding an item - nothing to scan"}
+
+    set_hand_pose("grab", hand=hand)
+    moved = 0
+    try:
+        prev = _hand_state()[trans_key]
+        for _ in range(max_extend):                # full extension; the stall guard stops earlier
+            cur = extend_fn()[trans_key]
+            if sum((cur[k] - prev[k]) ** 2 for k in range(3)) ** 0.5 <= 1e-4:
+                break                              # hand clamped at its reach limit
+            prev = cur
+            moved += 1
+    finally:
+        for _ in range(moved):                     # retract exactly as far as we extended
+            pull_fn()
+        set_hand_pose("rest", hand=hand)
+
+    still_holding = bool(_hand_state().get(grip_key))
+
+    # Measured confirmation: centre the POS screen, region-OCR the receipt, diff vs the baseline.
+    res = center_to_screen(debug_dir=debug_dir)
+    box = res.get("box")
+    receipt = read_text_in_box(box) if box else []
+    new = _fuzzy_new_lines(baseline or [], receipt, ratio=fuzzy_ratio)
+    scanned = any(any(c.isdigit() for c in l) for l in new)
+
+    if not box:
+        reason = ("swept; POS screen not detected so the scan is UNCONFIRMED (measured channel "
+                  "unavailable) - re-centre the screen or verify by eye")
+    elif scanned:
+        reason = f"scanned (new receipt line: {new[0]})"
+    else:
+        reason = ("swept but no new receipt line - not aligned on the pad, or out of the scan "
+                  "zone; re-run align_to_scanner and retry")
+    if not still_holding:
+        reason = "the grip OPENED during the sweep (should not happen) - " + reason
+
+    print(f"[scan_held_item] hand={hand} scanned={scanned} still_holding={still_holding} "
+          f"screen_detected={bool(box)} new_lines={new}")
+    return {"scanned": scanned, "still_holding": still_holding, "receipt": receipt,
+            "new_lines": new, "screen_detected": bool(box), "reason": reason}
+
+
+# The hand can clip THROUGH the counter/tray in the sim (a physics limitation we cannot fix - user,
+# 2026-07-23), so a full-extension release would drop the item INSIDE or beyond the counter. Measured
+# release rule (user, personally measured): stop and open the grip when the hand's forward translation
+# z reaches (centre-LiDAR distance - this standoff), i.e. 0.1 m SHORT of the measured surface, so the
+# item falls ONTO the surface, not through it. Applies to the drop only; the scan sweep still extends
+# fully (an item passing through the scan zone is fine, and it is never released there).
+PLACE_CLIP_STANDOFF_M = 0.1
+
+
+def place_held_item(hand="left", aim_norm=None, max_approach_iters=4, max_extend=25,
+                    clip_standoff=PLACE_CLIP_STANDOFF_M, debug_dir=None):
+    """Release the held item onto the checkout bagging tray - the ONE deliberate release in the whole
+    checkout chain (everywhere else the grip stays closed). Phase 6.2.
+
+    PRECONDITION: at the counter (go_to_counter) and holding the (already scanned) item at REST. This
+    tool centres the tray itself, so the caller need not pre-centre.
+
+    Sequence: guard (must hold; REFUSE otherwise) -> center_to_tray; ONLY when centring SUCCEEDS
+    (outcome=='success') is the depth gate trusted -> plan_place; if the verdict is 'move'/'back',
+    creep the body and re-centre, up to max_approach_iters, re-planning each time (the deterministic
+    depth gate owns the standoff - no dead-reckoning); once 'placeable' UNDER a successful centre,
+    GRAB-extend the held item OVER the tray, open the grip, retract, restore REST. A non-approachable
+    verdict (crouch/bail/recenter/unavailable) OR a centre that never locks aborts WITHOUT releasing -
+    better to keep carrying than drop the item off the tray.
+
+    RELEASE-GATE (fixed 2026-07-23 after a live run dropped on the scanner pad): a STALLED/INCOMPLETE
+    centre used to fall through to a release, dropping the item wherever the camera gave up. Now the
+    release requires a SUCCESSFUL centre on the tray - a stall re-centres, and repeated stalls abort
+    holding. The target is center_to_tray, NOT center_to_counter (the counter surface's bbox stalls
+    up close and lands near the scanner - that was the same bug's other half).
+
+    CLIP-STANDOFF (user measured, 2026-07-23): the hand can clip THROUGH the counter in the sim, so the
+    release does NOT extend to the reach clamp - it stops when the hand's forward z reaches
+    (plan['distance'] - clip_standoff), 0.1 m short of the measured surface, so the item drops ONTO the
+    tray rather than through it. If the hand stalls before that depth, it releases there (still short,
+    so still no clip-through).
+
+    Honest scoring: `placed` (the MEASURED signal) is True iff the grip actually opened AND the release
+    happened under a 'placeable' plan_place verdict at a SUCCESSFULLY-centred tray. It is NOT proof the
+    item is physically in the tray: the gate records `placed_verified` (a screenshot) separately and
+    never promotes this to it. UNVERIFIED: PLACE_ENVELOPE.place_max was measured on the COUNTER SURFACE,
+    not the tray - re-measure against this target. Aim confound: pass aim_norm=(0.5, y>0.5) to dial the
+    release deeper if the gate shows items catching the tray's near lip.
+
+    Returns {'placed', 'released', 'verdict', 'distance', 'surface_height', 'iters', 'reason'} -
+    surfaced as `last_place`."""
+    from manipulation import plan_place, PLACE_ENVELOPE, set_hand_pose as _set_pose
+    hand = str(hand).lower()
+    assert hand in ("left", "right"), "hand must be 'left' or 'right'"
+    extend_fn = _XTNFWD_LEFT_ if hand == "left" else _XTNFWD_RIGHT_
+    pull_fn = _PLLBCK_LEFT_ if hand == "left" else _PLLBCK_RIGHT_
+    grip_fn = ToggleLeftGrip if hand == "left" else ToggleRightGrip
+    grip_key = "leftGrippedState" if hand == "left" else "rightGrippedState"
+    trans_key = "leftTranslation" if hand == "left" else "rightTranslation"
+    aim = aim_norm or TRAY_AIM_NORM
+
+    def _hand_state():
+        return TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+
+    if not _hand_state().get(grip_key):
+        print(f"[place_held_item] hand={hand} REFUSED: not holding an item")
+        return {"placed": False, "released": False, "verdict": "no_item", "distance": None,
+                "surface_height": None, "iters": 0, "reason": "not holding an item - nothing to place"}
+
+    # ---- Approach: centre the tray, depth-gate the standoff, creep until 'placeable' -------------
+    # The release ONLY fires on a 'placeable' verdict taken under a SUCCESSFUL centre (ready=True).
+    # A stalled/incomplete centre means the LiDAR ray is not reliably on the tray, so we do NOT plan a
+    # move or a release off it - we re-centre; if it never locks, the loop exhausts and we abort holding.
+    plan = None
+    iters = 0
+    ready = False
+    for iters in range(1, max_approach_iters + 1):
+        res = center_to_tray(aim_norm=aim, debug_dir=debug_dir)
+        outcome = res.get("outcome")
+        if outcome == "not_detected":
+            return {"placed": False, "released": False, "verdict": "not_detected", "distance": None,
+                    "surface_height": None, "iters": iters,
+                    "reason": "bagging tray not detected - re-approach the counter or pan it into view"}
+        if outcome != "success":
+            # detected but not centred (stalled/incomplete): the centre ray isn't on the tray - do not
+            # plan or release off it. Re-centre next iteration.
+            print(f"  [place] centre not locked ({outcome}, residual {res.get('residual_px')}) - "
+                  f"re-centring (iter {iters}/{max_approach_iters}), NOT releasing")
+            continue
+        plan = plan_place(RequestLidarCenter(), PLACE_ENVELOPE)
+        v = plan["verdict"]
+        if v == "placeable":
+            ready = True
+            break
+        if v == "move":
+            move_forward(plan["move_steps"]); continue
+        if v == "back":
+            move_backward(plan["move_steps"]); continue
+        # crouch / bail / recenter / unavailable: don't release off the tray.
+        return {"placed": False, "released": False, "verdict": v, "distance": plan["distance"],
+                "surface_height": plan["surface_height"], "iters": iters,
+                "reason": f"cannot place from here: {plan['reason']}"}
+    if not ready:
+        last_v = plan["verdict"] if plan else "centre_never_locked"
+        return {"placed": False, "released": False, "verdict": last_v,
+                "distance": plan["distance"] if plan else None,
+                "surface_height": plan["surface_height"] if plan else None, "iters": iters,
+                "reason": f"not placeable after {max_approach_iters} approach step(s) (last: {last_v}) "
+                          f"- still holding rather than drop off the tray"}
+
+    # ---- Release: extend toward the tray but STOP 0.1 m short of the surface, then open the grip ---
+    # target_z is the hand-forward depth to release at: (centre distance - clip_standoff). Extending
+    # to the reach clamp instead would let the hand clip THROUGH the counter and drop the item beyond
+    # it (user-measured, 2026-07-23). Stop on reaching target_z OR a stall, whichever is first.
+    _set_pose("grab", hand=hand)
+    target_z = float(plan["distance"]) - clip_standoff
+    moved = 0
+    released = False
+    stop = "target_depth"
+    try:
+        prev = _hand_state()[trans_key]
+        while moved < max_extend:
+            if prev[2] >= target_z:                # hand forward z at (centre dist - standoff): stop short of the surface
+                break
+            cur = extend_fn()[trans_key]
+            if sum((cur[k] - prev[k]) ** 2 for k in range(3)) ** 0.5 <= 1e-4:
+                stop = "stall"                     # reach clamp before target depth - release here (still short)
+                break
+            prev = cur
+            moved += 1
+        release_z = _hand_state()[trans_key][2]
+        released = not grip_fn().get("gripped")    # open the hand; released iff the grip is now off
+    finally:
+        for _ in range(moved):                     # retract exactly as far as we extended
+            pull_fn()
+        _set_pose("rest", hand=hand)
+
+    placed = bool(released)                         # released UNDER a 'placeable' verdict (we broke on it)
+    reason = (f"released 0.1 m short of the tray (hand z={release_z:.2f} vs slant {plan['distance']:.2f} m, "
+              f"stop={stop})" if placed else "extended but the grip did NOT open - still holding the item")
+    print(f"[place_held_item] hand={hand} placed={placed} released={released} "
+          f"verdict={plan['verdict']} slant={plan['distance']:.2f} release_z={release_z:.2f} stop={stop}")
+    return {"placed": placed, "released": released, "verdict": plan["verdict"],
+            "distance": plan["distance"], "surface_height": plan["surface_height"],
+            "release_z": release_z, "iters": iters, "reason": reason}
 
 
 def detect_object_via_gemini(target_name):
