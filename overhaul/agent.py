@@ -583,22 +583,28 @@ class EmbodiedAgent:
         return note, fresh
 
     def _checkout_held_item(self, hand="auto"):
-        """Phase 6.3 dispatch: run the deterministic checkout MACRO (store_map.checkout_held_item) on
-        the held item - drive to the counter, align on the scan pad, scan, and bag - as ONE call the
-        VLM triggers with the `checkout_held_item` action (or the `_left`/`_right` variants, which pin
-        `hand`; the default 'auto' resolves to the holding hand, left-first when both hold). The VLM never sequences the align/scan/place
-        steps (CLAUDE.md doctrine: geometry is deterministic; the VLM judges only what is in front of
-        it); its only meaningful move on a checkout leg is to emit this. Returns the macro's
-        {success, scanned, placed, aligned, steps, reason} dict, which run_leg surfaces as
-        `last_checkout` for the checkout completion predicate to grant/refuse the STOP.
+        """Phase 6.3 dispatch: run the deterministic checkout MACRO on the held item(s) - drive to the
+        counter, align on the scan pad, scan, and bag - as ONE call the VLM triggers with the
+        `checkout_held_item` action (or the `_left`/`_right` variants, which pin `hand`). The VLM never
+        sequences the align/scan/place steps (CLAUDE.md doctrine: geometry is deterministic; the VLM
+        judges only what is in front of it); its only meaningful move on a checkout leg is to emit this.
+
+        DUAL-HAND (2026-07-23): the default 'auto' dispatches store_map.checkout_held_items, which
+        checks out EVERY held item in one fused pass - when carrying two, it sweep-scans both (verifying
+        each off the receipt) BEFORE bagging either, off a single drive+align (scan-scan-bag-bag), and
+        degrades to the single-hand checkout_held_item when only one hand holds. `_left`/`_right` still
+        pin a single hand (checkout_held_item) for one-at-a-time control. Returns the macro's
+        {success, scanned, placed, aligned, steps, reason, ...} dict (top-level scanned/placed are ANDed
+        across held hands for 'auto'), which run_leg surfaces as `last_checkout` for the checkout
+        completion predicate to grant/refuse the STOP.
 
         Reuses the cached carry-safe nav session (stow_hands=False) and the 6.1 pattern: assert the
         state-tracked REST pose first so the held item rides the drive; the macro owns its own
         GRAB/REST around each hand action (it does not stow), so the tracker stays valid."""
-        from store_map import checkout_held_item
+        from store_map import checkout_held_item, checkout_held_items
         _sm, nav = self._graph_nav_session()
         self._set_hand_pose("rest")   # 6.1: hands stay ACTIVE at REST so the carried item survives
-        res = checkout_held_item(nav, hand=hand)
+        res = checkout_held_items(nav) if hand == "auto" else checkout_held_item(nav, hand=hand)
         print(f"[checkout] success={res.get('success')} scanned={res.get('scanned')} "
               f"placed={res.get('placed')} aligned={res.get('aligned')} - {res.get('reason')}")
         return res
@@ -693,6 +699,10 @@ class EmbodiedAgent:
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
+            # MODE/ACTION HORIZON edit (2026-07-23): the single next step the learner committed to, fed
+            # to the actor so it acts on THAT step and does not skip ahead to the grab (sys_inst rule 4).
+            # Soft .get: an older learner reply without the field just omits the line below.
+            next_action = semantic_response.get('next_action')
 
             nav_note = ""
             if agent_mode == "navigation" and self.nav_mode in ("graph", "graph-advised"):
@@ -734,9 +744,15 @@ class EmbodiedAgent:
 
             self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
 
+            # Suppress the intended-action line once the graph dispatcher has already driven (nav_note
+            # set): the learner's next_action ("move to the shelf") is then stale - the actor should
+            # just perceive the fresh post-drive frame.
+            next_action_line = (f"## THIS STEP'S INTENDED ACTION: {next_action}\n"
+                                if next_action and not nav_note else "")
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
+                        f"{next_action_line}"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}"
@@ -780,6 +796,8 @@ class EmbodiedAgent:
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
+            # MODE/ACTION HORIZON edit (2026-07-23): single next step, fed to the actor (sys_inst rule 4).
+            next_action = semantic_response.get('next_action')
 
             self.vlm_agent.base_semantic_memory += f"@ timestep {timestep}: {new_semantic_memory}\n"
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
@@ -821,8 +839,11 @@ class EmbodiedAgent:
                     'text': "STOP action received, terminating execution..."
                 }
 
+            next_action_line = (f"## THIS STEP'S INTENDED ACTION: {next_action}\n"
+                                if next_action and not nav_note else "")
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
+                        f"{next_action_line}"
                         f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"

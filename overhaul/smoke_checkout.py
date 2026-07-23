@@ -9,6 +9,7 @@ where align_to_scanner's live margins and place_held_item's release show themsel
     python smoke_checkout.py --shelf 15      # drive to cp15, grab, then run the chain
     python smoke_checkout.py                 # use the item already in hand (skip the grab)
     python smoke_checkout.py --grabnow --auto    # don't pause between phases
+    python smoke_checkout.py --two-hands     # FUSED both-hands chain: fill both, sweep both, bag both
 
 Needs the sim in Play mode on ws://localhost:8080.
 
@@ -60,8 +61,13 @@ def main():
     ap.add_argument("--grabnow", action="store_true",
                     help="grab from the CURRENT pose (you aligned the agent on the item yourself) - "
                          "no drive; takes precedence over --shelf")
-    ap.add_argument("--hand", default="left", choices=("left", "right"))
+    ap.add_argument("--hand", default="left", choices=("left", "right"),
+                    help="which hand for the single-item chain (ignored under --two-hands)")
     ap.add_argument("--auto", action="store_true", help="don't pause between phases")
+    ap.add_argument("--two-hands", action="store_true",
+                    help="drive the FUSED both-hands chain: fill both hands, sweep-scan LEFT then RIGHT "
+                         "(re-facing the pad between), then bag both - the primitive-level mirror of "
+                         "store_map.checkout_held_items")
     args = ap.parse_args()
 
     from env import RequestScreenshot, SetHandsActive
@@ -82,9 +88,42 @@ def main():
     SetHandsActive(True)
     results = {}
 
+    def _grab_side(side):
+        res = extend_arm_until_grabbed(hand=side)
+        print(f"  {side} grab: gripped={res.get('gripped')} hovered={res.get('hovered')!r}"
+              + (f" | {res['reason']}" if res.get("reason") else ""))
+        return bool(res.get("gripped") and _holding(side))
+
+    def _fill_both_hands():
+        """Two-hand Phase 1: get an item into EACH hand. --shelf drives to the shelf once first; then
+        each EMPTY hand is filled by a manual align+grab (you reposition the agent on each item, since
+        two items rarely sit under one pose). Returns True once both hands hold, False on a failed grab
+        or abort."""
+        if args.shelf is not None:
+            if args.shelf not in sm.by_id:
+                print(f"  cp{args.shelf} is not in the graph - pick a shelf checkpoint."); return False
+            set_hand_pose("rest", hand="left")
+            nav.pos, nav.rot, _ = step_agent((0, 0, 0), (0, 0, 0), nav.args.uri)
+            if not nav.goto(args.shelf):
+                print(f"  could not drive to cp{args.shelf} (path blocked)."); return False
+        for side in ("left", "right"):
+            if _holding(side):
+                print(f"  {side} hand already holding - keeping it."); continue
+            if not args.auto and not _confirm(False, f"  align the agent on an item for the {side} "
+                                              f"hand, then [Enter] to grab ('n' aborts) > "):
+                print("  aborted."); return False
+            if not _grab_side(side):
+                print(f"  {side} grab FAILED - re-align on the item (centred + in reach) and rerun.")
+                return False
+        return True
+
     try:
-        # ---- Phase 1: get one item in hand ------------------------------------------------------
-        if args.grabnow:
+        # ---- Phase 1: get item(s) in hand -------------------------------------------------------
+        if args.two_hands:
+            _banner(1, "get an item in EACH hand (left, then right)")
+            if not _fill_both_hands():
+                return 1
+        elif args.grabnow:
             _banner(1, "grab from the current pose (you aligned it)")
             res = extend_arm_until_grabbed(hand=args.hand)
             results["grab"] = res
@@ -158,6 +197,65 @@ def main():
                   "reporting and proceeding so you can see it.")
         if not _confirm(args.auto):
             print("  aborted before the sweep."); return 0
+
+        if args.two_hands:
+            # ---- Phase 5 (two-hand): sweep BOTH before bagging EITHER ---------------------------
+            # The fused order (checkout_held_items): scan LEFT -> read screen -> scan RIGHT -> read
+            # screen, threading the accumulating receipt, so a missed sweep is caught while both items
+            # are still in hand - versus scan-drop-scan-drop. Re-face the pad between sweeps (each scan
+            # ends by yawing to the SCREEN to read the receipt).
+            _banner(5, "scan_held_item x2 (sweep LEFT, then RIGHT; items stay in hand)")
+            base = baseline
+            scans = {}
+            for i, side in enumerate(("left", "right")):
+                if not _holding(side):
+                    print(f"  {side} hand empty - skipping its sweep."); continue
+                r = scan_held_item(hand=side, baseline=base)
+                scans[side] = r
+                print(f"  [{side}] scanned_measured={r.get('scanned')} "
+                      f"still_holding={r.get('still_holding')} screen_detected={r.get('screen_detected')}")
+                for l in r.get("new_lines", []):
+                    print(f"    + new receipt line: {l}")
+                print(f"    -> {r.get('reason')}")
+                base = r.get("receipt") or base                 # thread the accumulating receipt
+                if i == 0:                                       # re-face the pad for the second sweep
+                    rc = center_to_scanner()
+                    print(f"  re-acquired pad for the next sweep: {rc.get('outcome')} "
+                          f"(residual {rc.get('residual_px')})")
+            results["scans"] = scans
+            if not any(_holding(s) for s in ("left", "right")):
+                print("  both grips opened during the sweeps (should not happen) - stopping."); return 1
+            if not _confirm(args.auto, "  did BOTH scan by your eye/ear? [Enter] to bag both, 'n' aborts > "):
+                print("  aborted before bagging (items still in hand)."); return 0
+
+            # ---- Phase 6 (two-hand): bag BOTH --------------------------------------------------
+            _banner(6, "place_held_item x2 (bag LEFT, then RIGHT)")
+            places = {}
+            for side in ("left", "right"):
+                if not _holding(side):
+                    continue
+                r = place_held_item(hand=side)
+                places[side] = r
+                print(f"  [{side}] placed={r.get('placed')} released={r.get('released')} "
+                      f"verdict={r.get('verdict')} slant={r.get('distance')} - {r.get('reason')}")
+            results["places"] = places
+
+            # ---- Summary (two-hand) ------------------------------------------------------------
+            _banner("SUMMARY", "MEASURED two-hand chain (your eyes own beep + in-tray, PER item)")
+            a = results.get("align", {})
+            print(f"  aligned         : {a.get('aligned')}  (slant {a.get('slant')}, "
+                  f"residual_yaw {a.get('residual_yaw')})")
+            chain_ok = bool(a.get("aligned"))
+            for side in ("left", "right"):
+                sc = results.get("scans", {}).get(side, {})
+                pl = results.get("places", {}).get(side, {})
+                print(f"  {side:5}: scanned={sc.get('scanned')} still_holding={sc.get('still_holding')} "
+                      f"placed={pl.get('placed')} (verdict {pl.get('verdict')}, slant {pl.get('distance')})")
+                chain_ok = chain_ok and bool(sc.get("scanned") and pl.get("placed"))
+            print(f"\n  MEASURED chain {'PASS' if chain_ok else 'INCOMPLETE'} - now confirm by eye, PER "
+                  f"item: did EACH beep, and is EACH in the tray? A measured PASS with an eye FAIL is the "
+                  f"discrepancy to chase (e.g. the aim confound).")
+            return 0
 
         # ---- Phase 5: scan the held item --------------------------------------------------------
         _banner(5, "scan_held_item (sweep; item stays in hand)")

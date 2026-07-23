@@ -565,3 +565,125 @@ def checkout_held_item(nav, hand="auto", drive=True, bag_if_unscanned=False, deb
     reason = ("checked out: scanned and bagged" if (scanned and placed)
               else f"scanned={scanned} placed={placed} - {pl.get('reason', 'see steps')}")
     return _out(scanned, placed, aligned, reason)
+
+
+def checkout_held_items(nav, drive=True, bag_if_unscanned=False, debug_dir=None):
+    """Check out EVERY item currently in hand in ONE fused pass - the both-hands sibling of
+    checkout_held_item. Drive + align ONCE, sweep-scan each held hand (verifying each off the POS
+    receipt) BEFORE bagging any, then bag each scanned item:
+
+        [go_to_counter] -> align_to_scanner -> baseline receipt
+                        -> sweep LEFT  -> read screen  (scanned_left  = receipt delta)
+                        -> sweep RIGHT -> read screen  (scanned_right = delta vs the post-left receipt)
+                        -> bag LEFT -> bag RIGHT
+
+    ORDER RATIONALE (user, 2026-07-23): both SWEEPS happen before either DROP. A sweep is REVERSIBLE
+    (the grip never opens - a held item keeps its Barcode trigger live, so it scans without dropping);
+    the bag is the ONE irreversible release. Front-loading both scans means a missed sweep is caught
+    while BOTH items are still in hand, so a single re-align retries the pair - versus scan-drop-scan-
+    drop (what two back-to-back checkout_held_item calls do), which commits the first drop before the
+    second scan is even known. One drive + one align also serves both items instead of re-approaching
+    the counter per hand.
+
+    Baseline threading: the receipt ACCUMULATES on the POS screen, so each sweep's `scanned` is a delta
+    against the receipt AFTER the previous sweep - scan_held_item returns `receipt`; we thread it as the
+    next sweep's baseline (baseline=None only for the first, a fresh checkout). scan_held_item ends by
+    yawing the body to the SCREEN to read it, so we center_to_scanner again before the next sweep - the
+    same pad<->screen dance checkout_held_item does around its single scan.
+
+    DEGRADES to checkout_held_item when only ONE hand holds (nothing to fuse - that macro already
+    drives/aligns/scans/bags a single hand); REFUSES with nothing held. Composes only the four measured
+    Phase 6.2 primitives (align/scan/place + the screen reads), so it adds NO new geometry or
+    calibration over the single macro - UNMEASURED live only in that two sweeps + two drops now run off
+    one stance; gate it with a two-item run before trusting it (extend gate_checkout / smoke_checkout).
+
+    PRECONDITION: holding item(s) (refused otherwise). NavSession must be stow_hands=False (carry-safe);
+    each primitive owns its own GRAB/REST around its hand, and this RESTs every held hand before driving.
+
+    bag_if_unscanned (default False): an item whose sweep did not register is NOT bagged (dropping it
+    would hide the scan miss) - it stays in hand, and the checkout completion predicate, seeing a hand
+    still gripping, sends the agent to re-run checkout. Set True only to force a bag.
+
+    Returns {success, scanned, placed, aligned, steps, reason, hand, per_hand}. To stay compatible with
+    predicate_checkout WITHOUT changing it, top-level `scanned`/`placed` are the AND across the held
+    hands (ALL scanned / ALL bagged) and `hand` is None - so the predicate's single-hand consistency
+    check is skipped and its still-gripping guard (any hand left holding => refuse) does the work.
+    `per_hand` carries the per-item {scanned, placed} detail. success = every held item scanned AND
+    bagged (both MEASURED - OCR receipt delta / released-under-a-placeable-verdict). Honest scoring
+    only: the gate owns scanned_verified (beep) and placed_verified (in-tray screenshot)."""
+    from perception import (scan_held_item, place_held_item, center_to_screen,
+                            center_to_scanner, read_text_in_box)
+    from manipulation import set_hand_pose, hand_grip_states
+    from env import move_backward
+
+    steps = {"counter": None, "align": None, "scans": {}, "places": {}}
+    hands = [h for h in ("left", "right") if hand_grip_states()[h]]
+
+    def _out(all_scanned, all_placed, aligned, reason, scanned=None, placed=None):
+        per = {h: {"scanned": (scanned or {}).get(h), "placed": (placed or {}).get(h)} for h in hands}
+        return {"success": bool(all_scanned and all_placed), "scanned": bool(all_scanned),
+                "placed": bool(all_placed), "aligned": aligned, "steps": steps, "hand": None,
+                "per_hand": per, "reason": reason}
+
+    if not hands:
+        return _out(False, False, False, "no hand is holding an item - nothing to check out")
+    if len(hands) == 1:
+        # Nothing to fuse: the single macro already drives/aligns/scans/bags one hand, and its
+        # {scanned, placed, hand} shape is exactly what the predicate wants for a lone item.
+        return checkout_held_item(nav, hand=hands[0], drive=drive,
+                                  bag_if_unscanned=bag_if_unscanned, debug_dir=debug_dir)
+
+    # 1. Drive to the checkout ONCE (carry-safe: REST every held hand first so the items ride the drive).
+    if drive:
+        for h in hands:
+            set_hand_pose("rest", hand=h)
+        res = go_to_counter(nav)
+        steps["counter"] = res
+        if not res.get("arrived"):
+            return _out(False, False, False,
+                        f"could not reach the counter: {res.get('reason', 'path blocked')}")
+
+    # 2. Align on the scan pad ONCE - both sweeps go from this stance.
+    al = align_to_scanner(nav, debug_dir=debug_dir)
+    steps["align"] = al
+    aligned = bool(al.get("aligned"))
+
+    # 3. Baseline receipt from the ALIGNED pose (screen legible now), then re-acquire the pad so the
+    #    first sweep goes toward it (reading the screen yaws the body; this is rotation-only).
+    sres = center_to_screen(debug_dir=debug_dir)
+    baseline = read_text_in_box(sres.get("box")) if sres.get("box") else []
+    center_to_scanner(debug_dir=debug_dir)
+
+    # 4. Sweep-scan EACH held hand before bagging any. scan_held_item ends on a screen read, so its
+    #    returned receipt is the running baseline; re-centre the pad before the next sweep.
+    scanned = {}
+    for i, h in enumerate(hands):
+        sc = scan_held_item(hand=h, baseline=baseline, debug_dir=debug_dir)
+        steps["scans"][h] = sc
+        scanned[h] = bool(sc.get("scanned"))
+        baseline = sc.get("receipt") or baseline
+        if i < len(hands) - 1:
+            center_to_scanner(debug_dir=debug_dir)   # re-face the pad for the next sweep
+
+    # 5. Bag each item - but never an UNSCANNED one unless forced (dropping it hides the scan miss),
+    #    and skip a hand that dropped mid-sweep (place_held_item would just refuse an empty hand).
+    placed = {}
+    grips_now = hand_grip_states()
+    for h in hands:
+        if (not scanned[h] and not bag_if_unscanned) or not grips_now[h]:
+            placed[h] = False
+            continue
+        pl = place_held_item(hand=h, debug_dir=debug_dir)
+        steps["places"][h] = pl
+        placed[h] = bool(pl.get("placed"))
+
+    # 6. Back off the counter face once something is dropped (same wall-clearance step as the single
+    #    macro: the agent finishes parked against the checkout, which A* reads as a blocked path).
+    if any(placed.values()):
+        move_backward(5)
+
+    all_scanned = all(scanned.get(h) for h in hands)
+    all_placed = all(placed.get(h) for h in hands)
+    reason = ("checked out both items: scanned and bagged" if (all_scanned and all_placed)
+              else f"scanned={scanned} placed={placed} - some item did not scan/bag; still holding it")
+    return _out(all_scanned, all_placed, aligned, reason, scanned=scanned, placed=placed)

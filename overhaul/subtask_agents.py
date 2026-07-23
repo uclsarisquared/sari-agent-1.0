@@ -271,6 +271,20 @@ _GRAB_ACTIONS = {"extend_arm_until_grabbed",
                  "extend_arm_until_grabbed_right"}
 
 
+def _grab_ready(state):
+    """MEASURED readiness gate for run_leg's perception->manipulation grab auto-promotion (Option 2,
+    2026-07-23). True iff a MEASURED signal says the target is centred or in reach: last_center's
+    "SUCCESS ..." (center_object_on_screen verified the target on the aim point) or last_reach's
+    "REACHABLE ..." (plan_reach measured the slant distance inside the envelope). Both are CODE reading
+    the sim, never the model's eyeballed "looks centred" - so promoting a grab on this signal cannot
+    encourage the blind grab-at-air the centring/grab handshake edit fought (sys_inst.py header). An
+    absent/None field (e.g. step 1, before anything has been centred) reads as NOT ready, so a premature
+    grab still blocks and the router flips to manipulation next step, exactly as before."""
+    lc = state.get("last_center") or ""
+    lr = state.get("last_reach") or ""
+    return lc.startswith("SUCCESS") or lr.startswith("REACHABLE")
+
+
 def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None,
                     mode: str = None, debug_dir: str = None, agent=None, leg_type: str = None) -> dict:
     """Execute one action. Returns a result dict; grab actions include a 'gripped' key, and the
@@ -300,7 +314,8 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
     if action in _MACRO_ACTIONS:
         # The 6.3 deterministic checkout macro - drive to the counter, align, scan, bag - one call.
         # Needs the agent for its live nav session; run_leg passes it through. The variant name pins
-        # the hand ('auto' = the holding hand, left-first when both hold).
+        # the hand: 'auto' checks out EVERY held item in one fused pass (both hands = scan-scan-bag-bag
+        # off one drive+align, degrading to a single item when one hand holds); _left/_right pin one.
         if agent is None:
             print(f"[WARN] {action} dispatched without an agent - cannot reach the nav "
                   f"session; skipped.")
@@ -679,8 +694,29 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             if center_dir and raw_action == "center_object_on_screen":
                 os.makedirs(center_dir, exist_ok=True)
                 step_center = center_dir
-            res = dispatch_action(raw_action, int(tt), notes, inline_arg=inline, mode=mode,
+            # Option 2 (2026-07-23, UNMEASURED - A/B before trusting): perception->manipulation grab
+            # auto-promotion. The learner picks the step's MODE one call BEFORE the actor picks the
+            # ACTION, off a multi-step `recall` plan; the actor, reading the same plan, routinely emits
+            # the grab a step early. Today that grab is BLOCKED (the dispatch mode-gate), the step is
+            # wasted, and the router only flips to manipulation the step after (the handshake edit's
+            # self-correcting loop). When a MEASURED readiness signal holds (_grab_ready reads the
+            # PREVIOUS step's last_center/last_reach on `state`), run the grab in *manipulation* NOW
+            # instead of eating the blocked step. SCOPED on purpose: only the self-posing grab family
+            # (_GRAB_ACTIONS drives GRAB->REST itself, so the REST pose execute_lean parked for this
+            # perception step stays valid); NOT raw grip_*/hand nudges (they don't self-restore and would
+            # desync the pose tracker) and NOT navigation (the graph arm exists to keep the VLM out of
+            # open-ended nav - doctrine). Behaviour-neutral beyond saving the step: the grab does exactly
+            # what it would next step (a FREE hand, or refuse if both hands are full).
+            eff_mode, promoted = mode, False
+            if raw_action in _GRAB_ACTIONS and mode not in (None, "manipulation") and _grab_ready(state):
+                eff_mode, promoted = "manipulation", True
+            res = dispatch_action(raw_action, int(tt), notes, inline_arg=inline, mode=eff_mode,
                                   debug_dir=step_center, agent=agent, leg_type=leg.get("type")) or {}
+            if promoted and not res.get("blocked"):
+                if m["t_manip"] is None:
+                    m["t_manip"] = round(time.time() - t0, 1)
+                log({"event": "grab_promoted", "step": step, "action": raw_action,
+                     "router_mode": mode, "gripped": res.get("gripped")})
             if res.get("blocked"):
                 blocked_reason = res.get("reason", True)
             if res.get("center_message"):
