@@ -554,6 +554,14 @@ def checkout_held_item(nav, hand="auto", drive=True, bag_if_unscanned=False, deb
     steps["place"] = pl
     placed = bool(pl.get("placed"))
 
+    # 6. Back off the counter face once the item is dropped. The agent finishes the macro parked hard
+    #    against the checkout, which the graph/A* treats as a wall - the next leg reads that as a
+    #    blocked path and can stall. Stepping back 5 units (~0.5 m, body-relative; still facing the
+    #    counter) clears the agent off the obstacle so the following leg plans freely.
+    if placed:
+        from env import move_backward
+        move_backward(5)
+
     reason = ("checked out: scanned and bagged" if (scanned and placed)
               else f"scanned={scanned} placed={placed} - {pl.get('reason', 'see steps')}")
     return _out(scanned, placed, aligned, reason)

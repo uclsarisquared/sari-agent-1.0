@@ -18,6 +18,7 @@ checkout predicate reads rather than re-deriving.
 """
 
 import json
+import os
 import re
 
 # Closed type vocabulary. `checkout` (not `place`) - see the module docstring.
@@ -34,6 +35,14 @@ HALT_REFUSAL_CAP = 3
 # infinite STOP-spam; this stops infinite not-stopping. 6.4 reports halt_granted vs completed_no_stop
 # as the completion-detection health signal (did the agent know it was done, or need the backstop?).
 COMPLETION_BACKSTOP = 3
+
+# Mid-leg self-correction (2026-07-23): after this many refused STOPs on a pickup leg while a hand
+# verifiably holds the WRONG item (mismatched_hands below), run_leg force-releases that hand (drops
+# the item) and resets the refusal budget ONCE per leg, so the agent gets a real second attempt at
+# the grab instead of spinning its remaining refusals into halt_forced. Set below HALT_REFUSAL_CAP
+# on purpose: one refusal is guidance the agent may act on itself; two identical refusals mean it
+# is not correcting, so code corrects.
+WRONG_ITEM_RELEASE_AFTER = 2
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +163,144 @@ def _tokens(text: str) -> list:
     return [t for t in toks if len(t) > 2 and t not in _STOPWORDS]
 
 
+# --- catalog grounding (2026-07-23) -----------------------------------------------------------
+# Two catalog sources, both LAZY + FAILURE-SILENT by design (a machine without them degrades to the
+# plain substring check, keeping this module sim-free and import-cheap):
+#   1. Categories.json - the full category->SKU index (all ~250 SKUs). Pinned absolute (the
+#      reconcile_products.py convention; the sim repo's .claude/worktrees hold stale copies, no glob).
+#      Gives BOTH category membership (a 'Biscuits' target -> any Biscuit SKU) AND the set of
+#      category-name words, which are GENERIC (see below).
+#   2. products_final_shelf_reconciled.json - the annotated per-SKU records (~56 SKUs) carrying a
+#      clean NAME + VARIANT + APPEARANCE. Used to ENRICH the held item's identity text: the raw sim
+#      SKU string is munged ('JACK_AND_JILL_PIATTOS_...'), the reconciled name is clean ('Piattos').
+#      APPEARANCE (colour/packaging) rides along as a SOFT, ADDITIVE tie-breaker - it can only HELP a
+#      target token match (e.g. 'green Piattos' vs a 'green bag' appearance), never block one, so the
+#      78% of SKUs with no record never cause a false refusal.
+_CATEGORIES_JSON = r"C:\Sari\SariSandboxMY\SariSandboxV2\Assets\Resources\Data\Categories.json"
+_RECONCILED_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "slamtest", "output", "products_final_shelf_reconciled.json")
+_CATEGORY_LEXICON = None    # {singularized category word: [sku_lower, ...]}
+_GENERIC_NAMES = None       # {category-name tokens} - matching on these alone is not product identity
+_RECONCILED_INDEX = None    # {sku_lower: "clean name variant appearance ..."} (category EXCLUDED)
+
+# A size/pack token ('70g', '500ml', '5x18g') is a spec, not identity - matching on it alone is as
+# weak as matching on a category word, so it is treated generic too. Pure-digit brands ('555') are
+# NOT size tokens (no unit), so they stay distinctive.
+_SIZE_TOKEN = re.compile(r"^\d+(g|kg|mg|ml|l|pcs)$|^\d+x\d+")
+
+
+def _singular(word: str) -> str:
+    """Cheap plural folding so a target token 'biscuits' finds category 'Biscuit' ('ies'->'y',
+    trailing 's' dropped). Not linguistics - just enough for the catalog's category names."""
+    w = str(word or "").lower()
+    if w.endswith("ies"):
+        return w[:-3] + "y"
+    if w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _category_lexicon() -> dict:
+    global _CATEGORY_LEXICON, _GENERIC_NAMES
+    if _CATEGORY_LEXICON is None:
+        lex, generic = {}, set()
+        try:
+            with open(_CATEGORIES_JSON, encoding="utf-8") as fh:
+                data = json.load(fh)
+            for cat in data.get("Categories", []):
+                name = _singular(cat.get("Category"))
+                if name:
+                    lex[name] = [str(i).lower() for i in (cat.get("Items") or [])]
+                # Every token of a category name is a generic type-word (both plural and singular
+                # forms, so 'chips'/'chip', 'biscuits'/'biscuit' all count).
+                for tok in _tokens(cat.get("Category")):
+                    generic.add(tok)
+                    generic.add(_singular(tok))
+        except (OSError, ValueError):
+            lex, generic = {}, set()
+        _CATEGORY_LEXICON = lex
+        _GENERIC_NAMES = generic
+    return _CATEGORY_LEXICON
+
+
+def _generic_names() -> set:
+    _category_lexicon()   # populates _GENERIC_NAMES as a side effect
+    return _GENERIC_NAMES or set()
+
+
+def _is_generic(tok: str) -> bool:
+    """A token that carries no product IDENTITY on its own: a catalog category-name word (chips,
+    biscuit, can, tuna-less 'canned'... whatever the category names are) or a size/pack spec."""
+    return (tok in _generic_names() or _singular(tok) in _generic_names()
+            or bool(_SIZE_TOKEN.match(tok)))
+
+
+def _reconciled_index() -> dict:
+    """{sku_lower -> clean identity text} from the annotated reconciled products. Merges EVERY record
+    for a SKU (it can appear at several checkpoints), joining name + variant + appearance - but NOT
+    category (a category word is generic; folding it in would re-introduce exactly the noise the
+    distinctive-token rule strips). Failure-silent: no file -> empty -> matching just uses the raw SKU
+    string, as before."""
+    global _RECONCILED_INDEX
+    if _RECONCILED_INDEX is None:
+        idx = {}
+        try:
+            with open(_RECONCILED_JSON, encoding="utf-8") as fh:
+                recs = json.load(fh)
+            for r in recs if isinstance(recs, list) else []:
+                sku = r.get("sku")
+                if not sku:
+                    continue
+                parts = [str(r.get(f) or "") for f in ("name", "variant", "appearance")]
+                txt = " ".join(p for p in parts if p).lower()
+                if txt:
+                    idx[str(sku).lower()] = (idx.get(str(sku).lower(), "") + " " + txt).strip()
+        except (OSError, ValueError):
+            idx = {}
+        _RECONCILED_INDEX = idx
+    return _RECONCILED_INDEX
+
+
+def blob_matches_target(blob, target) -> bool:
+    """True iff `blob` (a held/hovered SKU string, any case) is the `target` product.
+
+    Identity rests on DISTINCTIVE tokens, not generic ones (2026-07-23). A target token is generic if
+    it names a catalog CATEGORY ('chips', 'biscuit') or is a size spec ('70g') - matching on one of
+    those alone is not identity. This fixes a MEASURED false GRANT (run 0723_094628-era: target
+    'Chipsy Corn Chips Nacho Crispies BBQ', the agent held LESLIE_S_CLOVER_CHIPS_CHEESE - a DIFFERENT
+    product - yet the lone shared category word 'chips' granted it). The correct Chipsy SKU shares
+    chipsy/nacho/crispies/bbq; Clover shares only the generic 'chips', so it is now refused.
+
+    Rules, in order:
+      - no content tokens in the target -> True (can't ground it, don't block).
+      - the held SKU string is ENRICHED with its reconciled clean name/variant/appearance when known
+        (soft, additive: appearance colour can only HELP a match like 'green Piattos', never block).
+      - if the target has any DISTINCTIVE token -> match iff one of them is in the enriched text.
+      - if the target is PURELY generic ('Biscuits', 'Canned Tuna') -> fall to category membership:
+        the held SKU is one of that category's SKUs (this is the earlier category-grounding fix).
+    """
+    kws = _tokens(target)
+    if not kws:
+        return True
+    blob = str(blob or "").lower()
+    # Enrich the held identity text with the clean reconciled name/variant/appearance of any SKU
+    # named in the blob (soft; absent for un-annotated SKUs, which then match on the raw string only).
+    full = blob
+    for sku, txt in _reconciled_index().items():
+        if sku in blob:
+            full += " " + txt
+    distinctive = [k for k in kws if not _is_generic(k)]
+    if distinctive:
+        return any(k in full for k in distinctive)
+    # Purely-generic target: category membership (any SKU of the named category counts).
+    lex = _category_lexicon()
+    for k in kws:
+        skus = lex.get(_singular(k))
+        if skus and any(s in blob for s in skus):
+            return True
+    return False
+
+
 def name_matches(state: dict, keywords) -> bool:
     """True iff any keyword appears in the agent's hovered/gripped object blob. Re-homed here from
     eval_pickup (its single caller now imports it) so the pickup predicate and the 6.4 eval share ONE
@@ -173,14 +320,38 @@ def name_matches(state: dict, keywords) -> bool:
 
 
 def name_overlap(state: dict, target: str) -> bool:
-    """True iff the gripped/hovered object name overlaps the decomposer's free-text `target`. Bridges
-    a natural-language target ('Piattos (green)') to name_matches by tokenizing it into content
-    keywords. An empty/degenerate target (no content tokens) returns True - we can't ground it, so we
-    don't block on it (the grip itself is still required by the pickup predicate)."""
-    kws = _tokens(target)
-    if not kws:
-        return True
-    return name_matches(state, kws)
+    """True iff the gripped/hovered object name overlaps the decomposer's free-text `target` -
+    token overlap OR category membership (blob_matches_target). An empty/degenerate target (no
+    content tokens) returns True - we can't ground it, so we don't block on it (the grip itself is
+    still required by the pickup predicate)."""
+    fields = [state.get("leftHoveredObject") or "", state.get("rightHoveredObject") or "",
+              state.get("gripped_name") or ""]
+    return blob_matches_target(" ".join(str(f) for f in fields), target)
+
+
+def mismatched_hands(sub: dict, state: dict, start_grips=()) -> list:
+    """The sides currently gripping an item that measurably ISN'T this pickup leg's target - the
+    hands run_leg's mid-leg self-correction may auto-release (2026-07-23). Conservative by
+    construction; a hand is listed only when ALL of:
+      (a) it is gripping NOW,
+      (b) it was EMPTY at leg start (`start_grips`) - never drop an item carried in from a previous
+          leg; that item belongs to an earlier subtask's outcome,
+      (c) its grip-time recorded name (state['gripped_names']) exists AND fails the target match -
+          a hand with NO recorded name is never released (we don't drop what we can't identify).
+    An untargeted pickup (no content tokens) mismatches nothing."""
+    target = (sub or {}).get("target") or ""
+    if not _tokens(target):
+        return []
+    names = state.get("gripped_names")
+    names = names if isinstance(names, dict) else {}
+    start = set(start_grips or ())
+    out = []
+    for side in ("left", "right"):
+        name = names.get(side)
+        if (state.get(f"{side}GrippedState") and side not in start
+                and name and not blob_matches_target(name, target)):
+            out.append(side)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -224,10 +395,9 @@ def predicate_pickup(sub: dict, state: dict) -> tuple:
                                f"{target!r} - grab the right item")
             return True, (f"pickup granted [unverified count: runner tracks no per-hand names, "
                           f"cannot verify {count} held]")
-        kws = _tokens(target)
         matched = [side for side in ("left", "right")
                    if state.get(f"{side}GrippedState")
-                   and (not kws or any(k in str(names.get(side) or "").lower() for k in kws))]
+                   and blob_matches_target(names.get(side) or "", target)]
         if len(matched) >= count:
             return True, f"pickup complete: holding {len(matched)} matching item(s) ({count} required)"
         held_desc = {s: names.get(s) for s in ("left", "right") if state.get(f"{s}GrippedState")}
@@ -255,8 +425,18 @@ def predicate_pickup(sub: dict, state: dict) -> tuple:
 
 def predicate_checkout(sub: dict, state: dict) -> tuple:
     """Grant iff the checkout macro reported scanned AND placed (both MEASURED - OCR receipt delta /
-    released-under-a-placeable-verdict) and no hand is still gripping. Reads `last_checkout` (the
-    macro's own result dict surfaced into state); it does NOT re-derive the verdict."""
+    released-under-a-placeable-verdict) for the item it just bagged AND no hand is left gripping.
+    Reads `last_checkout` (the macro's own result dict surfaced into state); it does NOT re-derive
+    the verdict.
+
+    ONE checkout leg = 'scan the items I'm holding' (2026-07-23 fix). The decomposer emits a SINGLE
+    checkout leg for everything carried at once ('scan THEM and bag THEM' - the two-hand carry is one
+    checkout moment, not two legs), so this is complete only when NOTHING is left in hand. The prior
+    version granted as soon as the ONE hand the macro bagged from was empty, which ended the leg after
+    the first item and left the second unscanned (measured: run 0723_094628_graph - the leg halted
+    with a Pepero still gripped in the right hand). Now a still-holding OTHER hand refuses and sends
+    the agent to check that item out too; the checkout macro (hand='auto') targets the remaining hand
+    on the next call, so the existing self-correction loop drives the second scan with no new tool."""
     lc = state.get("last_checkout")
     if not lc:
         return False, ("checkout not attempted yet: dispatch the checkout tool "
@@ -265,17 +445,20 @@ def predicate_checkout(sub: dict, state: dict) -> tuple:
         return False, f"checkout incomplete: item not scanned - {lc.get('reason', 'retry / re-align')}"
     if not lc.get("placed"):
         return False, f"checkout incomplete: scanned but not bagged - {lc.get('reason', 'retry the bag')}"
-    # Dual-hand (2026-07-23): only the hand the macro CHECKED OUT must be empty - the other hand may
-    # legitimately still carry a second item (it gets its own checkout). Any-hand check kept as the
-    # fallback for an old-style result with no `hand` field.
+    # The hand the macro bagged from must actually be empty now - a placed verdict with that same
+    # hand still gripping is an inconsistent macro result, retry it.
     hand = lc.get("hand")
-    if hand in ("left", "right"):
-        if state.get(f"{hand}GrippedState"):
-            return False, (f"checkout reported placed but the {hand} hand (the one it bagged from) "
-                           f"is still gripping - inconsistent, retry")
-    elif _gripping(state):
-        return False, "checkout reported placed but a hand is still gripping - inconsistent, retry"
-    return True, "checkout complete: item scanned and bagged (both measured)"
+    if hand in ("left", "right") and state.get(f"{hand}GrippedState"):
+        return False, (f"checkout reported placed but the {hand} hand (the one it bagged from) "
+                       f"is still gripping - inconsistent, retry")
+    # Any OTHER hand still carrying an item means the leg isn't done - a second item was picked up and
+    # only the first is scanned. Send the agent to check the remaining one out too before it STOPs.
+    still = [s for s in ("left", "right") if state.get(f"{s}GrippedState")]
+    if still:
+        return False, (f"one item scanned and bagged, but the {'/'.join(still)} hand is still holding "
+                       f"an item - dispatch the checkout tool again (it targets the hand still "
+                       f"holding) and scan that one too before you STOP")
+    return True, "checkout complete: all held items scanned and bagged (measured)"
 
 
 def predicate_goto(sub: dict, state: dict) -> tuple:

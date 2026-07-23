@@ -20,12 +20,15 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+import subtask_completion as sc
 from subtask_completion import (
     parse_decomposition,
     completion_predicate,
     name_overlap,
+    mismatched_hands,
     SUBTASK_TYPES,
     HALT_REFUSAL_CAP,
+    WRONG_ITEM_RELEASE_AFTER,
 )
 
 
@@ -205,6 +208,150 @@ def test_pickup_count2_degrades_without_per_hand_names():
     assert _granted({"type": "pickup", "target": "Jin Ramen", "count": 2}, st) is False
 
 
+# --- category grounding + mismatched_hands (self-correction, 2026-07-23) ---
+
+class _lexicon:
+    """Pin the catalog state hermetically (no files): category lexicon, the generic-name set (defaults
+    to the lexicon's category keys, exactly what the real loader derives), and the reconciled SKU->text
+    index (defaults empty)."""
+    def __init__(self, lex, generic=None, reconciled=None):
+        self.lex = lex or {}
+        self.generic = set(self.lex.keys()) if generic is None else set(generic)
+        self.reconciled = reconciled or {}
+    def __enter__(self):
+        self.saved = (sc._CATEGORY_LEXICON, sc._GENERIC_NAMES, sc._RECONCILED_INDEX)
+        sc._CATEGORY_LEXICON = self.lex
+        sc._GENERIC_NAMES = self.generic
+        sc._RECONCILED_INDEX = self.reconciled
+    def __exit__(self, *a):
+        sc._CATEGORY_LEXICON, sc._GENERIC_NAMES, sc._RECONCILED_INDEX = self.saved
+
+
+_BISCUIT_LEX = {"biscuit": ["lemonsquare_mamon_cheesy_264g", "fibisco_jolly_27g"]}
+# A catalog fragment where 'chips' is a category (so it's a GENERIC type-word), used for the
+# cross-brand false-grant cases below.
+_CHIPS_LEX = {"chips": ["chipsy_nacho_crispies_bbq_70g", "leslie_s_clover_chips_cheese_24g"],
+              "biscuit": ["lemonsquare_mamon_cheesy_264g"]}
+
+
+def test_category_target_matches_member_sku():
+    # THE run-0723_061651 false refusal: 'Biscuits' never substring-matches the (correct) Mamon SKU.
+    with _lexicon(_BISCUIT_LEX):
+        st = _state(leftGrippedState=True, gripped_name="LEMONSQUARE_MAMON_CHEESY_264G")
+        ok, reason = completion_predicate({"type": "pickup", "target": "Biscuits"}, st)
+        assert ok is True, reason
+
+
+def test_category_target_still_refuses_non_member():
+    with _lexicon(_BISCUIT_LEX):
+        st = _state(leftGrippedState=True, gripped_name="COKE_ZERO_330")
+        assert _granted({"type": "pickup", "target": "Biscuits"}, st) is False
+
+
+def test_category_grounding_absent_degrades_to_substring():
+    # No catalog on this machine -> empty lexicon -> exactly the old substring behaviour.
+    with _lexicon({}):
+        st = _state(leftGrippedState=True, gripped_name="LEMONSQUARE_MAMON_CHEESY_264G")
+        assert _granted({"type": "pickup", "target": "Biscuits"}, st) is False
+        assert _granted({"type": "pickup", "target": "Mamon"}, st) is True
+
+
+def test_category_real_catalog_if_present():
+    # Integration against the live Unity catalog; a no-op (with a note) where the sim repo is absent.
+    sc._CATEGORY_LEXICON = None      # force a real (re)load
+    try:
+        if not sc._category_lexicon():
+            print("(catalog absent - category integration check skipped)")
+            return
+        st = _state(leftGrippedState=True, gripped_name="LEMONSQUARE_MAMON_CHEESY_264G")
+        assert _granted({"type": "pickup", "target": "Biscuits"}, st) is True
+    finally:
+        sc._CATEGORY_LEXICON = None  # don't leak the real lexicon into hermetic tests
+
+
+# --- distinctive-token matching: the cross-brand false GRANT (2026-07-23) ---
+
+def test_false_grant_cross_brand_refused():
+    # THE bug: target the SPECIFIC 'Chipsy Corn Chips Nacho Crispies BBQ', agent held a DIFFERENT
+    # product (Leslie's Clover Chips). The only shared token is the category word 'chips' - it must
+    # NOT grant. Reconciled text for the wrong item is present to prove appearance can't rescue it.
+    recon = {"leslie_s_clover_chips_cheese_24g": "clover chips cheeser orange bag cheese graphic"}
+    with _lexicon(_CHIPS_LEX, reconciled=recon):
+        st = _state(rightGrippedState=True, gripped_name="LESLIE_S_CLOVER_CHIPS_CHEESE_24G")
+        ok, reason = completion_predicate(
+            {"type": "pickup", "target": "Chipsy Corn Chips Nacho Crispies BBQ"}, st)
+        assert ok is False and "does not match" in reason, reason
+
+
+def test_correct_same_category_item_granted_even_if_unannotated():
+    # The RIGHT item (Chipsy BBQ) shares chipsy/nacho/crispies/bbq - grants on the SKU string alone,
+    # even though it is NOT in the reconciled file (78% of SKUs aren't - coverage must not block).
+    with _lexicon(_CHIPS_LEX, reconciled={}):
+        st = _state(rightGrippedState=True, gripped_name="CHIPSY_NACHO_CRISPIES_BBQ_70G")
+        assert _granted({"type": "pickup",
+                         "target": "Chipsy Corn Chips Nacho Crispies BBQ"}, st) is True
+
+
+def test_appearance_enrichment_matches_colour():
+    # Appearance as a SOFT tie-breaker: a colour token absent from the SKU string but present in the
+    # reconciled appearance still counts. Without the reconciled record it wouldn't (and that's fine -
+    # soft, additive, never a block).
+    sku = "jack_and_jill_piattos_sour_cream_flavored_potato_40g"
+    recon = {sku: "piattos sour cream & onion green bag with diamond logo"}
+    with _lexicon({"chips": [sku]}, reconciled=recon):
+        st = _state(leftGrippedState=True, gripped_name=sku.upper())
+        # 'green' is only in the appearance; still grants.
+        assert _granted({"type": "pickup", "target": "green Piattos"}, st) is True
+    with _lexicon({"chips": [sku]}, reconciled={}):
+        st = _state(leftGrippedState=True, gripped_name=sku.upper())
+        # No appearance record, but 'piattos' is still in the SKU -> still grants (soft, not required).
+        assert _granted({"type": "pickup", "target": "green Piattos"}, st) is True
+
+
+def test_size_token_alone_does_not_match():
+    # A shared size spec ('155g') is not identity - two unrelated 155g items must not match.
+    with _lexicon({}, generic=set(), reconciled={}):
+        st = _state(leftGrippedState=True, gripped_name="SOME_OTHER_BRAND_155G")
+        assert _granted({"type": "pickup", "target": "Century Tuna 155g"}, st) is False
+
+
+def test_mismatched_hands_flags_wrong_new_grip():
+    st = _state(leftGrippedState=True, gripped_names={"left": "COKE_ZERO_330", "right": None})
+    assert mismatched_hands({"type": "pickup", "target": "Piattos"}, st, start_grips=()) == ["left"]
+
+
+def test_mismatched_hands_protects_carried_in_item():
+    # The hand was already gripping at leg start - its item belongs to a previous subtask; never drop it.
+    st = _state(leftGrippedState=True, gripped_names={"left": "COKE_ZERO_330", "right": None})
+    assert mismatched_hands({"type": "pickup", "target": "Piattos"}, st, start_grips={"left"}) == []
+
+
+def test_mismatched_hands_never_releases_unnamed_or_matching():
+    # No recorded grip-time name -> we can't identify it -> never released. A matching item stays.
+    st = _state(leftGrippedState=True, rightGrippedState=True,
+                gripped_names={"left": None, "right": "PIATTOS_CHEESE_40G"})
+    assert mismatched_hands({"type": "pickup", "target": "Piattos"}, st) == []
+
+
+def test_mismatched_hands_untargeted_or_ungrounded_is_empty():
+    st = _state(leftGrippedState=True, gripped_names={"left": "COKE_ZERO_330", "right": None})
+    assert mismatched_hands({"type": "pickup"}, st) == []
+    assert mismatched_hands({"type": "pickup", "target": "the"}, st) == []
+
+
+def test_mismatched_hands_respects_category_membership():
+    # A category-correct item is NOT a mismatch - the exact wrong-drop the 0723 run would have made.
+    with _lexicon(_BISCUIT_LEX):
+        st = _state(leftGrippedState=True,
+                    gripped_names={"left": "LEMONSQUARE_MAMON_CHEESY_264G", "right": None})
+        assert mismatched_hands({"type": "pickup", "target": "Biscuits"}, st) == []
+
+
+def test_release_threshold_below_refusal_cap():
+    # The auto-release must get a chance to fire BEFORE the cap force-ends the leg.
+    assert 1 <= WRONG_ITEM_RELEASE_AFTER < HALT_REFUSAL_CAP
+
+
 # --- checkout predicate ----------------------------------------------------
 
 def test_checkout_granted_when_scanned_and_placed():
@@ -233,6 +380,23 @@ def test_checkout_refused_if_still_gripping():
     st = _state(leftGrippedState=True,
                 last_checkout={"scanned": True, "placed": True, "reason": "ok"})
     assert _granted({"type": "checkout"}, st) is False
+
+
+def test_checkout_refused_when_second_carried_item_still_held():
+    # The dual-hand carry bug (run 0723_094628_graph): the macro bagged the LEFT item (scanned+placed,
+    # hand=left, left now empty) but the RIGHT hand still holds the second item. ONE checkout leg must
+    # scan BOTH - refuse and point the agent at the still-holding hand, don't end the leg.
+    st = _state(leftGrippedState=False, rightGrippedState=True,
+                last_checkout={"scanned": True, "placed": True, "hand": "left", "reason": "ok"})
+    ok, reason = completion_predicate({"type": "checkout"}, st)
+    assert ok is False and "right" in reason and "checkout tool again" in reason
+
+
+def test_checkout_granted_when_both_hands_emptied():
+    # Second item now bagged too (hand=right, both hands empty) -> the leg is finally complete.
+    st = _state(leftGrippedState=False, rightGrippedState=False,
+                last_checkout={"scanned": True, "placed": True, "hand": "right", "reason": "ok"})
+    assert _granted({"type": "checkout"}, st) is True
 
 
 # --- goto predicate --------------------------------------------------------

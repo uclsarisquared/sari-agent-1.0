@@ -30,6 +30,16 @@ Usage:
     python subtask_agents.py --task "..." --arm graph-advised  # per-hop advisor-VLM drive
     python subtask_agents.py --task "..." --reset-start   # eval-reproducibility: start from spawn
 
+Self-correction (2026-07-23, two levels - added after run 0723_061651_graph spun a pickup leg's
+refusals into halt_forced and took the task down):
+  - MID-LEG: a pickup STOP refused WRONG_ITEM_RELEASE_AFTER times while a hand verifiably holds the
+    wrong item auto-releases that hand (never a carried-in item) and resets the refusal budget once,
+    so the agent re-attempts the grab instead of spinning to the cap (run_leg's refusal branch).
+  - ORCHESTRATOR: a failed leg is retried up to --leg-retries times (default 1) with the failure
+    reason in the retry's context, before the task aborts.
+(The same run also exposed a predicate false-refusal - a category target like 'Biscuits' never
+substring-matched any SKU; fixed by catalog-category grounding in subtask_completion.)
+
 The agent starts from wherever it is by default; `--reset-start` is opt-in machinery for a batteried
 eval (6.4), not needed for an interactive run. `--restart-env` is a separate opt-in that hard-resets
 the STORE (items back on shelves, prior checkouts undone) so a fresh task doesn't inherit the last
@@ -59,6 +69,8 @@ load_dotenv(Path(__file__).resolve().parent.parent / 'api.env')
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from env import (
+    _GRIP_LEFT_,
+    _GRIP_RIGHT_,
     _REQUEST_SCREENSHOT_,
     RequestLidarCenter,
     TransformAgent,
@@ -79,8 +91,10 @@ from subtask_completion import (
     TYPED_DECOMPOSER_SYSTEM,
     parse_decomposition,
     completion_predicate,
+    mismatched_hands,
     HALT_REFUSAL_CAP,
     COMPLETION_BACKSTOP,
+    WRONG_ITEM_RELEASE_AFTER,
 )
 # Plan-time map planning (also sim-free, so it stays offline-unit-testable - test_subtask_planning.py).
 from subtask_planning import (
@@ -173,6 +187,55 @@ def generate_findings_summary(
 # ---------------------------------------------------------------------------
 # Action dispatch
 # ---------------------------------------------------------------------------
+
+def _crouched_grab(action_ref, time_units, target_info, debug_dir, plan):
+    """AUTO-CROUCH (Phase D, 2026-07-23): resolve a `crouch` verdict INSIDE this one dispatch call -
+    crouch, re-center, re-measure, grab if now reachable, and ALWAYS stand back up (finally-guarded).
+
+    Posture is deliberately NOT the VLM's job: if standing up were left to the actor, a run could end
+    with the agent navigating crouched (or the learner drawing lessons from a stale posture). The
+    invariant this enforces: **the agent is only ever crouched inside a single grab call** - the same
+    scoping the hand-retract already uses. Measured basis (envelope.csv, 2026-07-22): L1 items missed
+    standing at slant 1.1-1.3 m and grabbed crouched at 0.6-0.7 m - crouching shortens the slant
+    distance below max_reach.
+
+    The re-center is MANDATORY: crouching drops the camera ~0.7 m, so the just-centred target is now
+    well off-centre; grabbing without re-centering is the grab-the-neighbour failure. Hands stay
+    ACTIVE throughout (Phase 6.1: hands are always-on at REST/GRAB; centring already runs with resting
+    hands everywhere else). If after crouching the target is STILL too far, we stand up and report the
+    measured move - the tool never moves the body (2026-07-21 directive); the router moves and the
+    next grab re-crouches (one spare cycle, rare)."""
+    from env import SetCrouch
+    from perception import center_object_on_screen
+    base = {"gripped": False, "reach_verdict": "crouch", "move_steps": 0}
+    try:
+        SetCrouch(True)
+        c = center_object_on_screen(target_info, debug_dir=debug_dir) or {}
+        if not c.get("centered"):
+            base["last_reach"] = ("CROUCHED but could not RE-CENTER the target from the lower view "
+                                  f"({c.get('outcome', 'no result')}) - stood back up; bring the target "
+                                  "into view and retry the grab")
+            return base
+        plan2 = plan_reach(RequestLidarCenter())
+        if plan2["verdict"] == "reachable":
+            result = action_ref(time_units) or {}
+            result["reach_verdict"] = "crouch"
+            result["last_reach"] = (
+                f"CROUCHED and GRABBED - {plan2['reason']}" if result.get("gripped") else
+                f"CROUCHED into range but the grab MISSED - {plan2['reason']}; stood back up - "
+                f"move a little closer, re-center, and retry")
+            return result
+        if plan2["verdict"] == "move":
+            base["move_steps"] = plan2["move_steps"]
+            base["last_reach"] = (f"CROUCHED but still too far - {plan2['reason']}; stood back up - "
+                                  f"move that distance, re-center, and retry (it will crouch again)")
+            return base
+        base["last_reach"] = (f"CROUCHED but the target is still out of reach "
+                              f"({plan2['verdict']}: {plan2['reason']}) - stood back up")
+        return base
+    finally:
+        SetCrouch(False)   # ALWAYS stand back up - crouch must never leak past this call
+
 
 def _last_reach_line(plan, gripped=None):
     """Human-readable `last_reach` string the actor/learner reads (AGENT_STATE_DOC p). Carries the
@@ -293,7 +356,16 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
                       f"{result.get('hand', '?')}) missed - {plan['reason']}; "
                       f"the reach envelope may need retuning.")
             return result
-        # move / crouch / bail / recenter: skip the blind reach, report the measured verdict.
+        if plan["verdict"] == "crouch":
+            # AUTO-CROUCH: resolved inside this call (crouch -> re-center -> re-measure -> grab ->
+            # ALWAYS stand). See _crouched_grab - posture never leaks to the router/VLM.
+            print(f"[REACH] crouch: {plan['reason']} - auto-crouching")
+            target_info = (f"main_goal={main_goal}\nsub_goals={sub_goals}\n"
+                           f"key_info={key_info}\nchecklist={checklist}")
+            result = _crouched_grab(action_ref, time_units, target_info, debug_dir, plan)
+            print(f"[REACH] {result.get('last_reach')}")
+            return result
+        # move / bail / recenter: skip the blind reach, report the measured verdict.
         print(f"[REACH] {plan['verdict']}: {plan['reason']}")
         return {"gripped": False, "reach_verdict": plan["verdict"],
                 "move_steps": plan["move_steps"], "last_reach": _last_reach_line(plan)}
@@ -438,13 +510,14 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
 
     m = {"type": leg.get("type"), "text": leg_text, "t_manip": None, "t_grip": None,
          "t_checkout": None, "success": False, "timesteps": 0, "llm_calls": 0, "errors": 0,
-         "halts_refused": 0, "halt_forced": False, "end_reason": None}
+         "halts_refused": 0, "halt_forced": False, "corrective_release": None, "end_reason": None}
 
     state = _fresh_agent_state()
     # The leg's STARTING checkpoint counts as visited (the post-action refresh only records positions
     # AFTER a step, so without this a compare leg that starts at a candidate gets no credit for it).
     visited.add(sm.nearest_checkpoint((state["translation"][0], state["translation"][2])))
     halt_refusals = 0
+    corrective_release_done = False   # one wrong-item auto-release allowance per leg (see the refusal branch)
     goal_met_streak = 0        # consecutive steps the completion predicate would grant (backstop)
     last_actor_text = ""       # actor's last REAL output (compare predicate's choice check)
     # SKU the grab tool reported AT the grip, PER HAND - the durable record the pickup predicate
@@ -524,6 +597,48 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             state["goal_check"] = None
             goal_met_streak = 0
             print(f"[GUARD] STOP refused ({halt_refusals}/{HALT_REFUSAL_CAP}): {reason}")
+            # ---- mid-leg SELF-CORRECTION (2026-07-23): drop a verifiably-wrong item ------------
+            # A pickup STOP refused repeatedly while a hand holds the WRONG item (its grip-time name
+            # fails the target match) means the agent is not acting on the refusal guidance - the
+            # measured failure mode was spinning the remaining refusals into halt_forced and taking
+            # the whole task down. Code releases the mismatched hand(s) - never an item carried in
+            # from a previous leg (start_grips), never a hand with no recorded name - and resets the
+            # refusal budget ONCE per leg so the grab gets a real second attempt. The predicate stays
+            # the sole completion truth: nothing is granted here, the leg just keeps going.
+            if (leg.get("type") == "pickup" and not corrective_release_done
+                    and halt_refusals >= WRONG_ITEM_RELEASE_AFTER):
+                released = []
+                for side in mismatched_hands(leg, state, start_grips):
+                    try:
+                        (_GRIP_LEFT_ if side == "left" else _GRIP_RIGHT_)()  # toggle: gripping -> open
+                        released.append(f"{side}:{gripped_names.get(side)}")
+                    except Exception as e:  # noqa: BLE001 - a failed release just leaves the cap to fire
+                        print(f"[CORRECT] release toggle failed on {side}: {type(e).__name__}: {e}")
+                if released:
+                    corrective_release_done = True
+                    halt_refusals = 0
+                    m["corrective_release"] = released
+                    # Re-read the live grip state so the predicate/actor see the empty hand(s) now.
+                    fresh = _fresh_agent_state()
+                    for key in ("leftGrippedState", "rightGrippedState",
+                                "leftHoveredObject", "rightHoveredObject"):
+                        state[key] = fresh[key]
+                    for side in ("left", "right"):
+                        if not state.get(f"{side}GrippedState"):
+                            gripped_names[side] = None
+                    state["gripped_names"] = dict(gripped_names)
+                    state["gripped_name"] = " ".join(n for n in gripped_names.values() if n) or None
+                    state["new_grip_this_leg"] = any(
+                        state.get(f"{s}GrippedState") and s not in start_grips
+                        for s in ("left", "right"))
+                    sides = "/".join(r.split(":", 1)[0] for r in released)
+                    state["last_halt_refused"] = (
+                        f"{reason} | SELF-CORRECTION: the wrong item was auto-released from your "
+                        f"{sides} hand. Do NOT stop yet - find and grab the actual target "
+                        f"({leg.get('target')!r}), then STOP.")
+                    print(f"[CORRECT] auto-released wrong item(s) {released}; refusal budget reset.")
+                    log({"event": "corrective_release", "step": step, "released": released})
+                    continue
             if halt_refusals >= HALT_REFUSAL_CAP:
                 # Escape hatch so the agent can't spin forever on STOP - NOT a grant. The leg ends
                 # halt_forced with the reason in state; the orchestrator counts it as a non-clean leg.
@@ -695,12 +810,15 @@ def _current_nearest_cp(sm):
 
 
 def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
-                resolver_backend="qwen", reset_start=False, restart_env=False):
+                resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then
     run each with run_leg until the AGENT stops (predicate-granted) or a per-leg cap fires. Shared
-    semantic/episodic memory + a between-leg findings summary carry context forward. A leg that does
-    not complete ABORTS the remaining legs (a failed pickup shouldn't burn a checkout leg). Writes a
-    summary.json + per-leg JSONL to run_dir (eval_pickup layout).
+    semantic/episodic memory + a between-leg findings summary carry context forward. A failed leg is
+    RETRIED up to `leg_retries` times (default 1) with the failure reason fed into the retry's
+    context (orchestrator-level self-correction, 2026-07-23 - a halt_forced leg used to abort the
+    task outright); only when the retries are also exhausted does it ABORT the remaining legs (a
+    failed pickup shouldn't burn a checkout leg). Writes a summary.json + per-leg JSONL to run_dir
+    (eval_pickup layout; a retry attempt logs to leg<NN>_retry<K>.jsonl).
 
     arm: 'graph' (default - the measured-better navigator, right for long-horizon), 'vlm'
     (control), or 'graph-advised' (graph targets, per-hop advisor-VLM drive - see
@@ -792,16 +910,37 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
         for i, leg in enumerate(legs):
             future = legs[i + 1:]
             print(f"\n[ORCHESTRATOR] ── Leg {i + 1}/{len(legs)} ──")
-            m = run_leg(agent, leg, sm, caps,
-                        log_path=os.path.join(run_dir, f"leg{i:02d}.jsonl"),
-                        context=cumulative_context, future_legs=future,
-                        visited=visited, leg_idx=i + 1)
-            task_llm += m["llm_calls"]
-            leg_rows.append({k: v for k, v in m.items()
-                             if k not in ("final_state", "new_semantic_entries")})
-            print(f"### leg {i+1} {m['end_reason']}: success={m['success']} "
-                  f"t_grip={m['t_grip']} t_checkout={m['t_checkout']} steps={m['timesteps']} "
-                  f"halts_refused={m['halts_refused']} wall={m['wall_s']}s")
+            attempt, m = 0, None
+            while True:
+                attempt += 1
+                leg_context = cumulative_context
+                if attempt > 1:
+                    # Orchestrator-level self-correction (2026-07-23): re-run the leg with WHY the
+                    # last attempt was not accepted in front of the fresh agent. Semantic/episodic
+                    # memory already persists, so the retry keeps everything the failure learned.
+                    fail_reason = ((m.get("final_state") or {}).get("last_halt_refused")
+                                   or m["end_reason"])
+                    leg_context = cumulative_context + (
+                        f"\n\n--- YOUR PREVIOUS ATTEMPT AT THIS EXACT SUBTASK FAILED "
+                        f"({m['end_reason']}) ---\n"
+                        f"Why it was not accepted: {fail_reason}\n"
+                        f"Fix that specifically this time; everything you learned is still in memory.")
+                    print(f"[ORCHESTRATOR] retrying leg {i + 1} "
+                          f"(attempt {attempt}/{1 + leg_retries}): {fail_reason}")
+                suffix = "" if attempt == 1 else f"_retry{attempt - 1}"
+                m = run_leg(agent, leg, sm, caps,
+                            log_path=os.path.join(run_dir, f"leg{i:02d}{suffix}.jsonl"),
+                            context=leg_context, future_legs=future,
+                            visited=visited, leg_idx=i + 1)
+                task_llm += m["llm_calls"]
+                leg_rows.append({**{k: v for k, v in m.items()
+                                    if k not in ("final_state", "new_semantic_entries")},
+                                 "attempt": attempt})
+                print(f"### leg {i+1} attempt {attempt} {m['end_reason']}: success={m['success']} "
+                      f"t_grip={m['t_grip']} t_checkout={m['t_checkout']} steps={m['timesteps']} "
+                      f"halts_refused={m['halts_refused']} wall={m['wall_s']}s")
+                if m["success"] or attempt > leg_retries:
+                    break
 
             if not m["success"]:
                 task_success = False
@@ -862,6 +1001,10 @@ def main():
     ap.add_argument("--out", default=None, help="summary.json path (default: <run-dir>/summary.json)")
     ap.add_argument("--run-dir", default=None)
     ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"], default="qwen")
+    ap.add_argument("--leg-retries", type=int, default=1,
+                    help="how many times to RETRY a failed leg with the failure reason in context "
+                         "before aborting the task (orchestrator-level self-correction; 0 restores "
+                         "the old abort-on-first-failure behaviour)")
     ap.add_argument("--reset-start", action="store_true",
                     help="drive to the fixed spawn pose once before starting (eval-reproducibility; "
                          "OFF by default - a plain run starts from the agent's current pose)")
@@ -876,7 +1019,8 @@ def main():
     task = args.task_opt or args.task or input("Task: ")
     orchestrate(task, arm=args.arm, caps=(args.max_steps, args.max_minutes), out=args.out,
                 run_dir=args.run_dir, resolver_backend=args.resolver_backend,
-                reset_start=args.reset_start, restart_env=args.restart_env)
+                reset_start=args.reset_start, restart_env=args.restart_env,
+                leg_retries=max(0, args.leg_retries))
 
 
 if __name__ == "__main__":
