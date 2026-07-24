@@ -1,0 +1,139 @@
+This semantic memory outlines the store's environment, rendered from the annotated checkpoint map (not hand-written). Positions are world coordinates; checkpoints are reachable standing positions.
+
+**Store contents by checkpoint** (what is visible standing at each):
+15. Checkpoint 15 (unclassified): 
+16. Checkpoint 16 (unclassified): 
+17. Checkpoint 17 (unclassified): 
+18. Checkpoint 18 (unclassified): 
+19. Checkpoint 19 (unclassified): 
+20. Checkpoint 20 (unclassified): 
+21. Checkpoint 21 (unclassified): 
+22. Checkpoint 22 (unclassified): 
+23. Checkpoint 23 (unclassified): 
+24. Checkpoint 24 (unclassified): 
+25. Checkpoint 25 (unclassified): 
+26. Checkpoint 26 (unclassified): 
+27. Checkpoint 27 (unclassified): 
+28. Checkpoint 28 (unclassified): 
+29. Checkpoint 29 (unclassified): 
+30. Checkpoint 30 (unclassified): 
+31. Checkpoint 31 (unclassified): 
+32. Checkpoint 32 (unclassified): 
+33. Checkpoint 33 (unclassified): 
+34. Checkpoint 34 (unclassified): 
+35. Checkpoint 35 (unclassified): 
+36. Checkpoint 36 (unclassified): 
+37. Checkpoint 37 (unclassified): 
+38. Checkpoint 38 (unclassified): 
+39. Checkpoint 39 (unclassified): 
+40. Checkpoint 40 (unclassified): 
+41. Checkpoint 41 (unclassified): 
+42. Checkpoint 42 (unclassified): 
+43. Checkpoint 43 (unclassified): 
+44. Checkpoint 44 (unclassified): 
+45. Checkpoint 45 (unclassified): 
+46. Checkpoint 46 (unclassified): 
+47. Checkpoint 47 (unclassified): 
+48. Checkpoint 48 (unclassified): 
+49. Checkpoint 49 (unclassified): 
+50. Checkpoint 50 (unclassified): 
+51. Checkpoint 51 (unclassified): 
+52. Checkpoint 52 (unclassified): 
+53. Checkpoint 53 (unclassified): 
+54. Checkpoint 54 (COUNTER / drop-off): This checkpoint is a self-checkout station: a kiosk with a screen displaying a "Welcome to Self Checkout!" prompt and green "Start" button, a barcode scanner unit, and a flat bagging/tray surface, positioned against a plain wall corner.
+
+**Connectivity** (which checkpoints link to which - use for rough routing):
+- Checkpoint 15 connects to: 16, 0
+- Checkpoint 16 connects to: 15, 1
+- Checkpoint 17 connects to: 0, 10, 18
+- Checkpoint 18 connects to: 0, 10, 17
+- Checkpoint 19 connects to: 20, 0
+- Checkpoint 20 connects to: 19, 8, 21
+- Checkpoint 21 connects to: 0, 8, 20
+- Checkpoint 22 connects to: 23, 2
+- Checkpoint 23 connects to: 22, 24, 25
+- Checkpoint 24 connects to: 23, 7
+- Checkpoint 25 connects to: 2, 7, 23
+- Checkpoint 26 connects to: 27, 2, 30
+- Checkpoint 27 connects to: 26, 5, 31
+- Checkpoint 28 connects to: 29, 2
+- Checkpoint 29 connects to: 28, 30
+- Checkpoint 30 connects to: 29, 31, 26
+- Checkpoint 31 connects to: 30, 5, 27
+- Checkpoint 32 connects to: 3, 6, 54
+- Checkpoint 33 connects to: 34, 4, 37
+- Checkpoint 34 connects to: 33, 35, 38
+- Checkpoint 35 connects to: 34, 7, 39
+- Checkpoint 36 connects to: 37, 4
+- Checkpoint 37 connects to: 36, 38, 33
+- Checkpoint 38 connects to: 37, 39, 34
+- Checkpoint 39 connects to: 38, 40, 35
+- Checkpoint 40 connects to: 39, 41
+- Checkpoint 41 connects to: 40, 7
+- Checkpoint 42 connects to: 5, 8, 43
+- Checkpoint 43 connects to: 44, 5, 42
+- Checkpoint 44 connects to: 43, 8
+- Checkpoint 45 connects to: 6, 9
+- Checkpoint 46 connects to: 47, 7, 49
+- Checkpoint 47 connects to: 46, 48, 50
+- Checkpoint 48 connects to: 47, 9, 51
+- Checkpoint 49 connects to: 50, 7, 46
+- Checkpoint 50 connects to: 49, 51, 47
+- Checkpoint 51 connects to: 50, 9, 48
+- Checkpoint 52 connects to: 53, 9
+- Checkpoint 53 connects to: 52, 10
+- Checkpoint 54 connects to: 32
+
+**Fast Tracking** (use this to guide you quickly to the target object):
+- Checkpoint 15 (?) has the target position -> translation: (-4.35, 1.36, 4.55), rotation: (0.0, 11.3, 0.0)
+- Checkpoint 16 (?) has the target position -> translation: (-4.85, 1.36, 4.55), rotation: (0.0, 16.7, 0.0)
+- Checkpoint 17 (?) has the target position -> translation: (-3.05, 1.36, 2.65), rotation: (0.0, 90.0, 0.0)
+- Checkpoint 18 (?) has the target position -> translation: (-4.55, 1.36, 2.65), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 19 (?) has the target position -> translation: (-3.75, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
+- Checkpoint 20 (?) has the target position -> translation: (-2.45, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
+- Checkpoint 21 (?) has the target position -> translation: (-2.25, 1.36, 3.85), rotation: (0.0, 168.7, 0.0)
+- Checkpoint 22 (?) has the target position -> translation: (4.95, 1.36, 3.95), rotation: (0.0, 90.0, 0.0)
+- Checkpoint 23 (?) has the target position -> translation: (4.95, 1.36, 2.15), rotation: (0.0, 90.0, 0.0)
+- Checkpoint 24 (?) has the target position -> translation: (4.95, 1.36, 0.35), rotation: (0.0, 90.0, 0.0)
+- Checkpoint 25 (?) has the target position -> translation: (3.05, 1.36, 2.15), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 26 (?) has the target position -> translation: (0.75, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 27 (?) has the target position -> translation: (-0.65, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 28 (?) has the target position -> translation: (3.55, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 29 (?) has the target position -> translation: (2.15, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 30 (?) has the target position -> translation: (0.75, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 31 (?) has the target position -> translation: (-0.65, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 32 (?) has the target position -> translation: (-4.55, 1.36, -2.55), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 33 (?) has the target position -> translation: (-1.55, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 34 (?) has the target position -> translation: (0.25, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 35 (?) has the target position -> translation: (2.05, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 36 (?) has the target position -> translation: (-3.25, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 37 (?) has the target position -> translation: (-1.55, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 38 (?) has the target position -> translation: (0.25, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 39 (?) has the target position -> translation: (2.05, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 40 (?) has the target position -> translation: (3.75, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 41 (?) has the target position -> translation: (4.95, 1.36, 0.15), rotation: (0.0, 95.7, 0.0)
+- Checkpoint 42 (?) has the target position -> translation: (-0.85, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 43 (?) has the target position -> translation: (-0.85, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 44 (?) has the target position -> translation: (-2.15, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 45 (?) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 275.7, 0.0)
+- Checkpoint 46 (?) has the target position -> translation: (1.95, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 47 (?) has the target position -> translation: (0.05, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 48 (?) has the target position -> translation: (-1.75, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 49 (?) has the target position -> translation: (1.95, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 50 (?) has the target position -> translation: (0.05, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 51 (?) has the target position -> translation: (-1.75, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 52 (?) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 264.3, 0.0)
+- Checkpoint 53 (?) has the target position -> translation: (-4.65, 1.36, 1.15), rotation: (0.0, 264.3, 0.0)
+- Checkpoint 54 (counter) has the target position -> translation: (-4.45, 1.36, -3.55), rotation: (0.0, 212.0, 0.0)
+
+@ leg 1 step 1: The Jin Ramen packages are located on the shelves to the immediate left of the agent's starting position, specifically on the middle and lower shelves. The agent is currently facing down an aisle towards refrigerated units (Aisle 3), with the target items off to the left.
+@ leg 1 step 2: The Jin Ramen packages are stocked on the middle and lower shelves of the aisle rack to the agent's left. The agent is currently standing near Checkpoint 54 (self-checkout) and has successfully centered a Jin Ramen package on the screen.
+@ leg 1 step 3: The Jin Ramen packages are located on the middle and lower shelves of the aisle rack to the left. The agent is currently at Checkpoint 54 (self-checkout area) and needs to move closer to the shelves to reach the items.
+@ leg 1 step 4: The Jin Ramen packages are stocked on the middle and lower shelves of the aisle rack to the left. The agent is currently at Checkpoint 32 (near self-checkout area) and has successfully centered a Jin Ramen package on the screen after moving closer.
+@ leg 1 step 5: The Jin Ramen packages are located on the lower and middle shelves of the aisle rack near Checkpoint 32. The agent is currently positioned in front of the shelf but is too far away to reach the items (slant distance 1.34 m).
+@ leg 1 step 6: The Jin Ramen packages are located on the middle shelf of the aisle rack near Checkpoint 32. The agent has successfully centered the target and is now positioned to attempt a grab.
+@ leg 1 step 7: The Jin Ramen Mild 120g packages are successfully located on the middle shelf near Checkpoint 32. The agent has gripped the item in the left hand.
+@ leg 2 step 1: The self-checkout counter (Checkpoint 54) is located near the end of the aisle, adjacent to the refrigerated units. It features a scanner and a bagging area. The agent is currently holding the Jin Ramen and needs to navigate to this counter to complete the checkout.
+@ leg 2 step 2: The self-checkout counter (Checkpoint 54) is located in the open area to the right of the noodle aisle, near the refrigerated units. When exiting the aisle to reach the counter, the agent must turn right to avoid colliding with the shelving unit.
+@ leg 2 step 3: The self-checkout counter (Checkpoint 54) is located in the open area to the right of the noodle aisle, near the refrigerated units. When exiting the aisle to reach the counter, the agent must turn right to avoid colliding with the shelving unit.
+@ leg 2 step 4: The self-checkout kiosk at Checkpoint 54 requires the agent to be in manipulation mode to execute the `checkout_held_item` action. The scanner and bagging area are positioned directly in front of the agent when facing the counter.

@@ -126,7 +126,7 @@ This semantic memory outlines the store's environment, rendered from the annotat
 - Checkpoint 53 (?) has the target position -> translation: (-4.65, 1.36, 1.15), rotation: (0.0, 264.3, 0.0)
 - Checkpoint 54 (counter) has the target position -> translation: (-4.45, 1.36, -3.55), rotation: (0.0, 212.0, 0.0)
 
-@ timestep 1: Champorado is a chocolate rice drink typically found in the canned goods or beverages section. I am currently at Checkpoint 36, facing the back wall of the store. Aisle 3 (Water/Soda, Dairies, Soup) is visible ahead, and Aisle 2 (Noodles, Chips) is to my left.
-@ timestep 2: Champorado (White King brand) is located on the middle shelf of the aisle at Checkpoint 30, positioned between Soup & Go boxes. The item is clearly visible and accessible from this standing position.
-@ timestep 3: Champorado (White King brand) is located on the middle shelf of the aisle at Checkpoint 30, positioned between Soup & Go boxes. The item is clearly visible and accessible from this standing position.
-@ timestep 4: The White King Champorado box is confirmed to be on the middle shelf of the aisle at Checkpoint 30, situated between Ajinomoto Soup & Go boxes. The item is clearly visible and accessible from this standing position.
+@ timestep 1: Champ-o-Rado is a snack product located on the shelves in the 'Chips / Canned Food' aisle (Aisle 3). The store layout includes aisles for noodles on the left and canned goods on the right, with refrigerated units at the back.
+@ timestep 2: The Champ-o-Rado boxes are yellow with a black bowl image, located on the middle and top shelves of the aisle. The agent is currently standing at Checkpoint 30, directly facing the shelf with the target item.
+@ timestep 3: The Champ-o-Rado boxes are yellow with a black bowl image, located on the middle and top shelves of the aisle. The agent is currently standing at Checkpoint 30, directly facing the shelf with the target item.
+@ timestep 4: The Champ-o-Rado box is a yellow package with a black bowl image, located on the middle shelf of the aisle at Checkpoint 30. The agent is currently standing directly in front of the shelf, having successfully centered the target item on screen.

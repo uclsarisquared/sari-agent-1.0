@@ -16,22 +16,22 @@ graph where each shelf node knows what products are on it. Run everything from `
 
 ```bash
 # 1. Map the store 🎮  — LiDAR frontier exploration → occupancy grid + topology graph
-python slamtest/explore.py
+python slamtest/drivers/explore.py
 
 # 2. Shelf graph (offline) — thin the grid to a skeleton, add shelf/landmark checkpoints
-python slamtest/build_shelf_graph.py slamtest/output
+python slamtest/graph/build_shelf_graph.py slamtest/output
 
 # 3. Reachability audit (offline) — flag checkpoints an agent can't actually stand at
-python slamtest/audit_standability.py slamtest/output --topology-tag final_shelf
+python slamtest/graph/audit_standability.py slamtest/output --topology-tag final_shelf
 
 # 4. Capture 🎮 — drive to every checkpoint, save one PNG per view
-python slamtest/capture_walk.py slamtest/output --limit 0 --angles 2
+python slamtest/capture/capture_walk.py slamtest/output --limit 0 --angles 2
 
 # 5. Annotate (offline) — VLM reads each capture → durable, queryable map
-python slamtest/annotate_pass.py slamtest/output
+python slamtest/annotate/annotate_pass.py slamtest/output
 
 # 5b. (optional, offline) — snap product names to canonical Unity catalog SKUs
-python slamtest/reconcile_products.py
+python slamtest/scoring/reconcile_products.py
 ```
 
 | # | Stage | Sim? | Produces (in `slamtest/output/`) |
@@ -58,12 +58,12 @@ existing capture and annotation keyed to the old IDs. Two ways to go from scratc
 every downstream stage at it:
 
 ```bash
-python slamtest/explore.py            --output-dir slamtest/output_runs/mymap
-python slamtest/build_shelf_graph.py  slamtest/output_runs/mymap
-python slamtest/audit_standability.py slamtest/output_runs/mymap --topology-tag final_shelf
-python slamtest/capture_walk.py       slamtest/output_runs/mymap --limit 0 --angles 2
-python slamtest/annotate_pass.py      slamtest/output_runs/mymap
-python slamtest/reconcile_products.py --output-dir slamtest/output_runs/mymap   # optional
+python slamtest/drivers/explore.py            --output-dir slamtest/output_runs/mymap
+python slamtest/graph/build_shelf_graph.py  slamtest/output_runs/mymap
+python slamtest/graph/audit_standability.py slamtest/output_runs/mymap --topology-tag final_shelf
+python slamtest/capture/capture_walk.py       slamtest/output_runs/mymap --limit 0 --angles 2
+python slamtest/annotate/annotate_pass.py      slamtest/output_runs/mymap
+python slamtest/scoring/reconcile_products.py --output-dir slamtest/output_runs/mymap   # optional
 ```
 
 **B — replace the frozen baseline in place.** Just run the commands in [The order](#the-order). This
@@ -97,7 +97,7 @@ A good `grid_final.png` has **no grey holes** in the store interior — if it do
 
 ## One-window alternative
 
-`python slamtest/pipeline_app.py` runs stages 1→5 from a single Tkinter window (subprocesses of the
+`python slamtest/app/pipeline_app.py` runs stages 1→5 from a single Tkinter window (subprocesses of the
 same CLIs, so no defaults drift). It protects the frozen baseline and shows the map building live.
 
 ## Deeper docs

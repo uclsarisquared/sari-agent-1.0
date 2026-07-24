@@ -28,14 +28,34 @@ Run from `overhaul/`. 🎮 = needs the sim in Play mode; the rest are offline.
 
 | # | Phase | Command | Produces |
 |---|---|---|---|
-| 1 | Map 🎮 | `python slamtest/explore.py` | `grid_final.npy/.png`, `topology_final.json` |
-| 2 | Shelf graph | `python slamtest/build_shelf_graph.py slamtest/output` | `topology_final_shelf.json` + graph PNG |
-| 3 | Reachability | `python slamtest/audit_standability.py slamtest/output --topology-tag final_shelf` | prints |
-| 4 | Capture 🎮 | `python slamtest/capture_walk.py slamtest/output --limit 0 --angles 2` | `output/captures/cp<id>_primary.png`, `_crouch.png` |
-| 5 | Annotate | `python slamtest/annotate_pass.py slamtest/output` | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
+| 1 | Map 🎮 | `python slamtest/drivers/explore.py` | `grid_final.npy/.png`, `topology_final.json` |
+| 2 | Shelf graph | `python slamtest/graph/build_shelf_graph.py slamtest/output` | `topology_final_shelf.json` + graph PNG |
+| 3 | Reachability | `python slamtest/graph/audit_standability.py slamtest/output --topology-tag final_shelf` | prints |
+| 4 | Capture 🎮 | `python slamtest/capture/capture_walk.py slamtest/output --limit 0 --angles 2` | `output/captures/cp<id>_primary.png`, `_crouch.png` |
+| 5 | Annotate | `python slamtest/annotate/annotate_pass.py slamtest/output` | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
 
 Step 5 is **offline over saved PNGs** — prompts and models can be iterated freely without re-driving
 the sim. Prefer that over re-capturing.
+
+## Layout (reorganized 2026-07-24 — see README.md for the full map)
+
+The runtime is split into component packages with package-qualified imports: `sim/` (env,
+hand_reset, chime), `agent_core/` (agent, sys_inst, memory, memory_gen), `toolset/` (actions,
+actions_str — everything that defines the agent's action/tool vocabulary),
+`vision/` (perception, md_tools, annotation_tools), `manip/` (manipulation), `nav/` (store_map,
+locate_task), `orchestrator/` (subtask_agents — the CURRENT entry — plus subtask_planning,
+subtask_completion), `evals/` (eval_pickup, env_simulation). The agent runs as
+`python orchestrator/subtask_agents.py "<task>"`. slamtest keeps FLAT imports
+(`from capture_walk import ...`) even though its files live in category subfolders — importing
+`slamtest/_bootstrap.py` puts the category dirs on `sys.path` (overhaul consumers get it via
+`nav.store_map`); slamtest scripts import `sim.env` / `nav.store_map` back. `plan6/` was dissolved
+2026-07-24 (its tests → `tests/`, probes → `probes/`, outputs → `slamtest/output/`;
+CHECKLIST.md deleted on user request, in git history). Leaf scripts nothing imports live in `tests/` (offline),
+`probes/` (🎮 calibration + fitters), `gates/` (🎮 gates/smokes), `tools/`, `deprecated/` — each
+carries a two-line `sys.path` shim pointing at the overhaul root. New code follows the same rules:
+runtime → the matching package, package-qualified imports; leaf scripts → the matching folder,
+with the shim. `episodic_memory.txt` / `semantic_memory.txt` stay at the root (written
+CWD-relative by `agent_core.agent`; run everything from `overhaul/`).
 
 ## Standing constraints — ask before violating
 
@@ -80,9 +100,9 @@ worked:
 ## Read before touching
 
 - **Annotator prompts** → the `MEASURED - DO NOT RE-ATTEMPT` block at the top of
-  `slamtest/annotator_sys_inst.py`. It records what was tried, what it cost, and why the current
+  `slamtest/annotate/annotator_sys_inst.py`. It records what was tried, what it cost, and why the current
   wording is what it is. Several intuitive "improvements" are documented there as *failures*.
-- **Node spacing / reading distance** → the constants in `slamtest/shelf_coverage.py`; each carries
+- **Node spacing / reading distance** → the constants in `slamtest/graph/shelf_coverage.py`; each carries
   its measured history and the trap that bites when tuning it.
 - **Phase design** → `slamtest/plans/phase*.md`.
 

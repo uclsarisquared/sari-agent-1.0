@@ -32,10 +32,10 @@ Run anything through `uv run`, which activates the environment for you:
 
 ```bash
 cd overhaul
-uv run python subagent_run.py "your task"
+uv run python orchestrator/subtask_agents.py "your task"
 ```
 
-Note that the entrypoint is `overhaul/subagent_run.py`, **not** the root `run.py` — see
+Note that the entrypoint is `overhaul/orchestrator/subtask_agents.py`, **not** the legacy `run.py` — see
 [Running the agent](#running-the-agent).
 
 Optional extra — PaddleOCR is lazy-imported inside `perception._get_ocr()`, so the agent runs
@@ -115,13 +115,14 @@ credits — different accounts. Don't switch silently.
 
 ## Running the agent
 
-There are two stacks in this repo. **Only the `overhaul/` one is live**; the root `run.py` /
-`server.py` pair is deprecated and receives no further development.
+There are two stacks in this repo. **Only the `overhaul/` one is live**; the `legacy/` stack
+(`run.py` / `server.py`, formerly at the repo root) is deprecated and receives no further
+development.
 
 | | Entrypoint | Status |
 |---|---|---|
-| **Current agent** (map-based) | `cd overhaul && uv run python subagent_run.py "<task>"` | Live — all development happens here |
-| **Legacy agent** (open-ended VLM) | `uv run python server.py inf_base` + `uv run python run.py "<task>"` | **Deprecated**, kept for reference only |
+| **Current agent** (map-based) | `cd overhaul && uv run python orchestrator/subtask_agents.py "<task>"` | Live — all development happens here |
+| **Legacy agent** (open-ended VLM) | `uv run python legacy/server.py inf_base` + `uv run python legacy/run.py "<task>"` | **Deprecated**, kept for reference only |
 
 ### Current agent
 
@@ -131,12 +132,13 @@ the mapping pipeline first.
 
 ```bash
 cd overhaul
-uv run python subagent_run.py "find and pick up Pepero"
+uv run python orchestrator/subtask_agents.py "find and pick up Pepero"
 ```
 
-`subagent_run.py` is the orchestrator: it decomposes the task into subtasks, runs each through an
-agent instance, judges completion, retries failures with context, and generates a handoff summary
-between subtasks. No separate server process is needed — it calls the UCL server directly.
+`subtask_agents.py` is the orchestrator: it decomposes the task into typed subtasks (legs), runs
+each through an agent instance, judges completion, retries failed legs with the failure reason in
+context, and hands off state between legs. No separate server process is needed — it calls the UCL
+server directly. (Its OpenRouter-era ancestor `subagent_run.py` is kept in `overhaul/deprecated/`.)
 
 Before a run, sanity-check that the map artifacts are present:
 
@@ -144,10 +146,10 @@ Before a run, sanity-check that the map artifacts are present:
 ls overhaul/slamtest/output
 ```
 
-### Legacy root stack — deprecated
+### Legacy stack (`legacy/`) — deprecated
 
-**`run.py` at the repo root does *not* run the current agent.** It is the original two-process
-setup: `run.py` polls the sim and POSTs to `server.py` (LitServe on `:8005`), which asks a VLM for
+**`legacy/run.py` does *not* run the current agent.** It is the original two-process setup:
+`run.py` polls the sim and POSTs to `server.py` (LitServe on `:8005`), which asks a VLM for
 raw `MOVE_FWD` / `PAN_LEFT` / `GRIP_*` actions with durations. It has no map, no checkpoint graph
 and no A* — it is precisely the open-ended VLM navigation the overhaul replaced.
 
@@ -155,8 +157,8 @@ It is also likely non-functional: `server.py` calls OpenRouter, which is retired
 Kept for reference and comparison only; do not build on it.
 
 ```bash
-uv run python server.py inf_base      # LitServe on :8005 (or inf_super)
-uv run python run.py "your task"      # polls the sim, posts to /predict
+uv run python legacy/server.py inf_base      # LitServe on :8005 (or inf_super)
+uv run python legacy/run.py "your task"      # polls the sim, posts to /predict
 ```
 
 ---
@@ -201,12 +203,14 @@ Other standing constraints:
 
 | Path | What |
 |---|---|
-| `overhaul/` | Current agent stack. Start at `subagent_run.py` → `subtask_agents.py` → `agent.py`. |
+| `overhaul/` | Current agent stack. Start at `orchestrator/subtask_agents.py` → `agent_core/agent.py`. See `overhaul/README.md` for its internal layout (component packages `sim/`, `agent_core/`, `toolset/`, `vision/`, `manip/`, `nav/`, `orchestrator/`, `evals/`, plus `tests/`, `probes/`, `gates/`, `tools/`, `deprecated/`). |
 | `overhaul/slamtest/` | Mapping + annotation pipeline (LiDAR, occupancy grid, topology, capture, annotate). |
-| `overhaul/env.py`, `actions.py` | Unity WebSocket bridge and the action vocabulary. |
+| `overhaul/sim/env.py`, `overhaul/toolset/` | Unity WebSocket bridge and the action vocabulary. |
 | `overhaul/CLAUDE.md` | **Design rationale, measured findings, and open threads. Read before changing anything.** |
-| `run.py`, `server.py`, `openrouter.py` | **Deprecated** legacy root stack — open-ended VLM, no map. Not the current agent. |
-| `chime.py`, `overhaul/chime.py` | Cross-platform completion beep. Duplicated on purpose — both stacks define their own `env.py`/`actions.py`, so sharing one copy via `sys.path` would shadow `overhaul`'s modules with the root's. |
+| `legacy/` | **Deprecated** v1 stack (`run.py`, `server.py`, `openrouter.py`, its own `env.py`/`actions.py`) — open-ended VLM, no map. Not the current agent. |
+| `experiments/` | Dormant explorations: the SariVoxeLLMap/Depth-Anything heightmap plan (`VMap_Plan.md`) and monocular-depth tests (May 2026). Superseded in practice by slamtest's LiDAR mapping. |
+| `docs/` | The SARI paper PDF and historical sketches. |
+| `legacy/chime.py`, `overhaul/chime.py` | Cross-platform completion beep. Duplicated on purpose — both stacks define their own `env.py`/`actions.py`, so sharing one copy via `sys.path` would shadow `overhaul`'s modules with the legacy stack's. |
 | `pyproject.toml` | Dependency source of truth (uv). The `requirements.txt` files are legacy freezes. |
 
 ## Working conventions

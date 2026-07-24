@@ -40,10 +40,13 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)
-FROZEN_OUTPUT_DIR = os.path.join(_THIS_DIR, "output")
-DEFAULT_RUN_ROOT = os.path.join(_THIS_DIR, "output_runs")
+_SLAM_DIR = os.path.dirname(os.path.abspath(__file__))        # slamtest
+if _SLAM_DIR not in sys.path:
+    sys.path.insert(0, _SLAM_DIR)
+import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
+_OVERHAUL_DIR = os.path.dirname(_SLAM_DIR)
+FROZEN_OUTPUT_DIR = os.path.join(_SLAM_DIR, "output")
+DEFAULT_RUN_ROOT = os.path.join(_SLAM_DIR, "output_runs")
 
 PLANNERS = ["astar (explore.py)", "astar (instrumented)", "vlm", "vlm-advised", "vlm-goal"]
 
@@ -178,7 +181,7 @@ class PipelineApp:
     # ------------------------------------------------------------------ dir helpers
 
     def _browse_dir(self):
-        d = filedialog.askdirectory(initialdir=os.path.dirname(self.out_dir.get()) or _THIS_DIR)
+        d = filedialog.askdirectory(initialdir=os.path.dirname(self.out_dir.get()) or _SLAM_DIR)
         if d:
             self.out_dir.set(d)
 
@@ -203,11 +206,11 @@ class PipelineApp:
         if self.stage_vars["explore"].get():
             planner = self.planner.get()
             if planner == PLANNERS[0]:
-                cmd = py + [os.path.join(_THIS_DIR, "explore.py"),
+                cmd = py + [os.path.join(_SLAM_DIR, "drivers", "explore.py"),
                             "--output-dir", out]
             else:
                 name = "astar" if planner == PLANNERS[1] else planner
-                cmd = py + [os.path.join(_THIS_DIR, "explore_vlm.py"),
+                cmd = py + [os.path.join(_SLAM_DIR, "drivers", "explore_vlm.py"),
                             "--planner", name,
                             "--output-dir", out,
                             # Pin the tag so topology lands as topology_final.json and the
@@ -219,21 +222,21 @@ class PipelineApp:
             cmds.append(("Explore", cmd))
 
         if self.stage_vars["shelf_graph"].get():
-            cmds.append(("Shelf graph", py + [os.path.join(_THIS_DIR, "build_shelf_graph.py"), out]))
+            cmds.append(("Shelf graph", py + [os.path.join(_SLAM_DIR, "graph", "build_shelf_graph.py"), out]))
 
         if self.stage_vars["audit"].get():
-            cmds.append(("Audit", py + [os.path.join(_THIS_DIR, "audit_standability.py"),
+            cmds.append(("Audit", py + [os.path.join(_SLAM_DIR, "graph", "audit_standability.py"),
                                         out, "--topology-tag", "final_shelf"]))
 
         if self.stage_vars["capture"].get():
-            cmds.append(("Capture", py + [os.path.join(_THIS_DIR, "capture_walk.py"), out,
+            cmds.append(("Capture", py + [os.path.join(_SLAM_DIR, "capture", "capture_walk.py"), out,
                                           "--limit", self.limit.get(),
                                           "--angles", self.angles.get(),
                                           "--uri", self.uri.get()]))
 
         if self.stage_vars["annotate"].get():
             backend = self.ann_backend.get()
-            ann = py + [os.path.join(_THIS_DIR, "annotate_pass.py"), out, "--backend", backend]
+            ann = py + [os.path.join(_SLAM_DIR, "annotate", "annotate_pass.py"), out, "--backend", backend]
             if backend == "claude-cli":
                 # model/effort apply to claude only; qwen uses its own default (Qwen/Qwen3.6-27B).
                 ann += ["--model", self.ann_model.get(), "--effort", self.ann_effort.get()]

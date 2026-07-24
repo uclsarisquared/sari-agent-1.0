@@ -1,4 +1,4 @@
-Pillow==11.2.1
+Pillow==10.4.0
 google-genai==1.14.0
 google-auth==2.40.1
 litserve==0.2.9
@@ -14,3 +14,4 @@ openai==1.79.0
 opencv-python
 replicate
 pynput
+moondream==0.1.0

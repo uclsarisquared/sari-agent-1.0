@@ -13,16 +13,15 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/tests
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))        # slamtest/tests
+_SLAM_DIR = os.path.dirname(_THIS_DIR)                         # slamtest
+if _SLAM_DIR not in sys.path:
+    sys.path.insert(0, _SLAM_DIR)
+import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
 
 import importlib.util  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("explore_frontier", os.path.join(_SLAMTEST_DIR, "explore.py"))
+_spec = importlib.util.spec_from_file_location("explore_frontier", os.path.join(_SLAM_DIR, "drivers", "explore.py"))
 explore = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(explore)
 

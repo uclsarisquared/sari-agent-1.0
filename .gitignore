@@ -16,3 +16,5 @@ V1
 overhaul/slamtest/output/
 overhaul/slamtest/plans/
 overhaul/subtask_run_outputs
+.DS_Store
+overhaul/depth_image.png

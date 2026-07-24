@@ -1,5 +1,5 @@
 """
-Standalone unit tests for slamtest/shelf_coverage.py - the Phase 2 shelf-hugging offset
+Standalone unit tests for slamtest/graph/shelf_coverage.py - the Phase 2 shelf-hugging offset
 primitive (find_shelf_checkpoint), the segment-sweeping composition built on top of it
 (sweep_edge_side), and the top-level graph-splicing step (splice_shelf_checkpoints). No
 live Unity/WebSocket connection needed - builds synthetic OccupancyGrid/TopologyGraph
@@ -12,12 +12,11 @@ import os
 import sys
 import unittest
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # overhaul/slamtest/tests
-_SLAMTEST_DIR = os.path.dirname(_THIS_DIR)                     # overhaul/slamtest
-_OVERHAUL_DIR = os.path.dirname(_SLAMTEST_DIR)                 # overhaul
-for _p in (_OVERHAUL_DIR, _SLAMTEST_DIR, _THIS_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))        # slamtest/tests
+_SLAM_DIR = os.path.dirname(_THIS_DIR)                         # slamtest
+if _SLAM_DIR not in sys.path:
+    sys.path.insert(0, _SLAM_DIR)
+import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
 
 from occupancy_grid import OccupancyGrid  # noqa: E402
 from frontier_planner import _inflate_occupied  # noqa: E402
