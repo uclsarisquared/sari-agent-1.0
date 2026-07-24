@@ -1,0 +1,4902 @@
+{
+  "18": {
+    "id": 18,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      19,
+      0
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.12038670000000001,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Pocari Sweat",
+          "variant": null,
+          "price": null,
+          "appearance": "tall clear bottle with blue label, blue cap",
+          "category": "Water"
+        },
+        {
+          "name": "Nature's Spring",
+          "variant": null,
+          "price": null,
+          "appearance": "clear bottle with light blue/white label, blue cap",
+          "category": "Water"
+        },
+        {
+          "name": "Wilkins Pure",
+          "variant": null,
+          "price": null,
+          "appearance": "clear bottle, white label with green/blue 'pure W' logo, blue cap",
+          "category": "Water"
+        },
+        {
+          "name": "Absolute",
+          "variant": null,
+          "price": null,
+          "appearance": "clear bottle with dark red/green label reading 'Absolute'",
+          "category": "Water"
+        },
+        {
+          "name": "Le Mineral",
+          "variant": null,
+          "price": null,
+          "appearance": "clear bottle with green/blue label reading 'Le Mineral'",
+          "category": "Water"
+        },
+        {
+          "name": "Summit",
+          "variant": null,
+          "price": null,
+          "appearance": "clear bottle with dark blue label reading 'Summit'",
+          "category": "Water"
+        },
+        {
+          "name": "Refresh",
+          "variant": null,
+          "price": null,
+          "appearance": "clear bottle with red label reading 'Refresh'",
+          "category": "Water"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a glass-doored refrigerated case stocked entirely with bottled water (Pocari Sweat, Nature's Spring, Wilkins Pure, Absolute, Le Mineral, Summit, and Refresh brands), arranged across three shelves with price tags along each shelf edge. A separate glass-doored cooler holding sodas (Coke, Sprite, Pepsi) is visible at the right edge of frame but is a different fixture.",
+      "shelf_type": [
+        "Water"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "19": {
+        "to": 19,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Water"
+        ]
+      },
+      "0": {
+        "to": 20,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "19": {
+    "id": 19,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      18,
+      1
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1687032,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a glass-door refrigerated case stocked entirely with bottled water of many brands (Nature's Spring, Pocari Sweat, Re Fresh, pure, Le Mineral, Absolute, Summit, W), arranged across four shelves with individual price tags on the shelf edges. A blank illuminated sign panel sits above the case but shows no text.",
+      "shelf_type": [
+        "Water"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "Nature's Spring",
+          "category": "Water",
+          "variant": null,
+          "price": "18.00",
+          "appearance": "clear plastic bottle, blue label with wave logo, blue cap"
+        },
+        {
+          "name": "Pocari Sweat",
+          "category": "Water",
+          "variant": null,
+          "price": "49.00",
+          "appearance": "clear bottle with blue/navy label"
+        },
+        {
+          "name": "Re Fresh",
+          "category": "Water",
+          "variant": null,
+          "price": "8.00",
+          "appearance": "clear bottle, red/pink label"
+        },
+        {
+          "name": "pure",
+          "category": "Water",
+          "variant": null,
+          "price": "29.00",
+          "appearance": "clear bottle with green rounded label reading 'pure', blue cap"
+        },
+        {
+          "name": "Le Mineral",
+          "category": "Water",
+          "variant": null,
+          "price": "17.00",
+          "appearance": "clear bottle, teal/green label"
+        },
+        {
+          "name": "Absolute",
+          "category": "Water",
+          "variant": null,
+          "price": "21.00",
+          "appearance": "clear bottle, green label"
+        },
+        {
+          "name": "Summit",
+          "category": "Water",
+          "variant": null,
+          "price": "11.00",
+          "appearance": "clear bottle, blue label"
+        },
+        {
+          "name": "W",
+          "category": "Water",
+          "variant": null,
+          "price": "18.00",
+          "appearance": "clear bottle, dark navy label with large white 'W' letter"
+        }
+      ]
+    },
+    "route_hints": {
+      "18": {
+        "to": 18,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Water"
+        ]
+      },
+      "1": null
+    }
+  },
+  "20": {
+    "id": 20,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      0,
+      10,
+      21
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.13934439999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a double-sided center end-cap fixture: the right face holds stacked canned goods (sardines, corn, and similar canned items) while the left face holds hanging bagged snack items. A wall clock and a partially visible overhead sign reading 'Canne...' (likely Canned Goods) are visible, with additional soup/noodle shelving visible at the edges of view to either side.",
+      "shelf_type": [
+        "Can",
+        "Chips"
+      ],
+      "sign_text": "Canne",
+      "items": [
+        {
+          "name": "Sardines",
+          "variant": null,
+          "price": null,
+          "appearance": "red and yellow label canned good, cylindrical can, text partially reading 'DINES', stacked in rows",
+          "category": "Can"
+        }
+      ]
+    },
+    "route_hints": {
+      "0": {
+        "to": 18,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Water"
+        ]
+      },
+      "10": {
+        "to": 21,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      },
+      "21": {
+        "to": 21,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      }
+    }
+  },
+  "21": {
+    "id": 21,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      0,
+      10,
+      20
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.12563219999999997,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Lucky Me! Pancit Canton Chilimansi",
+          "variant": "Chilimansi",
+          "price": "14.00",
+          "appearance": "green pouch with red Lucky Me logo and photo of noodles",
+          "category": "Noodles"
+        },
+        {
+          "name": "Ottogi Jin Ramen Mild",
+          "variant": "Mild",
+          "price": "64.05",
+          "appearance": "yellow-topped pouch with blue 'Jin Ramen' text and bowl photo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Indomie Mi Goreng",
+          "variant": "Goreng",
+          "price": "18.02",
+          "appearance": "red and white pouch with fried noodle photo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Chippy Potato Chips Spicy BBQ Flavor",
+          "variant": "Spicy BBQ",
+          "price": "99.00",
+          "appearance": "orange bag, 'Potato Chips' text with red flame graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Vcut Potato Chips",
+          "variant": "original/red",
+          "price": "16.02",
+          "appearance": "red bag with 'Vcut' logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Vcut Potato Chips Cheese",
+          "variant": "Cheese",
+          "price": "16.10",
+          "appearance": "blue bag with 'Vcut' logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Leslie's Clover Chips Cheesier",
+          "variant": "Cheesier",
+          "price": "32.05",
+          "appearance": "white and blue bag with clover shaped chip graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Kangkong King Water Spinach Chips Original",
+          "variant": "Original",
+          "price": "149.00",
+          "appearance": "green box with cartoon king character and vegetable graphics",
+          "category": "Chips"
+        },
+        {
+          "name": "Criss Cross Spicy Cheese",
+          "variant": "Spicy Cheese",
+          "price": "6.00",
+          "appearance": "orange/red bag with 'Criss Cross' crinkle chip graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Pik-Nik Cheddar Cheese Shoestring Fries",
+          "variant": "Cheddar Cheese",
+          "price": "169.02",
+          "appearance": "red cylindrical can with 'Pik-Nik' logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Gaya Pretzel Twists",
+          "variant": null,
+          "price": "9.06",
+          "appearance": "purple bag with pretzel graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": null,
+          "price": "6.00",
+          "appearance": "red/orange bag with 'Criss Cross' logo, ridged chip graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Moby Caramel Puffs",
+          "variant": "Caramel",
+          "price": "14.09",
+          "appearance": "yellow bag with spider cartoon and 'Moby' text",
+          "category": "Chips"
+        },
+        {
+          "name": "Tostitos Original Restaurant Style",
+          "variant": "Original Restaurant Style",
+          "price": "182.02",
+          "appearance": "large blue bag with tortilla chip photo and 'Tostitos' logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Loaded!",
+          "variant": null,
+          "price": "7.06",
+          "appearance": "yellow bag with red 'Loaded!' text",
+          "category": "Chips"
+        },
+        {
+          "name": "Calbee Cheddar & Sour Cream",
+          "variant": "Cheddar & Sour Cream",
+          "price": "124.07",
+          "appearance": "orange bag with 'Calbee' logo",
+          "category": "Chips"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a snack shelf stocked mainly with potato and corn chip bags (Vcut, Criss Cross, Clover Chips, Tostitos, Calbee, Pik-Nik) on the lower two shelves, with instant noodle pouches and cup noodles (Jin Ramen, Lucky Me! Pancit Canton, Indomie) along the top shelf. No aisle signage or other navigational landmarks are visible from this spot.",
+      "shelf_type": [
+        "Chips",
+        "Noodles"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "0": {
+        "to": 18,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Water"
+        ]
+      },
+      "10": {
+        "to": 20,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "20": {
+        "to": 20,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "22": {
+    "id": 22,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      23,
+      0
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.10446719999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Nature's Spring",
+          "variant": null,
+          "price": "49.00",
+          "appearance": "clear bottled water, blue label with mountain graphic",
+          "category": "Water"
+        },
+        {
+          "name": "Nature Fresh",
+          "variant": null,
+          "price": "18.00",
+          "appearance": "clear bottled water, red/white label",
+          "category": "Water"
+        },
+        {
+          "name": "Absolute Pure Water",
+          "variant": null,
+          "price": "29.00",
+          "appearance": "clear bottle, blue cap, 'Pure W' label",
+          "category": "Water"
+        },
+        {
+          "name": "Wilkins",
+          "variant": "Distilled Water",
+          "price": "18.00",
+          "appearance": "clear bottle, blue cap, white 'W' logo label",
+          "category": "Water"
+        },
+        {
+          "name": "Summit",
+          "variant": null,
+          "price": "18.00",
+          "appearance": "clear bottled water, blue cap, blue/white label",
+          "category": "Water"
+        },
+        {
+          "name": "Coca-Cola",
+          "variant": null,
+          "price": "22.00",
+          "appearance": "red label plastic bottle, classic Coca-Cola script logo",
+          "category": "Soda"
+        },
+        {
+          "name": "Sprite",
+          "variant": null,
+          "price": "30.00",
+          "appearance": "clear/green bottle, green and yellow label",
+          "category": "Soda"
+        },
+        {
+          "name": "Pepsi",
+          "variant": null,
+          "price": "33.00",
+          "appearance": "blue and red bottle with Pepsi globe logo",
+          "category": "Soda"
+        },
+        {
+          "name": "Mountain Dew",
+          "variant": null,
+          "price": null,
+          "appearance": "green bottle, yellow/green Mountain Dew label",
+          "category": "Soda"
+        },
+        {
+          "name": "Royal",
+          "variant": null,
+          "price": null,
+          "appearance": "orange label bottle, 'Royal' brand",
+          "category": "Soda"
+        },
+        {
+          "name": "Dalandan",
+          "variant": null,
+          "price": "41.00",
+          "appearance": "orange juice bottle labeled Dalandan",
+          "category": "Juice"
+        },
+        {
+          "name": "Cobra",
+          "variant": "Energy Drink",
+          "price": "22.00",
+          "appearance": "tall dark bottle with Cobra snake logo",
+          "category": "Soda"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces two glass-door refrigerated cases side by side: the left case is stocked with bottled water (Nature's Spring, Pure W, Wilkins, Summit, Nature Fresh) across multiple shelves, while the right case holds sodas and juices (Coca-Cola, Sprite, Pepsi, Mountain Dew, Royal, Dalandan, Cobra energy drink). Both units have price tags along each shelf edge and a blank sign panel above the left case.",
+      "shelf_type": [
+        "Water",
+        "Soda"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "23": {
+        "to": 23,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soda",
+          "Water"
+        ]
+      },
+      "0": {
+        "to": 18,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Water"
+        ]
+      }
+    }
+  },
+  "23": {
+    "id": 23,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      22,
+      9,
+      24
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.11432819999999999,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Coca-Cola",
+          "variant": null,
+          "price": null,
+          "appearance": "clear glass bottle, red cursive Coca-Cola logo",
+          "category": "Soda"
+        },
+        {
+          "name": "Sprite",
+          "variant": null,
+          "price": null,
+          "appearance": "green bottle with green/white Sprite label",
+          "category": "Soda"
+        },
+        {
+          "name": "RC Cola",
+          "variant": null,
+          "price": "38.00",
+          "appearance": "blue and white bottle with RC logo",
+          "category": "Soda"
+        },
+        {
+          "name": "Royal",
+          "variant": null,
+          "price": "33.00",
+          "appearance": "red-capped bottle with white 'Royal' text",
+          "category": "Soda"
+        },
+        {
+          "name": "Pepsi",
+          "variant": null,
+          "price": null,
+          "appearance": "blue bottle with red/blue Pepsi globe logo",
+          "category": "Soda"
+        },
+        {
+          "name": "Cobra",
+          "variant": null,
+          "price": null,
+          "appearance": "dark bottle with red/black label reading 'Cobra'",
+          "category": "Soda"
+        },
+        {
+          "name": "Milkis",
+          "variant": null,
+          "price": null,
+          "appearance": "white bottle with blue 'Milkis' lettering and blue cap",
+          "category": "Soda"
+        },
+        {
+          "name": "Wilkins",
+          "variant": null,
+          "price": null,
+          "appearance": "clear bottle with blue cap and 'Wilkins' label",
+          "category": "Water"
+        },
+        {
+          "name": "Oatside",
+          "variant": null,
+          "price": "169.00",
+          "appearance": "black carton with white 'OATSIDE' text",
+          "category": "Dairies"
+        },
+        {
+          "name": "Daily Quezo",
+          "variant": null,
+          "price": null,
+          "appearance": "orange/yellow carton with 'Daily Quezo' branding",
+          "category": "Dairies"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a row of glass-door refrigerated beverage cases stocked with bottled sodas (Coca-Cola, Sprite, RC Cola, Royal, Pepsi, Cobra, Milkis) and bottled water, with a neighboring cooler visible at the edge holding cartons of plant milk (Oatside) and dairy drinks (Daily Quezo). A tan wall section separates this fridge run from the adjacent cooler.",
+      "shelf_type": [
+        "Soda",
+        "Water"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "22": {
+        "to": 22,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Water",
+          "Soda"
+        ]
+      },
+      "9": {
+        "to": 24,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips"
+        ]
+      },
+      "24": {
+        "to": 24,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips"
+        ]
+      }
+    }
+  },
+  "24": {
+    "id": 24,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      0,
+      9,
+      23
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.12183719999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Oishi Prawn Crackers",
+          "variant": null,
+          "price": "16",
+          "appearance": "red and white striped bag with prawn imagery",
+          "category": "Chips"
+        },
+        {
+          "name": "Lesli's Clover Chips",
+          "variant": null,
+          "price": "27",
+          "appearance": "white bag with green clover chips logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Oishi Corn Chips Nacho Crispies BBQ",
+          "variant": "BBQ",
+          "price": "39",
+          "appearance": "yellow bag with brown BBQ chip graphic, red text 'Nacho Crispies BBQ'",
+          "category": "Chips"
+        },
+        {
+          "name": "Jack 'n Jill Pic-A BBQ Overload",
+          "variant": "BBQ Overload",
+          "price": "55",
+          "appearance": "red bag with large yellow 'Pic-A' logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Ding Dong Cheese Ring",
+          "variant": "Cheese",
+          "price": "55",
+          "appearance": "blue bag with ring-shaped snack graphic labeled 'Cheese Ring'",
+          "category": "Chips"
+        },
+        {
+          "name": "McNik Potato Fries",
+          "variant": null,
+          "price": "169",
+          "appearance": "red cylindrical canister labeled 'Potato Fries'",
+          "category": "Chips"
+        },
+        {
+          "name": "Pringles",
+          "variant": null,
+          "price": "119",
+          "appearance": "red cylindrical can with Pringles branding",
+          "category": "Chips"
+        },
+        {
+          "name": "Calbee Cheddar & Sour Cream",
+          "variant": "Cheddar & Sour Cream",
+          "price": "124",
+          "appearance": "tall canister, white/orange label reading 'Cheddar & Sour Cream'",
+          "category": "Chips"
+        },
+        {
+          "name": "Clover Chips Cheesier",
+          "variant": "Cheesier",
+          "price": "32",
+          "appearance": "white bag with yellow cheese-flavored chip graphic labeled 'Cheesier'",
+          "category": "Chips"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a tall shelf stocked entirely with bagged and canned chip snacks (Nik, Lesli's, Oishi, Jack 'n Jill, Pringles, Calbee, and others), with dense rows of variously flavored chip bags from top to bottom. Overhead hanging signs read 'Chips / Canned Food' and 'Noodles / Chips', and a self-checkout kiosk with a counter is visible in the open area ahead, alongside another chip/noodle shelf further along the wall.",
+      "shelf_type": [
+        "Chips"
+      ],
+      "sign_text": "Chips / Canned Food; Noodles / Chips"
+    },
+    "route_hints": {
+      "0": {
+        "to": 18,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Water"
+        ]
+      },
+      "9": {
+        "to": 23,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Soda",
+          "Water"
+        ]
+      },
+      "23": {
+        "to": 23,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soda",
+          "Water"
+        ]
+      }
+    }
+  },
+  "25": {
+    "id": 25,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      26,
+      2
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0779977,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "The view from this checkpoint is filled entirely by a plain, textured surface (appears to be a wall or flat panel in a muted olive-grey tone) with no distinguishing features, products, or signage visible. No aisle openings, doorways, or other navigational landmarks can be discerned from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "26": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "2": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "26": {
+    "id": 26,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      25,
+      27,
+      28
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0658725,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "From this checkpoint the camera faces a plain, close-up textured surface (an olive-green wall or panel) that fills the entire frame; no aisle openings, doorways, signage, or other navigational features are visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "25": {
+        "to": 28,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "27": {
+        "to": 28,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "28": {
+        "to": 28,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "27": {
+    "id": 27,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      26,
+      8
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.06493750000000001,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint's view is filled entirely by a close-up of a plain textured surface (likely a wall or obstruction directly in front of the camera), with no discernible aisle, doorway, signage, or navigational features visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "26": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "8": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "28": {
+    "id": 28,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      2,
+      8,
+      26
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1194624,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a double-sided end-cap shelf stocked with canned goods on one face and bagged snack/chip products on the other, with a glass-door refrigerated case visible beyond it and additional shelving units of packaged goods further back near the wall.",
+      "shelf_type": [
+        "Can",
+        "Chips"
+      ],
+      "sign_text": "2 Chips Canned Food / Noodles Chips 2",
+      "items": [
+        {
+          "name": "Grits",
+          "variant": null,
+          "price": null,
+          "appearance": "Red cylindrical can with yellow/white lettering reading 'Grits', stacked in rows on a middle shelf tier",
+          "category": "Can"
+        }
+      ]
+    },
+    "route_hints": {
+      "2": {
+        "to": 51,
+        "hops": 5,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "8": {
+        "to": 53,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "26": {
+        "to": 53,
+        "hops": 4,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "29": {
+    "id": 29,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      30,
+      2
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0644725,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a blank, textured wall surface (plain olive-green paint) filling the entire view, with no shelving, products, doorway, or signage visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "30": {
+        "to": 51,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "2": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "30": {
+    "id": 30,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      29,
+      13
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0646285,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint view shows only a blank, textured wall surface at close range, filling the entire frame with no distinguishing features, objects, or signage visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "29": {
+        "to": 28,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "13": {
+        "to": 51,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "31": {
+    "id": 31,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      32,
+      3,
+      36
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.17211269999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "A tall biscuit and snack-cake shelf run stocked mainly with cookies, wafers, sticks, and a few boxed breakfast cereals (Kellogg's, Nestle), with a smaller snack-food end-cap visible off to the left along a side wall.",
+      "shelf_type": [
+        "Biscuit",
+        "other"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "House of Polvoron HOP",
+          "variant": "Soft Cookies",
+          "price": "150.00",
+          "appearance": "red/orange box with rice-cake style cookies pictured, white lettering",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Froot Loops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "colorful cereal box with rings and mascot",
+          "category": "other"
+        },
+        {
+          "name": "Danisa Traditional Butter Cookies",
+          "variant": null,
+          "price": "366.00",
+          "appearance": "dark blue/navy square tin-style box with gold crest and cookie photo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Fita Spreadz",
+          "variant": "Spicy Tuna",
+          "price": "69.94",
+          "appearance": "green and red box with cracker sandwich image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Frosties",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "yellow/red cereal box with tiger mascot",
+          "category": "other"
+        },
+        {
+          "name": "Hansel Crackers",
+          "variant": null,
+          "price": "9.00",
+          "appearance": "yellow/tan cracker box",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Hello Panda",
+          "variant": null,
+          "price": "43.00",
+          "appearance": "brown box with panda mascot, biscuit cookies image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pepero",
+          "variant": "Double Choco Filled",
+          "price": "55.05",
+          "appearance": "dark purple/navy box, Lotte branding, choco stick image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Frootees",
+          "variant": null,
+          "price": "60.00",
+          "appearance": "pink/purple box with fruit-filled biscuit sandwiches pictured",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Mamon Twin Packs",
+          "variant": "Cheesy Flavor",
+          "price": "63.00",
+          "appearance": "yellow and white striped box, muffin/mamon cake image, Lemon Square branding",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Richoco Wafer",
+          "variant": null,
+          "price": "11.01",
+          "appearance": "dark brown/black box with wafer bar image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": "Crushed Fruits",
+          "price": "62.20",
+          "appearance": "red box with strawberry-dipped sticks image, Glico branding",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": "44.95",
+          "appearance": "dark brown box with chocolate-coated sticks image, Glico branding",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Nestle Honey Stars",
+          "variant": "Lion King",
+          "price": "229.00",
+          "appearance": "blue box with lion character and honey cereal bowl image",
+          "category": "other"
+        },
+        {
+          "name": "Nestle Gold Corn Flakes",
+          "variant": null,
+          "price": "161.05",
+          "appearance": "green and white box with corn flakes image",
+          "category": "other"
+        },
+        {
+          "name": "Grandbisco Ube Filled Crackers",
+          "variant": null,
+          "price": "6.08",
+          "appearance": "yellow/green pouch with purple ube filling graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Nissin Cubee Wafer",
+          "variant": null,
+          "price": "10.00",
+          "appearance": "yellow small pouch, cube wafer image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Lava Cake",
+          "variant": null,
+          "price": "7.08",
+          "appearance": "small red/brown pouch with chocolate cake image",
+          "category": "Biscuit"
+        }
+      ]
+    },
+    "route_hints": {
+      "32": {
+        "to": 32,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "3": {
+        "to": 42,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "Can"
+        ]
+      },
+      "36": {
+        "to": 64,
+        "hops": 3,
+        "kind": "landmark",
+        "holds": []
+      }
+    }
+  },
+  "32": {
+    "id": 32,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      31,
+      33,
+      37
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.27598890000000004,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This shelf fixture is stocked mainly with packaged biscuits, wafers, cookies, and chocolate-coated snacks (brands like Hello Panda, Pocky, Schogetten, Richoco, Fita, Danisa, Mamon), with a few breakfast cereal boxes (Koko Krunch, Coco Pops, Gold Corn Flakes) mixed in on the lower shelves. An overhead aisle sign reading '2 / Chips / Canned' is visible above the fixture.",
+      "shelf_type": [
+        "Biscuit",
+        "other"
+      ],
+      "sign_text": "2\nChips\nCanned",
+      "items": [
+        {
+          "name": "Frootees",
+          "variant": null,
+          "price": "60.07",
+          "appearance": "orange and white box with cartoon face logo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Frosties",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "red and blue box with tiger mascot",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Hansel Crackers",
+          "variant": null,
+          "price": "9.00",
+          "appearance": "blue box labeled 'Hansel Crackers'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Lava Cake",
+          "variant": null,
+          "price": "7.08",
+          "appearance": "gold wrapper chocolate cake bar",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Jolly",
+          "variant": null,
+          "price": null,
+          "appearance": "purple box labeled 'Jolly', 5 pairs marshmallow-type biscuit",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Choco Mallows",
+          "variant": null,
+          "price": "38.00",
+          "appearance": "yellow box, chocolate covered marshmallow biscuits",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Choco Coated Pie",
+          "variant": null,
+          "price": "5.00",
+          "appearance": "red box labeled 'Choco Coated Pie'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Schogetten",
+          "variant": "Alpine Milk Chocolate",
+          "price": "94.00",
+          "appearance": "blue box, 'Schogetten Alpine Milk Chocolate'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Choco Crunchies",
+          "variant": null,
+          "price": "80.01",
+          "appearance": "dark green/black box, 'Choco Crunchies' chocolate covered biscuits",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Hello Panda",
+          "variant": null,
+          "price": "43.00",
+          "appearance": "pink box with panda mascot",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Fita Spreadz",
+          "variant": null,
+          "price": "69.04",
+          "appearance": "red box, sandwich biscuits, 'Fita Spread'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Mamon Twin Packs",
+          "variant": "Cheesy Flavor",
+          "price": "63.00",
+          "appearance": "yellow box with cupcake image, 'Mamon Twin Packs'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Richoco Wafer",
+          "variant": null,
+          "price": "11.09",
+          "appearance": "dark brown/black box, 'Richoco Wafer'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": "27.00",
+          "appearance": "red box, chocolate covered biscuit sticks",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": "50.00",
+          "appearance": "white/cream box, cream covered biscuit sticks",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Danisa Traditional Butter Cookies",
+          "variant": null,
+          "price": "366.00",
+          "appearance": "dark blue tin box, 'Danisa Traditional Butter Cookies'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Bissin Blackcurrant Wafers",
+          "variant": null,
+          "price": "60.00",
+          "appearance": "purple box, 'Bissin Premium Blackcurrant Wafers'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Nissin Cubee Wafer",
+          "variant": null,
+          "price": "10.00",
+          "appearance": "small yellow pack, 'Nissin Cubee Wafer'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Nestle Gold Corn Flakes",
+          "variant": null,
+          "price": null,
+          "appearance": "green and white box, 'Nestle Gold Corn Flakes'",
+          "category": "other"
+        },
+        {
+          "name": "Pepero",
+          "variant": "Choco Filled",
+          "price": "56.00",
+          "appearance": "orange box, 'Pepero choco filled' biscuit sticks",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Koko Krunch",
+          "variant": null,
+          "price": "208.00",
+          "appearance": "brown box, Nestle 'Koko Krunch' cereal with cartoon character",
+          "category": "other"
+        },
+        {
+          "name": "Kellogg's Coco Pops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "small box, Kellogg's 'Coco Pops'",
+          "category": "other"
+        }
+      ]
+    },
+    "route_hints": {
+      "31": {
+        "to": 31,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "33": {
+        "to": 33,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "37": {
+        "to": 31,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  },
+  "33": {
+    "id": 33,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      32,
+      34,
+      38
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1495434,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This shelf holds a mix of packaged snack foods and breakfast cereals - cookies, biscuit sticks, crackers, and cereal boxes from brands like Nestle, Kellogg's, Lotte, and Glico. An aisle sign labeled 'Aisle 2 - Chips / Canned...' hangs to the left, and the shelf run ends here opening onto an open floor area beside a plain wall.",
+      "shelf_type": [
+        "Biscuit",
+        "other"
+      ],
+      "sign_text": "2 Chips Canned...",
+      "items": [
+        {
+          "name": "Hello Panda",
+          "variant": null,
+          "price": "43.00",
+          "appearance": "brown/red box with panda character",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Fita Spreadz",
+          "variant": null,
+          "price": "69.05",
+          "appearance": "green and red package",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Nestle Honey Stars",
+          "variant": "Whole Grain, Real Honey",
+          "price": "229.00",
+          "appearance": "dark blue box with rooster/lion king characters",
+          "category": "other"
+        },
+        {
+          "name": "Lava Cake",
+          "variant": null,
+          "price": "7.28",
+          "appearance": "dark chocolate bar wrapper",
+          "category": "Biscuit"
+        },
+        {
+          "name": "HOP Crisp Rice",
+          "variant": "with Stevia",
+          "price": "150.00",
+          "appearance": "white box, red HOP logo, image of crackers",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Frosties",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "blue box with tiger mascot",
+          "category": "other"
+        },
+        {
+          "name": "Pepero",
+          "variant": "double choco filled",
+          "price": "55.00",
+          "appearance": "dark purple box, Lotte brand",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Froot Loops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "colorful box with toucan character",
+          "category": "other"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": "27.00",
+          "appearance": "pink box, Glico brand",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Frootees",
+          "variant": "Strawberry",
+          "price": "60.07",
+          "appearance": "white and yellow package with fruit graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": "Crushed Fruits",
+          "price": "62.10",
+          "appearance": "red box, Glico brand",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Jolly",
+          "variant": null,
+          "price": "134.00",
+          "appearance": "purple package",
+          "category": "other"
+        },
+        {
+          "name": "Pepero",
+          "variant": "choco filled",
+          "price": "56.05",
+          "appearance": "orange/brown box, Lotte brand",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Ritz Crackers",
+          "variant": "Original, 3 packs",
+          "price": "229.00",
+          "appearance": "red box with cracker image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Koko Krunch",
+          "variant": "Chocolate Taste",
+          "price": "208.00",
+          "appearance": "dark green/red box with cereal character",
+          "category": "other"
+        },
+        {
+          "name": "Nestle Gold Corn Flakes",
+          "variant": "Tasty & Crunchy",
+          "price": "161.05",
+          "appearance": "tan box with corn graphic",
+          "category": "other"
+        },
+        {
+          "name": "Grandbisco White Choco Filled Crackers",
+          "variant": null,
+          "price": "6.08",
+          "appearance": "yellow bag with cracker image",
+          "category": "Biscuit"
+        }
+      ]
+    },
+    "route_hints": {
+      "32": {
+        "to": 32,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "34": {
+        "to": 34,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "38": {
+        "to": 32,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  },
+  "34": {
+    "id": 34,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      33,
+      7,
+      40
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.10529219999999997,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Danish Butter Cookies",
+          "variant": null,
+          "price": null,
+          "appearance": "red rectangular box with image of a blue tin of butter cookies, white 'Danish' script text",
+          "category": "Biscuit"
+        },
+        {
+          "name": "RITZ",
+          "variant": "Tasty Cheese (partially legible)",
+          "price": null,
+          "appearance": "red and orange box with blue 'RITZ' logo, cracker imagery",
+          "category": "Biscuit"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces the end of a biscuit/cookie shelf stocked with Danish butter cookie tins, RITZ cracker boxes, and various wafer-stick snacks. From here, an open floor area leads toward low shelving units holding chips and canned goods, with a canned-goods aisle visible to the right and overhead aisle signs marking numbered sections (1: Chips, 2: Chips/Canned Food, 3: Water/Soda, Dairies, Soup).",
+      "shelf_type": [
+        "Biscuit"
+      ],
+      "sign_text": "1 Chips | 2 Chips / Canned Food | 3 Water/Soda / Dairies / Soup"
+    },
+    "route_hints": {
+      "33": {
+        "to": 33,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "7": {
+        "to": 53,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "40": {
+        "to": 53,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "35": {
+    "id": 35,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      36,
+      3,
+      64
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0651475,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "The image is essentially a blank, out-of-focus olive/tan colored surface with no discernible features, objects, text, or edges visible. It appears the camera may be extremely close to or obstructed by a plain surface (such as a wall or blurred obstruction), making it impossible to identify any navigational features from this viewpoint.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "36": {
+        "to": 31,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "3": {
+        "to": 31,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "64": {
+        "to": 64,
+        "hops": 1,
+        "kind": "landmark",
+        "holds": []
+      }
+    }
+  },
+  "36": {
+    "id": 36,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      35,
+      37,
+      31
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0650125,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This view is essentially a blank, out-of-focus close-up of a flat surface (likely a wall or object directly in front of the camera), showing only a plain olive/tan color gradient with no discernible features, products, signage, or navigational landmarks visible.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "35": {
+        "to": 64,
+        "hops": 2,
+        "kind": "landmark",
+        "holds": []
+      },
+      "37": {
+        "to": 32,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "31": {
+        "to": 31,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  },
+  "37": {
+    "id": 37,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      36,
+      38,
+      32
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.06449250000000001,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This view shows only a plain, featureless surface (likely a wall or close obstruction) filling the entire frame, with no discernible objects, signage, or navigational cues visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "36": {
+        "to": 31,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "38": {
+        "to": 33,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "32": {
+        "to": 32,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  },
+  "38": {
+    "id": 38,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      37,
+      39,
+      33
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0656675,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint's view is almost entirely filled by a plain, featureless olive-green surface with no visible edges, objects, or signage - likely a wall or other flat surface positioned very close to the camera. No aisle openings, doorways, or other navigational features can be discerned from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "37": {
+        "to": 32,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "39": {
+        "to": 34,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "33": {
+        "to": 33,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  },
+  "39": {
+    "id": 39,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      38,
+      40
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0653175,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "The image shows only a flat, uniformly colored olive/grey-green surface filling the entire frame with no discernible objects, edges, signage, or spatial features. It's likely a close-up of a wall, panel, or obstruction directly in front of the camera at this checkpoint, giving no navigationally useful detail.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "38": {
+        "to": 33,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "40": {
+        "to": 34,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "40": {
+    "id": 40,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      39,
+      7,
+      34
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.06467250000000001,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "The camera is extremely close to a plain textured surface (likely a wall or floor) filling the entire frame in a flat olive-green color; no aisle openings, doorways, signage, or other navigational features are visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "39": {
+        "to": 33,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "7": {
+        "to": 34,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "34": {
+        "to": 34,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "41": {
+    "id": 41,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      3,
+      4
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.06540750000000001,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint is at a self-checkout station: a scanner/POS terminal with a screen displaying a \"Welcome to Self Checkout!\" prompt sits against a plain textured wall, with mostly bare wall visible to the right of the kiosk.",
+      "sign_text": "Welcome to Self Checkout!\\nStart scanning your items\\nStart"
+    },
+    "route_hints": {
+      "3": {
+        "to": 31,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "4": {
+        "to": 42,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "Can"
+        ]
+      }
+    }
+  },
+  "42": {
+    "id": 42,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      3,
+      4
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0973872,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces the end of a shelf aisle stocked with biscuits, cookies, and snack crackers (Mamon, Pocky, Ube Filled Crackers) alongside canned goods on an adjacent run of shelving to the left. An aisle number sign reading \"2\" hangs from the ceiling near the shelf's near end, and open floor space stretches out to the right beyond the shelf's end.",
+      "shelf_type": [
+        "Biscuit",
+        "Can"
+      ],
+      "sign_text": "2",
+      "items": [
+        {
+          "name": "Mamon",
+          "variant": "Twin Pack",
+          "price": null,
+          "appearance": "yellow box with red script logo, sponge cake illustration",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": null,
+          "appearance": "red box with white lettering, biscuit stick snack",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Ube Filled Crackers",
+          "variant": null,
+          "price": null,
+          "appearance": "yellow packet with purple ube character illustration, 'Gardenia Co' style branding",
+          "category": "Biscuit"
+        }
+      ]
+    },
+    "route_hints": {
+      "3": {
+        "to": 31,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "4": {
+        "to": 43,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Noodles"
+        ]
+      }
+    }
+  },
+  "43": {
+    "id": 43,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      4,
+      6
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0962382,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Lucky Me! Pancit Canton",
+          "variant": "Chilimansi (green pack)",
+          "price": "14.00",
+          "appearance": "green plastic pack with noodle bowl photo, red Lucky Me logo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Indomie",
+          "variant": "Mi goreng",
+          "price": "18.00",
+          "appearance": "red and yellow plastic pack with noodle bowl and egg photo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Nissin Cup Noodles",
+          "variant": null,
+          "price": "21.00",
+          "appearance": "white/blue cup with plastic lid, red Nissin branding",
+          "category": "Noodles"
+        },
+        {
+          "name": "Jin Ramen",
+          "variant": "Mild",
+          "price": "64.00",
+          "appearance": "yellow plastic pack, Ottogi logo, blue lettering 'Jin Ramen MILD', bowl photo",
+          "category": "Noodles"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces an instant-noodle shelf stocked with Lucky Me! Pancit Canton, Indomie Mi Goreng packs, Jin Ramen (Ottogi) bags, and Nissin Cup Noodles cups arranged across three shelf levels, each with its own price tag on the shelf edge.",
+      "shelf_type": [
+        "Noodles"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "4": {
+        "to": 42,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "Can"
+        ]
+      },
+      "6": {
+        "to": 52,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      }
+    }
+  },
+  "44": {
+    "id": 44,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      5,
+      9,
+      45
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.19329239999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "A snack-food shelving unit stocked with bagged and canned chips, crackers, and pretzel-style snacks from brands like Oishi, Jack'n Jill/Chippy, Pringles, Piknik, Leslie's, Calbee, and Kamayong King, arranged across four shelf levels.",
+      "shelf_type": [
+        "Chips",
+        "Biscuit"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "Oishi Prawn Crackers",
+          "variant": null,
+          "price": "27.05",
+          "appearance": "red and yellow striped bag with prawn imagery",
+          "category": "Chips"
+        },
+        {
+          "name": "Pringles",
+          "variant": "Original",
+          "price": "119.05",
+          "appearance": "tall orange cylindrical can with mustache logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Jack 'n Jill Pic-A BBQ Overload",
+          "variant": "BBQ",
+          "price": "55.05",
+          "appearance": "red bag with bold 'Pic-A' logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Piknik Cheddar Cheese",
+          "variant": "Cheddar Cheese",
+          "price": "169.00",
+          "appearance": "red cylindrical can with fries image",
+          "category": "Chips"
+        },
+        {
+          "name": "Oishi Pillows",
+          "variant": "Choco Filled Crackers",
+          "price": "10.05",
+          "appearance": "yellow bag with mustache mascot logo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kamayong King Water Spinach Chips",
+          "variant": "Original",
+          "price": "149.00",
+          "appearance": "green box with cartoon chef logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Chipsy Cheese Ring",
+          "variant": "Cheese Flavored Snack",
+          "price": "55.00",
+          "appearance": "blue bag with orange ring-shaped snack graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Knick Knacks",
+          "variant": null,
+          "price": "20.00",
+          "appearance": "dark blue/black bag with red accents",
+          "category": "Nuts"
+        },
+        {
+          "name": "Leslie's Clover Chips",
+          "variant": null,
+          "price": "39.02",
+          "appearance": "white bag with green clover logo and clover-shaped chips graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Chippy Corn Chips",
+          "variant": "Nacho Crispies Cheese",
+          "price": "32.00",
+          "appearance": "yellow bag with bowl of corn chips graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Loaded!",
+          "variant": "White Choc-Mallow Snack",
+          "price": "16.09",
+          "appearance": "white bag with red banner logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Chippy Potato Chips",
+          "variant": "Spicy BBQ",
+          "price": "99.00",
+          "appearance": "orange bag, potato chip graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Oishi Potato Fries",
+          "variant": "Garlic Chili",
+          "price": "16.59",
+          "appearance": "green bag with fries graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Choco Pretzel Twists",
+          "variant": "Choco Filled",
+          "price": "9.04",
+          "appearance": "blue bag with pretzel graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pretzel Twists",
+          "variant": null,
+          "price": "9.04",
+          "appearance": "pink/purple bag with pretzel graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": "Croissant Fries Snack",
+          "price": "6.00",
+          "appearance": "black bag with orange criss-cross snack graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Calbee Cheddar & Sour Cream",
+          "variant": "Cheddar & Sour Cream",
+          "price": "124.00",
+          "appearance": "orange bag with Calbee logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Chippy Corn Chips Nacho Crispies",
+          "variant": "Cheese",
+          "price": "32.00",
+          "appearance": "yellow bag, corn chip bowl graphic",
+          "category": "Chips"
+        }
+      ]
+    },
+    "route_hints": {
+      "5": {
+        "to": 45,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Soup"
+        ]
+      },
+      "9": {
+        "to": 23,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Soda",
+          "Water"
+        ]
+      },
+      "45": {
+        "to": 45,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soup"
+        ]
+      }
+    }
+  },
+  "45": {
+    "id": 45,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      46,
+      5,
+      44
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.10923719999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Maya Champorado",
+          "variant": "Chocolate Rice Porridge Mix, 227g",
+          "price": "74.05",
+          "appearance": "Red and yellow box with bowl of chocolate porridge photo, white lettering 'Champorado'",
+          "category": "Soup"
+        },
+        {
+          "name": "Ajinomoto Soup&Go",
+          "variant": "Creamy Potato, 3x19.2g",
+          "price": "85.00",
+          "appearance": "Yellow box with potato and creamy soup bowl photo",
+          "category": "Soup"
+        },
+        {
+          "name": "Ajinomoto Soup&Go",
+          "variant": "Creamy Corn, 3x19.2g",
+          "price": "85.00",
+          "appearance": "Green box with corn cob and soup bowl photo",
+          "category": "Soup"
+        },
+        {
+          "name": "Ajinomoto Soup&Go",
+          "variant": "Creamy Pumpkin, 3x19.2g",
+          "price": "85.00",
+          "appearance": "Orange/red box with pumpkin soup bowl photo",
+          "category": "Soup"
+        },
+        {
+          "name": "White King Champ-O-Rado",
+          "variant": "Real Cocoa & Malagkit Rice, 113g",
+          "price": "36.05",
+          "appearance": "Large yellow box with black 'White King' banner and bowl of chocolate rice porridge photo, '5 bowls' badge",
+          "category": "Soup"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a dry-goods shelf stocked with instant soup and porridge mixes - Maya Champorado, Ajinomoto Soup&Go cups, and White King Champ-O-Rado boxes arranged in rows with price tags along the shelf edge. A separate glass-fronted refrigerated dairy case (milk, yogurt drinks, cheese) is visible on the left side of the frame, across a gap from this shelf.",
+      "shelf_type": [
+        "Soup"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "46": {
+        "to": 46,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soda",
+          "Dairies"
+        ]
+      },
+      "5": {
+        "to": 44,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "44": {
+        "to": 44,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "46": {
+    "id": 46,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      45,
+      9
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1752084,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces two adjoining glass-door refrigerated cases separated by a support pillar: the left case holds bottled sodas and soft drinks, while the right case holds milk and dairy-based beverages/cartons.",
+      "shelf_type": [
+        "Soda",
+        "Dairies"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "RC Cola",
+          "variant": null,
+          "price": "35.00",
+          "appearance": "clear plastic bottle, red and white RC logo, dark cola liquid",
+          "category": "Soda"
+        },
+        {
+          "name": "Royal",
+          "variant": "Tru-Orange",
+          "price": "38.00",
+          "appearance": "clear plastic bottle with orange liquid, red cap, Royal branding",
+          "category": "Soda"
+        },
+        {
+          "name": "Sprite",
+          "variant": null,
+          "price": "37.05",
+          "appearance": "green-tinted plastic bottle, green cap, Sprite lettering",
+          "category": "Soda"
+        },
+        {
+          "name": "Milkis",
+          "variant": null,
+          "price": "19.05",
+          "appearance": "white/cream colored plastic bottle with blue cap, Milkis label",
+          "category": "Soda"
+        },
+        {
+          "name": "Vita Milk",
+          "variant": null,
+          "price": "29.20",
+          "appearance": "white carton with blue/green Vita Milk logo",
+          "category": "Dairies"
+        },
+        {
+          "name": "Oatside",
+          "variant": null,
+          "price": "146.00",
+          "appearance": "tall white and dark carton/box labeled OATSIDE",
+          "category": "Dairies"
+        },
+        {
+          "name": "Eden Melt Sarap",
+          "variant": null,
+          "price": "95.20",
+          "appearance": "yellow and blue box with Eden Melt Sarap branding",
+          "category": "Dairies"
+        },
+        {
+          "name": "Cowhead Pure Milk",
+          "variant": null,
+          "price": "102.00",
+          "appearance": "carton with blue Cowhead cow logo, 'Pure Milk' text",
+          "category": "Dairies"
+        },
+        {
+          "name": "Daily Quezo",
+          "variant": null,
+          "price": null,
+          "appearance": "blue box with yellow sun graphic, 'Daily Quezo' text",
+          "category": "Dairies"
+        }
+      ]
+    },
+    "route_hints": {
+      "45": {
+        "to": 45,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soup"
+        ]
+      },
+      "9": {
+        "to": 23,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Soda",
+          "Water"
+        ]
+      }
+    }
+  },
+  "47": {
+    "id": 47,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      48,
+      5,
+      50
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.15583139999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint sits at a corner where a glass-door dairy refrigerator meets a dry-goods shelf stocked with instant soup and porridge mixes; a blank overhead sign panel is visible above the fridge.",
+      "shelf_type": [
+        "Dairies",
+        "Soup"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "Eden Melt Sarap",
+          "variant": null,
+          "price": "95.08",
+          "appearance": "yellow and white cheese box behind fridge glass",
+          "category": "Dairies"
+        },
+        {
+          "name": "Daily Quezo",
+          "variant": null,
+          "price": null,
+          "appearance": "blue box with sun logo, 'Daily Quezo' text, behind fridge glass",
+          "category": "Dairies"
+        },
+        {
+          "name": "Cowhead Pure Milk",
+          "variant": "1L",
+          "price": "102.00",
+          "appearance": "carton with black 'Cowhead Pure Milk' branding and pouring milk graphic",
+          "category": "Dairies"
+        },
+        {
+          "name": "ProYo",
+          "variant": "Strawberry 400ml",
+          "price": "49.05",
+          "appearance": "clear bottle with pink cap and pink liquid, 'ProYo' label",
+          "category": "Dairies"
+        },
+        {
+          "name": "Delight",
+          "variant": "Original 400ml",
+          "price": "57.04",
+          "appearance": "clear bottle with white/red cap, 'Delight' label",
+          "category": "Dairies"
+        },
+        {
+          "name": "Maya Champorado",
+          "variant": "227g",
+          "price": "74.06",
+          "appearance": "yellow and red box with sun swirl graphic, 'Champorado Chocolate Rice Porridge Mix'",
+          "category": "other"
+        },
+        {
+          "name": "Ajinomoto Soup&Go",
+          "variant": "Creamy Potato, 3x19.2g",
+          "price": "85.00",
+          "appearance": "yellow box with potato graphic, 'Soup & Go' text",
+          "category": "Soup"
+        },
+        {
+          "name": "Ajinomoto Soup&Go",
+          "variant": "Corn, 3x19.2g",
+          "price": "85.00",
+          "appearance": "green box with corn graphic, 'Soup & Go' text",
+          "category": "Soup"
+        },
+        {
+          "name": "Ajinomoto Soup&Go",
+          "variant": "Pumpkin, 3x19.2g",
+          "price": "85.00",
+          "appearance": "orange box with pumpkin graphic, 'Soup & Go' text",
+          "category": "Soup"
+        }
+      ]
+    },
+    "route_hints": {
+      "48": {
+        "to": 48,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soup",
+          "other"
+        ]
+      },
+      "5": {
+        "to": 44,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "50": {
+        "to": 50,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "48": {
+    "id": 48,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      47,
+      49,
+      51
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.11569739999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "A shelf stocked entirely with instant breakfast porridge and soup-mix boxes - Aji brand 'Champorado' chocolate rice porridge and 'Soup & Go' cups, and White King 'Champ-O-Rado' boxes - arranged across three shelf levels against a plain wall.",
+      "shelf_type": [
+        "Soup",
+        "other"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "Champ-O-Rado",
+          "variant": "Real Cocoa & Malagkit Rice, up to 5 bowls",
+          "price": "36.05",
+          "appearance": "Yellow box with red White King logo, photo of chocolate rice porridge in blue bowl",
+          "category": "Soup"
+        },
+        {
+          "name": "Champorado",
+          "variant": "Chocolate Rice Porridge Mix",
+          "price": "74.00",
+          "appearance": "Dark brown/maroon box with swirled porridge bowl graphic, Aji small logo",
+          "category": "Soup"
+        },
+        {
+          "name": "Soup & Go",
+          "variant": "Corn",
+          "price": "85.00",
+          "appearance": "Green-topped box with cup of yellow corn soup photo, Aji logo",
+          "category": "Soup"
+        },
+        {
+          "name": "Soup & Go",
+          "variant": "Potato",
+          "price": "85.00",
+          "appearance": "White/cream box with cup of creamy potato soup photo, Aji logo",
+          "category": "Soup"
+        },
+        {
+          "name": "Soup & Go",
+          "variant": "Pumpkin",
+          "price": "85.00",
+          "appearance": "Orange-topped box with cup of orange pumpkin soup photo, Aji logo",
+          "category": "Soup"
+        }
+      ]
+    },
+    "route_hints": {
+      "47": {
+        "to": 47,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Dairies",
+          "Soup"
+        ]
+      },
+      "49": {
+        "to": 51,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "51": {
+        "to": 51,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "49": {
+    "id": 49,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      48,
+      13
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0649075,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a plain textured wall taking up most of the view, with the vertical edge of a shelving unit visible at the left edge of frame. There is no aisle opening, doorway, or product display directly visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "48": {
+        "to": 48,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soup",
+          "other"
+        ]
+      },
+      "13": {
+        "to": 51,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "50": {
+    "id": 50,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      51,
+      5,
+      47
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.2164224,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a tall multi-tier shelving unit stocked with bagged and canned snack chips - prawn crackers, potato chips, pretzel twists, cheese curls/rings, and choco-filled pillow crackers from brands like Oishi, Pringles, Jack 'n Jill, Pik-Nik, Bangkok King, Leslie's, Chipsy, Loaded!, and Criss Cross. A red-bordered aisle sign is visible on the ceiling in the background but its text is not legible from here.",
+      "shelf_type": [
+        "Chips",
+        "Biscuit"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "Oishi Prawn Crackers",
+          "variant": null,
+          "price": "27.05",
+          "appearance": "red and yellow striped bag with shrimp graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Pringles",
+          "variant": "Original",
+          "price": "119.05",
+          "appearance": "red cylindrical canister with mustache-man logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Potato Fries",
+          "variant": null,
+          "price": "16.10",
+          "appearance": "red and white bag showing fried potato sticks",
+          "category": "Chips"
+        },
+        {
+          "name": "Jack 'n Jill Pic-A",
+          "variant": "BBQ Overload",
+          "price": "55.05",
+          "appearance": "red package with snack mix photo",
+          "category": "Chips"
+        },
+        {
+          "name": "Pik-Nik",
+          "variant": "Cheddar Cheese",
+          "price": "109.05",
+          "appearance": "red cylindrical can, cheese curls",
+          "category": "Chips"
+        },
+        {
+          "name": "Bangkok King Water Spinach Chips",
+          "variant": "Original",
+          "price": "149.00",
+          "appearance": "green box with leafy vegetable graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Pillows",
+          "variant": "Choco Filled Crackers",
+          "price": "10.05",
+          "appearance": "yellow and black bag, pillow-shaped crackers",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Leslie's Clover Chips",
+          "variant": "Cheesier",
+          "price": "32.05",
+          "appearance": "white bag with corn/clover graphic and yellow cheese burst",
+          "category": "Chips"
+        },
+        {
+          "name": "Loaded!",
+          "variant": "White Choc Mint",
+          "price": "16.00",
+          "appearance": "white bag with blue accents",
+          "category": "Chips"
+        },
+        {
+          "name": "Cheese Ring",
+          "variant": "Cheese Flavored Snack",
+          "price": "55.00",
+          "appearance": "orange bag showing ring-shaped cheese puffs",
+          "category": "Chips"
+        },
+        {
+          "name": "Chipsy Potato Chips",
+          "variant": "Spicy BBQ Flavor",
+          "price": "99.00",
+          "appearance": "orange bag with chip graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": "Crisscut Fries Sea Salt",
+          "price": "6.00",
+          "appearance": "black bag with crisscut fry graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Choco Pretzel Twists",
+          "variant": null,
+          "price": "9.00",
+          "appearance": "blue bag with pretzel twist graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Chipsy Corn Chips",
+          "variant": "Nacho Crispies Cheese",
+          "price": "32.00",
+          "appearance": "yellow bag with corn chip graphic",
+          "category": "Chips"
+        }
+      ]
+    },
+    "route_hints": {
+      "51": {
+        "to": 51,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "5": {
+        "to": 44,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "47": {
+        "to": 47,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Dairies",
+          "Soup"
+        ]
+      }
+    }
+  },
+  "51": {
+    "id": 51,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      50,
+      13,
+      48
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.16049819999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Pringles Original",
+          "variant": "Original",
+          "price": "119.05",
+          "appearance": "tall red cylindrical can, mustache logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Pik-Nik Cheddar Cheese",
+          "variant": "Cheddar Cheese",
+          "price": "109.05",
+          "appearance": "orange cylindrical can",
+          "category": "Chips"
+        },
+        {
+          "name": "Chippy Corn Chips",
+          "variant": "Nacho Cheese",
+          "price": "32.00",
+          "appearance": "yellow bag with bowl of corn chips graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Oishi Prawn Crackers",
+          "variant": null,
+          "price": "27.05",
+          "appearance": "red and yellow striped bag with shrimp graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Gaya Pretzel Twists",
+          "variant": null,
+          "price": "9.04",
+          "appearance": "purple bag with pretzel graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": "Creamy Cheese",
+          "price": "6.00",
+          "appearance": "orange/red bag, potato chip lattice graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Oishi Pillows",
+          "variant": "Choco Filled Crackers",
+          "price": "10.05",
+          "appearance": "dark green/black bag with pillow-shaped crackers",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Leslie's Clover Chips",
+          "variant": "Cheese",
+          "price": "39.05",
+          "appearance": "white bag with green clover logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Leslie's Clover Chips Cheesier",
+          "variant": "Cheesier",
+          "price": "32.05",
+          "appearance": "blue/white bag with clover logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Potato Fries",
+          "variant": null,
+          "price": "16.10",
+          "appearance": "red and white bag, fries graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Piattos",
+          "variant": "Sour Cream & Onion",
+          "price": "16.05",
+          "appearance": "green bag with diamond logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Vcut",
+          "variant": "Potato Chips",
+          "price": "16.10",
+          "appearance": "red bag, V-shaped chip graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Jackpot King Water Spinach Chips",
+          "variant": "Original",
+          "price": "149.00",
+          "appearance": "green box with cartoon king mascot",
+          "category": "Chips"
+        },
+        {
+          "name": "Mr. Chips",
+          "variant": null,
+          "price": "5.00",
+          "appearance": "blue bag, cheese flavored corn snack",
+          "category": "Chips"
+        },
+        {
+          "name": "Cheezy Corn Crunch",
+          "variant": "Spicy & Cheesy",
+          "price": "26.05",
+          "appearance": "red/yellow bag, corn snack with face graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Leslie's Cheezy",
+          "variant": "With Calamansi",
+          "price": "7.05",
+          "appearance": "blue bag, cheese snack",
+          "category": "Chips"
+        },
+        {
+          "name": "Chippy Cheese Ring",
+          "variant": "Cheese Flavored Snack",
+          "price": "55.00",
+          "appearance": "blue package, ring-shaped cheese snacks",
+          "category": "Chips"
+        },
+        {
+          "name": "Knick Knacks",
+          "variant": null,
+          "price": null,
+          "appearance": "black package with colorful graphic",
+          "category": "Chips"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a multi-tier metal shelving unit stocked entirely with bagged and canned chips, crackers, and savory snacks (Pringles, Pik-Nik, Oishi, Leslie's Clover Chips, Piattos, Vcut, and similar brands). A hanging overhead sign reading \"Chips / Canned Food\" is visible to the upper right, and the shelf ends against a tan-colored wall on the left.",
+      "shelf_type": [
+        "Chips",
+        "Biscuit"
+      ],
+      "sign_text": "Chips\nCanned Food"
+    },
+    "route_hints": {
+      "50": {
+        "to": 50,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Biscuit"
+        ]
+      },
+      "13": {
+        "to": 48,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Soup",
+          "other"
+        ]
+      },
+      "48": {
+        "to": 48,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Soup",
+          "other"
+        ]
+      }
+    }
+  },
+  "52": {
+    "id": 52,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      6,
+      11
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.2002764,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This shelf holds a mix of instant noodle products (Pancit Canton, Jin Ramen, Indomie cup and packet noodles) on its upper level and bagged/canned potato and corn chip snacks (Piattos, Criss Cross, Pringles, Chipsy, Cheezy, Mr. Chips, Pretzel Twists) on its middle level, with an identical duplicate noodle display on a low front table. Another shelving unit is visible at the right edge of the frame.",
+      "shelf_type": [
+        "Chips",
+        "Noodles"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "Moby Caramel Puffs",
+          "variant": "Caramel",
+          "price": "14.09",
+          "appearance": "yellow bag with black spider logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Piattos",
+          "variant": "Sour Cream & Onion",
+          "price": "16.05",
+          "appearance": "dark green bag with diamond Piattos logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Lestio's Clover Chips",
+          "variant": "Cheese",
+          "price": "7.01",
+          "appearance": "white and green bag, 'Cheese to Day!' banner, clover leaf logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Pringles",
+          "variant": "Cheese",
+          "price": "119.05",
+          "appearance": "orange cylindrical can with mustache logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Indomie",
+          "variant": "Cup Noodles",
+          "price": "21.05",
+          "appearance": "white cup with red lid, Indomie branding",
+          "category": "Noodles"
+        },
+        {
+          "name": "Indomie",
+          "variant": "Mi Goreng",
+          "price": "18.02",
+          "appearance": "red packet with photo of fried noodles and egg",
+          "category": "Noodles"
+        },
+        {
+          "name": "Lucky Me! Pancit Canton",
+          "variant": "Chilimansi",
+          "price": "14.00",
+          "appearance": "dark green packet with round photo of noodle dish",
+          "category": "Noodles"
+        },
+        {
+          "name": "Jin Ramen",
+          "variant": "Mild",
+          "price": "64.05",
+          "appearance": "yellow packet with Ottogi branding and bowl photo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Mr. Chips",
+          "variant": "Cheese Flavored Corn Chips",
+          "price": "5.09",
+          "appearance": "blue bag with Jack 'n Jill branding",
+          "category": "Chips"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": "BBQ",
+          "price": "6.09",
+          "appearance": "black bag, potato chips, BBQ flavor labeling",
+          "category": "Chips"
+        },
+        {
+          "name": "Pretzel Twists",
+          "variant": null,
+          "price": "9.04",
+          "appearance": "pink bag with pretzel photo",
+          "category": "other"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": "Creamy Onion",
+          "price": "6.09",
+          "appearance": "orange/red bag, potato chips",
+          "category": "Chips"
+        },
+        {
+          "name": "Chipsy Corn Chips",
+          "variant": "Nacho Crispies BBQ",
+          "price": "32.00",
+          "appearance": "red bag with bowl of corn chips photo",
+          "category": "Chips"
+        },
+        {
+          "name": "Pik-Nik Cheddar Cheese",
+          "variant": "Shoestring",
+          "price": "169.02",
+          "appearance": "red cylindrical can with shoestring potato photo",
+          "category": "Chips"
+        },
+        {
+          "name": "Chipsy Corn Chips",
+          "variant": "Nacho Crispies Cheese",
+          "price": "32.00",
+          "appearance": "yellow bag with bowl of corn chips photo",
+          "category": "Chips"
+        },
+        {
+          "name": "Cheezy",
+          "variant": null,
+          "price": "7.01",
+          "appearance": "blue bag, Lestio's Cheezy corn chips",
+          "category": "Chips"
+        }
+      ]
+    },
+    "route_hints": {
+      "6": {
+        "to": 43,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Noodles"
+        ]
+      },
+      "11": {
+        "to": 58,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "53": {
+    "id": 53,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      7,
+      8,
+      54
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.14316299999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a shelf stocked with biscuits, crackers, and wafer-style snacks, including a visible RITZ cracker box. Overhead aisle signs read '1' (partially obscured), '2: Chips / Canned Food', and '3: Water/Soda / Dairies / Soup', with additional snack and canned-goods shelving visible across the open floor ahead.",
+      "shelf_type": [
+        "Biscuit"
+      ],
+      "sign_text": "1 | 2: Chips / Canned Food | 3: Water/Soda / Dairies / Soup",
+      "items": [
+        {
+          "name": "RITZ",
+          "variant": "Tasty",
+          "price": null,
+          "appearance": "Orange and red box with blue RITZ logo, cracker product",
+          "category": "Biscuit"
+        }
+      ]
+    },
+    "route_hints": {
+      "7": {
+        "to": 34,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "8": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "54": {
+        "to": 34,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "54": {
+    "id": 54,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      55,
+      7,
+      53
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0654625,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "The image shows only a flat, featureless textured surface (likely a wall or obstruction) filling the entire frame at close range, with no visible aisle, doorway, signage, or navigational features discernible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "55": {
+        "to": 28,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "7": {
+        "to": 34,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "53": {
+        "to": 53,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "55": {
+    "id": 55,
+    "topology_kind": "shelf",
+    "classify_label": "non_shelf",
+    "effective_kind": "non_shelf",
+    "neighbors": [
+      54,
+      8
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.06460750000000001,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This view shows only a plain, featureless textured surface (a wall or blank panel) filling the entire frame, with no products, signage, or navigational features visible from this spot.",
+      "sign_text": null
+    },
+    "route_hints": {
+      "54": {
+        "to": 53,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "8": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "56": {
+    "id": 56,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      57,
+      8,
+      59
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.16992269999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint faces a shelf stocked with imported cookies, biscuits, wafer sticks, and a few cereal boxes (brands like Danisa, Pocky, Pepero, Hello Panda, Kellogg's, and Nestle). A 'Chips' aisle sign for aisle 1 is visible at the upper right edge of the frame.",
+      "shelf_type": [
+        "Biscuit",
+        "other"
+      ],
+      "sign_text": "Chips",
+      "items": [
+        {
+          "name": "Danisa Traditional Butter Cookies",
+          "variant": null,
+          "price": "366.00",
+          "appearance": "dark blue rectangular tin-style box with gold crown logo and image of butter cookies",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pepero",
+          "variant": "Choco Filled",
+          "price": "56.05",
+          "appearance": "orange box with red Pepero logo, image of chocolate-coated biscuit sticks",
+          "category": "Biscuit"
+        },
+        {
+          "name": "mamon",
+          "variant": "Twin Packs, Cheesy Flavor",
+          "price": "63.00",
+          "appearance": "yellow box with image of muffin-like mamon cakes",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Hello Panda",
+          "variant": null,
+          "price": "43.00",
+          "appearance": "pink/red box with panda cartoon character",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Hansel",
+          "variant": null,
+          "price": "9.00",
+          "appearance": "yellow and blue striped box of sandwich cookies",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Frootees",
+          "variant": "Grape",
+          "price": "60.27",
+          "appearance": "purple and white box with fruit-shaped cookie graphics",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Coco Pops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "red and yellow cereal box with cartoon monkey character",
+          "category": "other"
+        },
+        {
+          "name": "Kellogg's Froot Loops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "colorful cereal box with fruit loop rings graphic",
+          "category": "other"
+        },
+        {
+          "name": "White Choco Filled Crackers",
+          "variant": null,
+          "price": "6.08",
+          "appearance": "yellow bag labeled 'Grandbisco White Choco Filled Crackers'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Honey Stars",
+          "variant": "Lion King edition, with Real Honey",
+          "price": "229.00",
+          "appearance": "dark blue cereal box with Lion King character graphic, Nestle logo",
+          "category": "other"
+        },
+        {
+          "name": "Fita Spreadz",
+          "variant": "Spicy Tuna",
+          "price": "69.06",
+          "appearance": "green and red packet with cracker sandwich image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pepero",
+          "variant": "Crunchy",
+          "price": "44.00",
+          "appearance": "dark brown/maroon box with Pepero logo",
+          "category": "Biscuit"
+        }
+      ]
+    },
+    "route_hints": {
+      "57": {
+        "to": 57,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "8": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "59": {
+        "to": 59,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can"
+        ]
+      }
+    }
+  },
+  "57": {
+    "id": 57,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      56,
+      58,
+      60
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1679022,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Hello Panda",
+          "variant": null,
+          "price": "43.00",
+          "appearance": "red and yellow box with cartoon panda mascot",
+          "category": "Biscuit"
+        },
+        {
+          "name": "HOP Crisp Rice",
+          "variant": "soft cookies",
+          "price": "150.00",
+          "appearance": "white box with red 'HOP' logo, House of Polvoron brand",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Danisa Traditional Butter Cookies",
+          "variant": null,
+          "price": "366.00",
+          "appearance": "round dark blue and gold tin with photo of butter cookies",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": null,
+          "appearance": "slim red box with photo of chocolate-coated biscuit sticks",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pepero",
+          "variant": "Double Choco Filled",
+          "price": "44.00",
+          "appearance": "dark purple/black box with chocolate stick photo, Lotte logo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Froot Loops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "red box with colorful cereal loops",
+          "category": "other"
+        },
+        {
+          "name": "Kellogg's Coco Pops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "blue box with chocolate cereal balls",
+          "category": "other"
+        },
+        {
+          "name": "Hansel Crackers",
+          "variant": null,
+          "price": "9.00",
+          "appearance": "yellow box with 'Hansel Crackers' text",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Choco Mallows",
+          "variant": null,
+          "price": "38.00",
+          "appearance": "yellow box with melting marshmallow/chocolate illustration",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Bisrin Premium Blackcurrant Wafers",
+          "variant": null,
+          "price": "60.00",
+          "appearance": "purple box with wafer photo and blackcurrant leaf graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Lava Cake",
+          "variant": null,
+          "price": "7.98",
+          "appearance": "gold/brown wrapper bar, Meiji logo, chocolate lava cake photo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Richoco Wafer",
+          "variant": null,
+          "price": "11.99",
+          "appearance": "dark red/brown box with wafer photo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Nissin Cube Wafer",
+          "variant": null,
+          "price": "10.00",
+          "appearance": "small yellow box, partially obscured",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Ube Filled Crackers",
+          "variant": null,
+          "price": "6.98",
+          "appearance": "purple bag, Grandbisco brand, ube-filled crackers text",
+          "category": "Biscuit"
+        },
+        {
+          "name": "White Choco Filled Crackers",
+          "variant": null,
+          "price": "6.00",
+          "appearance": "white and yellow bag, Grandbisco brand",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Nestlé Honey Stars",
+          "variant": null,
+          "price": "229.00",
+          "appearance": "blue cereal box with rooster/lion imagery and 'Honey Stars' text",
+          "category": "other"
+        },
+        {
+          "name": "Schogetten Alpine Milk Chocolate",
+          "variant": null,
+          "price": "94.00",
+          "appearance": "blue box of chocolate tablets",
+          "category": "other"
+        },
+        {
+          "name": "Kinder Tronky",
+          "variant": null,
+          "price": null,
+          "appearance": "white box with 'Kinder Tronky' red text",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Choco Crunchies",
+          "variant": null,
+          "price": null,
+          "appearance": "red and green box, Meiji brand",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Frootees",
+          "variant": null,
+          "price": null,
+          "appearance": "small light-colored box with 'Frootees' text",
+          "category": "Biscuit"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a multi-tier shelf stocked mainly with packaged biscuits, wafers, cookies, crackers, and chocolate-coated sticks (Pocky, Pepero, Hello Panda, Danisa, Richoco), along with some boxed cereals (Kellogg's, Nestlé Honey Stars). An overhead aisle sign reading 'Chips' is visible in the distance but does not label this particular shelf.",
+      "shelf_type": [
+        "Biscuit",
+        "other"
+      ],
+      "sign_text": "Chips"
+    },
+    "route_hints": {
+      "56": {
+        "to": 56,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "58": {
+        "to": 58,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      },
+      "60": {
+        "to": 60,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can"
+        ]
+      }
+    }
+  },
+  "58": {
+    "id": 58,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      57,
+      11,
+      61
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1437972,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Danisa Traditional Butter Cookies",
+          "variant": null,
+          "price": "366.00",
+          "appearance": "round tin-style box, dark red with gold oval logo, image of butter cookies",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pepero",
+          "variant": "double choco filled",
+          "price": "55.00",
+          "appearance": "purple box with Lotte logo, chocolate stick image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": "50.00",
+          "appearance": "tall thin cream/gold box, Glico logo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Frootees",
+          "variant": null,
+          "price": "60.00",
+          "appearance": "purple package with cookie image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Hello Panda",
+          "variant": null,
+          "price": "43.00",
+          "appearance": "red box with panda cartoon characters",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pepero",
+          "variant": "crunchy",
+          "price": "44.00",
+          "appearance": "red box labeled 'Pepero crunchy'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Hansel Crackers",
+          "variant": null,
+          "price": "9.00",
+          "appearance": "blue and yellow box labeled 'Hansel'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "FITA Spreadz",
+          "variant": "Spicy Tuna Flavor",
+          "price": "69.04",
+          "appearance": "red and green box with sandwich cracker image",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pepero",
+          "variant": "choco filled",
+          "price": "56.05",
+          "appearance": "orange/yellow box labeled 'Pepero choco filled'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Pocky",
+          "variant": null,
+          "price": "27.10",
+          "appearance": "dark red/black slim box labeled Pocky",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Mamon Twin Packs",
+          "variant": "Cheesy Flavor",
+          "price": "63.00",
+          "appearance": "yellow box with cupcake image, labeled 'mamon Twin Packs! Cheesy Flavor'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Coco Pops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "pink box with cartoon monkey, Kellogg's logo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Schogetten",
+          "variant": "Alpine Milk Chocolate",
+          "price": "94.00",
+          "appearance": "dark blue box labeled 'Schogetten Alpine Milk Chocolate'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "HOP",
+          "variant": "Crisp Rice soft cookies with Stevia",
+          "price": "150.00",
+          "appearance": "white box labeled 'House of Polvoron / HOP Crisp Rice soft cookies with Stevia'",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Kellogg's Froot Loops",
+          "variant": null,
+          "price": "15.00",
+          "appearance": "red box with colorful loops cereal image, Kellogg's logo",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Grandbisco White Choco Filled Crackers",
+          "variant": null,
+          "price": "6.00",
+          "appearance": "yellow package labeled 'Grandbisco White Choco Filled Crackers'",
+          "category": "Biscuit"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a metal shelving unit stocked with packaged snack biscuits and cookies (Pepero, Pocky, Hello Panda, Danisa, Frootees, Kellogg's cereal-branded snacks, Schogetten chocolate, and similar boxed treats), with a hanging aisle sign reading \"Chips\" visible above. A self-checkout kiosk and counter stand to the right of the shelf, on open floor.",
+      "shelf_type": [
+        "Biscuit"
+      ],
+      "sign_text": "Chips"
+    },
+    "route_hints": {
+      "57": {
+        "to": 57,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      },
+      "11": {
+        "to": 52,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      },
+      "61": {
+        "to": 61,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can"
+        ]
+      }
+    }
+  },
+  "59": {
+    "id": 59,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      60,
+      8,
+      56
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1454772,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Argentina Corned Beef",
+          "variant": null,
+          "price": null,
+          "appearance": "green can with red and white label",
+          "category": "Can"
+        },
+        {
+          "name": "Ligo Corned Beef",
+          "variant": null,
+          "price": null,
+          "appearance": "red and white label can",
+          "category": "Can"
+        },
+        {
+          "name": "555 Tuna",
+          "variant": "Flakes in Oil",
+          "price": null,
+          "appearance": "gold and red label can",
+          "category": "Can"
+        },
+        {
+          "name": "555 Tuna",
+          "variant": "Hot & Spicy",
+          "price": null,
+          "appearance": "dark red/black label can",
+          "category": "Can"
+        },
+        {
+          "name": "Young's Town Beef Loaf",
+          "variant": null,
+          "price": null,
+          "appearance": "red and white label can",
+          "category": "Can"
+        },
+        {
+          "name": "CDO Beef Loaf",
+          "variant": null,
+          "price": null,
+          "appearance": "green can with CDO logo",
+          "category": "Can"
+        },
+        {
+          "name": "Ulam King Beef Loaf",
+          "variant": null,
+          "price": null,
+          "appearance": "dark green can",
+          "category": "Can"
+        },
+        {
+          "name": "San Marino",
+          "variant": null,
+          "price": null,
+          "appearance": "yellow label can",
+          "category": "Can"
+        },
+        {
+          "name": "Century Tuna",
+          "variant": null,
+          "price": null,
+          "appearance": "red label can with fish image",
+          "category": "Can"
+        },
+        {
+          "name": "CDO Corned Beef",
+          "variant": null,
+          "price": null,
+          "appearance": "pink/red label can",
+          "category": "Can"
+        },
+        {
+          "name": "Uni-Pak Mackerel",
+          "variant": null,
+          "price": null,
+          "appearance": "blue label can",
+          "category": "Can"
+        },
+        {
+          "name": "Relish Mushrooms",
+          "variant": null,
+          "price": null,
+          "appearance": "green label can",
+          "category": "Can"
+        },
+        {
+          "name": "Mega Squid",
+          "variant": null,
+          "price": null,
+          "appearance": "black can with red squid graphic",
+          "category": "Can"
+        },
+        {
+          "name": "Vienna Sausage",
+          "variant": null,
+          "price": null,
+          "appearance": "blue label can",
+          "category": "Can"
+        },
+        {
+          "name": "555 Sardines",
+          "variant": "Escabeche",
+          "price": null,
+          "appearance": "gold and red label can",
+          "category": "Can"
+        },
+        {
+          "name": "Ligo Sardines",
+          "variant": null,
+          "price": null,
+          "appearance": "red label can",
+          "category": "Can"
+        },
+        {
+          "name": "Winner Meat Loaf",
+          "variant": null,
+          "price": null,
+          "appearance": "black label can",
+          "category": "Can"
+        },
+        {
+          "name": "Hunt's Pork and Beans",
+          "variant": null,
+          "price": null,
+          "appearance": "red label can",
+          "category": "Can"
+        },
+        {
+          "name": "Bongga Corned Beef",
+          "variant": null,
+          "price": null,
+          "appearance": "pink label can",
+          "category": "Can"
+        },
+        {
+          "name": "Star Corned Beef",
+          "variant": null,
+          "price": null,
+          "appearance": "red and yellow label can",
+          "category": "Can"
+        },
+        {
+          "name": "UFC Shitake Mushroom Slices",
+          "variant": null,
+          "price": null,
+          "appearance": "grey label can with mushroom image",
+          "category": "Can"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a canned goods shelf stocked densely with corned beef, tuna, sardines, meat loaf, mushrooms, and squid cans (brands like Argentina, 555, San Marino, CDO, Century, Ligo, Mega, Bongga). The shelf sits at the end of an aisle where a tan-colored wall corner is visible open to the right, suggesting this is near a store corner with no through-passage in that direction.",
+      "shelf_type": [
+        "Can"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "60": {
+        "to": 60,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can"
+        ]
+      },
+      "8": {
+        "to": 28,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      },
+      "56": {
+        "to": 56,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  },
+  "60": {
+    "id": 60,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      59,
+      61,
+      57
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1567962,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Century Tuna",
+          "variant": null,
+          "price": null,
+          "appearance": "red can with tuna imagery, Century Tuna branding",
+          "category": "Can"
+        },
+        {
+          "name": "San Marino Sardines",
+          "variant": null,
+          "price": null,
+          "appearance": "red can labeled SARDINES, San Marino brand",
+          "category": "Can"
+        },
+        {
+          "name": "San Marino Caldereta",
+          "variant": "Caldereta",
+          "price": "28.00",
+          "appearance": "red can with San Marino branding, Caldereta label",
+          "category": "Can"
+        },
+        {
+          "name": "Bingo Corned Beef",
+          "variant": null,
+          "price": "21.00",
+          "appearance": "yellow and red can, BINGO CORNED BEEF text",
+          "category": "Can"
+        },
+        {
+          "name": "555 Corned Beef",
+          "variant": null,
+          "price": null,
+          "appearance": "red can with 555 logo, corned beef label",
+          "category": "Can"
+        },
+        {
+          "name": "555 Tuna Flakes in Oil",
+          "variant": "Flakes in Oil",
+          "price": "34.00",
+          "appearance": "yellow/red can, 555 brand, tuna flakes in oil label",
+          "category": "Can"
+        },
+        {
+          "name": "555 Tuna Hot & Spicy",
+          "variant": "Hot & Spicy",
+          "price": null,
+          "appearance": "red can, 555 brand, hot and spicy tuna label",
+          "category": "Can"
+        },
+        {
+          "name": "Mega Squid in Soy Sauce",
+          "variant": "Soy Sauce",
+          "price": "43.00",
+          "appearance": "black can, MEGA brand, squid illustration",
+          "category": "Can"
+        },
+        {
+          "name": "Mega Sardines",
+          "variant": null,
+          "price": null,
+          "appearance": "can with MEGA brand, sardines label",
+          "category": "Can"
+        },
+        {
+          "name": "Argentina Corned Beef",
+          "variant": null,
+          "price": null,
+          "appearance": "yellow can, Argentina brand, corned beef label",
+          "category": "Can"
+        },
+        {
+          "name": "Star Mackerel",
+          "variant": null,
+          "price": null,
+          "appearance": "blue can, STAR brand, mackerel fish imagery",
+          "category": "Can"
+        },
+        {
+          "name": "Star Nutri-Meats Corned Beef",
+          "variant": "Nutri-Meats",
+          "price": "25.00",
+          "appearance": "red can, STAR brand, Nutri-Meats Corned Beef label",
+          "category": "Can"
+        },
+        {
+          "name": "Star Beef Loaf",
+          "variant": null,
+          "price": "18.00",
+          "appearance": "red/white can, STAR brand, beef loaf label with egg imagery",
+          "category": "Can"
+        },
+        {
+          "name": "Shiitake Mushroom Slices",
+          "variant": null,
+          "price": "35.00",
+          "appearance": "black can with mushroom photo, Shiitake Mushroom Slices label",
+          "category": "Can"
+        },
+        {
+          "name": "Relish Mushrooms",
+          "variant": null,
+          "price": "25.00",
+          "appearance": "green can, Relish brand, mushrooms label",
+          "category": "Can"
+        },
+        {
+          "name": "Uni-Pak",
+          "variant": null,
+          "price": "46.00",
+          "appearance": "white/red can, Uni-Pak brand",
+          "category": "Can"
+        },
+        {
+          "name": "Lucky 7 Corned Tuna",
+          "variant": "Corned Tuna",
+          "price": "53.00",
+          "appearance": "red can with number 7 logo, Lucky 7 brand",
+          "category": "Can"
+        },
+        {
+          "name": "CDO Karne Norte",
+          "variant": null,
+          "price": "19.00",
+          "appearance": "orange can, cdo brand, Karne Norte label",
+          "category": "Can"
+        },
+        {
+          "name": "Wow Vienna Sausage",
+          "variant": "Vienna Sausage",
+          "price": "25.00",
+          "appearance": "blue can, WOW brand, vienna sausage label",
+          "category": "Can"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a tall canned-goods shelf stocked with Filipino canned meats and seafood - tuna, sardines, corned beef, squid, mackerel, vienna sausage, mushrooms and similar canned products from brands like 555, San Marino, Bingo, Argentina, Mega, Star, CDO, Uni-Pak and Lucky 7. Rows of shelf-edge price tags run beneath each product row, and no aisle signage or other navigational landmarks are visible from this spot.",
+      "shelf_type": [
+        "Can"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "59": {
+        "to": 59,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can"
+        ]
+      },
+      "61": {
+        "to": 61,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can"
+        ]
+      },
+      "57": {
+        "to": 57,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  },
+  "61": {
+    "id": 61,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      60,
+      11,
+      58
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.14017319999999997,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Relish Mushroom",
+          "variant": null,
+          "price": "25.00",
+          "appearance": "green and white can with mushroom graphic, stacked three-high",
+          "category": "Can"
+        },
+        {
+          "name": "Lucky 7",
+          "variant": "Carne Norte",
+          "price": "19.00",
+          "appearance": "red and white can with number 7 logo",
+          "category": "Can"
+        },
+        {
+          "name": "CDO Corned Beef",
+          "variant": null,
+          "price": "19.00",
+          "appearance": "blue and red can labeled CDO",
+          "category": "Can"
+        },
+        {
+          "name": "Star Nutri-Meats",
+          "variant": "Corned Beef",
+          "price": "38.00",
+          "appearance": "red can with white 'Star' text",
+          "category": "Can"
+        },
+        {
+          "name": "Argentina",
+          "variant": "Corned Beef",
+          "price": "19.00",
+          "appearance": "blue label can, 'Argentina' brand",
+          "category": "Can"
+        },
+        {
+          "name": "Ulam King",
+          "variant": null,
+          "price": "38.00",
+          "appearance": "yellow/gold can with 'Ulam King' text",
+          "category": "Can"
+        },
+        {
+          "name": "Ligo Sardines",
+          "variant": null,
+          "price": "23.00",
+          "appearance": "red can with 'Ligo' branding and sardine image",
+          "category": "Can"
+        },
+        {
+          "name": "Century Tuna",
+          "variant": null,
+          "price": "24.00",
+          "appearance": "silver/white can with red 'Century Tuna' label",
+          "category": "Can"
+        },
+        {
+          "name": "San Marino",
+          "variant": null,
+          "price": "34.00",
+          "appearance": "yellow can labeled 'San Marino'",
+          "category": "Can"
+        },
+        {
+          "name": "555 Tuna Caldereta",
+          "variant": "Caldereta",
+          "price": "22.00",
+          "appearance": "yellow can with '555' logo and tuna caldereta label",
+          "category": "Can"
+        },
+        {
+          "name": "Winner Meat Loaf",
+          "variant": null,
+          "price": "19.00",
+          "appearance": "red/white can labeled 'Winner Meat Loaf'",
+          "category": "Can"
+        },
+        {
+          "name": "Mega Squid",
+          "variant": null,
+          "price": "43.00",
+          "appearance": "dark blue can labeled 'Mega Squid'",
+          "category": "Can"
+        },
+        {
+          "name": "King Cup Sardines",
+          "variant": null,
+          "price": "22.00",
+          "appearance": "red can with 'King Cup Sardines' label",
+          "category": "Can"
+        },
+        {
+          "name": "Hunts Pork & Beans",
+          "variant": "Pork & Beans",
+          "price": "24.00",
+          "appearance": "red can with 'Hunts' logo and pork & beans label",
+          "category": "Can"
+        },
+        {
+          "name": "555 Tuna Flakes in Oil",
+          "variant": "Flakes in Oil",
+          "price": "27.00",
+          "appearance": "red/yellow can labeled '555 Tuna Flakes in Oil'",
+          "category": "Can"
+        },
+        {
+          "name": "WOW Carne Norte",
+          "variant": null,
+          "price": "50.00",
+          "appearance": "green can with 'WOW Carne Norte' label",
+          "category": "Can"
+        },
+        {
+          "name": "555 Vienna Sausage",
+          "variant": "Vienna Sausage",
+          "price": "39.00",
+          "appearance": "blue can labeled '555 Vienna Sausage'",
+          "category": "Can"
+        },
+        {
+          "name": "Hekkaido Mackerel",
+          "variant": "Mackerel",
+          "price": "59.00",
+          "appearance": "blue can with 'Hekkaido Mackerel' label and fish graphic",
+          "category": "Can"
+        },
+        {
+          "name": "Star Nutri-Meats",
+          "variant": "Meat Loaf",
+          "price": "25.00",
+          "appearance": "gold/tan can labeled 'Star Nutri-Meats Meat Loaf'",
+          "category": "Can"
+        },
+        {
+          "name": "West Uni-Pak",
+          "variant": null,
+          "price": "27.00",
+          "appearance": "white can with 'Uni-Pak' text",
+          "category": "Can"
+        },
+        {
+          "name": "Bonggang",
+          "variant": null,
+          "price": "46.00",
+          "appearance": "red/maroon can labeled 'Bonggang'",
+          "category": "Can"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a tall metal shelving unit stocked entirely with canned goods - corned beef, meat loaf, sardines, tuna, vienna sausage, and squid from brands like Century Tuna, CDO, Ligo, 555, Star, and Argentina. To the left, two glass-door refrigerated cases holding bottled water and soda/soft drinks are visible in the background. An overhead aisle sign reading 'Water/Soda, Dairies, Soup' with the number 3 hangs above, though it does not describe this particular canned-goods shelf.",
+      "shelf_type": [
+        "Can"
+      ],
+      "sign_text": "Water/Soda / Dairies / Soup / 3"
+    },
+    "route_hints": {
+      "60": {
+        "to": 60,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Can"
+        ]
+      },
+      "11": {
+        "to": 52,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      },
+      "58": {
+        "to": 58,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit"
+        ]
+      }
+    }
+  },
+  "62": {
+    "id": 62,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      63,
+      10
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.12513719999999998,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "items": [
+        {
+          "name": "Clover Chips",
+          "variant": "Cheese Day",
+          "price": null,
+          "appearance": "green bag with blue banner, cheese flavor chips",
+          "category": "Chips"
+        },
+        {
+          "name": "Moby Caramel Puffs",
+          "variant": "Caramel",
+          "price": null,
+          "appearance": "yellow bag with corn puff graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Piattos",
+          "variant": "Sour Cream & Onion",
+          "price": null,
+          "appearance": "green bag, potato crisps",
+          "category": "Chips"
+        },
+        {
+          "name": "Pringles",
+          "variant": "Cheese",
+          "price": "119.05",
+          "appearance": "orange cylindrical can with mascot face",
+          "category": "Chips"
+        },
+        {
+          "name": "Lucky Me! Pancit Canton",
+          "variant": "Chilimansi",
+          "price": "14.00",
+          "appearance": "green package with bowl of noodles graphic",
+          "category": "Noodles"
+        },
+        {
+          "name": "Jin Ramen",
+          "variant": "Mild",
+          "price": "64.05",
+          "appearance": "red and white package with Korean text, Ottogi brand",
+          "category": "Noodles"
+        },
+        {
+          "name": "Ottogi Cup Noodles",
+          "variant": null,
+          "price": "21.05",
+          "appearance": "small white cup noodle container",
+          "category": "Noodles"
+        },
+        {
+          "name": "Pretzel Twists",
+          "variant": null,
+          "price": null,
+          "appearance": "pink bag with pretzel graphic",
+          "category": "Biscuit"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": null,
+          "price": "6.00",
+          "appearance": "black and orange bag, potato chips",
+          "category": "Chips"
+        },
+        {
+          "name": "Chippy Corn Chips",
+          "variant": "Nacho Crisples BBQ",
+          "price": "32.00",
+          "appearance": "red bag with bowl of chips graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Nik-Nik",
+          "variant": "Cheddar Cheese",
+          "price": "169.00",
+          "appearance": "large cylindrical can, orange and yellow label",
+          "category": "Chips"
+        },
+        {
+          "name": "Chippy Corn Chips",
+          "variant": "Nacho Crisples Cheese",
+          "price": "32.00",
+          "appearance": "yellow bag with bowl of chips graphic",
+          "category": "Chips"
+        },
+        {
+          "name": "Cheezy",
+          "variant": null,
+          "price": null,
+          "appearance": "blue bag with cheese curls graphic",
+          "category": "Chips"
+        }
+      ],
+      "semantic_summary": "This checkpoint faces a shelving unit stocked with a mix of potato/corn chip snacks on the upper shelves and instant noodle products (Pancit Canton, Jin Ramen, cup noodles) on the middle and lower shelves; a second, similarly stocked shelf unit is visible further away across an open gap in the wall.",
+      "shelf_type": [
+        "Chips",
+        "Noodles"
+      ],
+      "sign_text": null
+    },
+    "route_hints": {
+      "63": {
+        "to": 63,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      },
+      "10": {
+        "to": 20,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Can",
+          "Chips"
+        ]
+      }
+    }
+  },
+  "63": {
+    "id": 63,
+    "topology_kind": "shelf",
+    "classify_label": "shelf",
+    "effective_kind": "shelf",
+    "neighbors": [
+      62,
+      11
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.1701294,
+    "views": [
+      "STANDING",
+      "CROUCHED"
+    ],
+    "annotation": {
+      "semantic_summary": "This shelving unit holds a mix of bagged snack chips (puffs, potato chips, corn chips, pretzels) on the upper and middle shelves and instant noodle products (pancit canton, ramen, cup noodles) on the lower and floor-level shelves, with a similar shelving unit visible to the left.",
+      "shelf_type": [
+        "Chips",
+        "Noodles"
+      ],
+      "sign_text": null,
+      "items": [
+        {
+          "name": "Moby Caramel Puffs",
+          "variant": "Caramel",
+          "price": "14.00",
+          "appearance": "yellow bag with cartoon spider mascot",
+          "category": "Chips"
+        },
+        {
+          "name": "Piattos",
+          "variant": "Sour Cream & Onion",
+          "price": "16.00",
+          "appearance": "dark green bag with potato chip logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Clover Chips",
+          "variant": "Cheese",
+          "price": "7.00",
+          "appearance": "white and green bag, 'Cheese Day!' banner",
+          "category": "Chips"
+        },
+        {
+          "name": "Pringles",
+          "variant": "Cheese",
+          "price": "119.00",
+          "appearance": "orange cylindrical can with mustache logo",
+          "category": "Chips"
+        },
+        {
+          "name": "Lucky Me! Pancit Canton",
+          "variant": "Chilimansi",
+          "price": "14.00",
+          "appearance": "dark green pack with bowl of noodles photo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Jin Ramen",
+          "variant": "Mild",
+          "price": "64.00",
+          "appearance": "yellow pack with red Korean text and bowl photo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Indomie",
+          "variant": "Mi Goreng",
+          "price": "18.00",
+          "appearance": "red and white pack with fried noodle and egg photo",
+          "category": "Noodles"
+        },
+        {
+          "name": "Cup Noodles",
+          "variant": "Seafood",
+          "price": "21.00",
+          "appearance": "blue cup-shaped instant noodle container",
+          "category": "Noodles"
+        },
+        {
+          "name": "Mr. Chips",
+          "variant": null,
+          "price": "5.00",
+          "appearance": "blue bag potato snack",
+          "category": "Chips"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": "Sweet Chili",
+          "price": "6.00",
+          "appearance": "black bag potato chips",
+          "category": "Chips"
+        },
+        {
+          "name": "Pretzel Twists",
+          "variant": null,
+          "price": "9.00",
+          "appearance": "pink bag with pretzel shapes",
+          "category": "Chips"
+        },
+        {
+          "name": "Criss Cross",
+          "variant": "Creamy Cheese",
+          "price": "6.00",
+          "appearance": "orange bag potato chips",
+          "category": "Chips"
+        },
+        {
+          "name": "Chipsy Corn Chips",
+          "variant": "Nacho Crispies BBQ",
+          "price": "32.00",
+          "appearance": "red bag with corn chip bowl photo",
+          "category": "Chips"
+        },
+        {
+          "name": "Pik-Nik",
+          "variant": "Cheddar Cheese",
+          "price": "169.00",
+          "appearance": "large red cylindrical can",
+          "category": "Chips"
+        },
+        {
+          "name": "Chipsy Corn Chips",
+          "variant": "Nacho Crispies Cheese",
+          "price": "32.00",
+          "appearance": "yellow bag with corn chip bowl photo",
+          "category": "Chips"
+        },
+        {
+          "name": "Cheezy",
+          "variant": null,
+          "price": "7.00",
+          "appearance": "blue bag cheese-flavored chips",
+          "category": "Chips"
+        }
+      ]
+    },
+    "route_hints": {
+      "62": {
+        "to": 62,
+        "hops": 1,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      },
+      "11": {
+        "to": 52,
+        "hops": 2,
+        "kind": "shelf",
+        "holds": [
+          "Chips",
+          "Noodles"
+        ]
+      }
+    }
+  },
+  "64": {
+    "id": 64,
+    "topology_kind": "landmark",
+    "classify_label": null,
+    "effective_kind": "landmark",
+    "neighbors": [
+      35
+    ],
+    "backend": "claude-cli",
+    "model": "sonnet",
+    "effort": "medium",
+    "cost_equiv_usd": 0.0653125,
+    "views": [
+      "STANDING"
+    ],
+    "annotation": {
+      "semantic_summary": "This checkpoint is at a self-checkout station, positioned against a corner wall. A checkout terminal with a screen displaying a welcome/start prompt and a barcode scanner unit is visible in front of the agent, with a countertop surface below it.",
+      "sign_text": "Welcome to Self Checkout! Start scanning your items / Start"
+    },
+    "route_hints": {
+      "35": {
+        "to": 31,
+        "hops": 3,
+        "kind": "shelf",
+        "holds": [
+          "Biscuit",
+          "other"
+        ]
+      }
+    }
+  }
+}

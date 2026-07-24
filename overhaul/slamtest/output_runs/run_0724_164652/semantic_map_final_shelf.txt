@@ -1,0 +1,220 @@
+# Semantic map (rendered from annotations + graph)
+
+## Checkpoint 18 [shelf] at (-4.45, 4.55)
+This checkpoint faces a glass-doored refrigerated case stocked entirely with bottled water (Pocari Sweat, Nature's Spring, Wilkins Pure, Absolute, Le Mineral, Summit, and Refresh brands), arranged across three shelves with price tags along each shelf edge. A separate glass-doored cooler holding sodas (Coke, Sprite, Pepsi) is visible at the right edge of frame but is a different fixture.
+Holds: Water.
+Connects to: 19, 0.
+
+## Checkpoint 19 [shelf] at (-4.75, 4.55)
+This checkpoint faces a glass-door refrigerated case stocked entirely with bottled water of many brands (Nature's Spring, Pocari Sweat, Re Fresh, pure, Le Mineral, Absolute, Summit, W), arranged across four shelves with individual price tags on the shelf edges. A blank illuminated sign panel sits above the case but shows no text.
+Holds: Water.
+Connects to: 18, 1.
+
+## Checkpoint 20 [shelf] at (-3.05, 2.65)
+This checkpoint faces a double-sided center end-cap fixture: the right face holds stacked canned goods (sardines, corn, and similar canned items) while the left face holds hanging bagged snack items. A wall clock and a partially visible overhead sign reading 'Canne...' (likely Canned Goods) are visible, with additional soup/noodle shelving visible at the edges of view to either side.
+Holds: Can, Chips.
+Connects to: 0, 10, 21.
+
+## Checkpoint 21 [shelf] at (-4.55, 2.65)
+This checkpoint faces a snack shelf stocked mainly with potato and corn chip bags (Vcut, Criss Cross, Clover Chips, Tostitos, Calbee, Pik-Nik) on the lower two shelves, with instant noodle pouches and cup noodles (Jin Ramen, Lucky Me! Pancit Canton, Indomie) along the top shelf. No aisle signage or other navigational landmarks are visible from this spot.
+Holds: Chips, Noodles.
+Connects to: 0, 10, 20.
+
+## Checkpoint 22 [shelf] at (-3.75, 4.55)
+This checkpoint faces two glass-door refrigerated cases side by side: the left case is stocked with bottled water (Nature's Spring, Pure W, Wilkins, Summit, Nature Fresh) across multiple shelves, while the right case holds sodas and juices (Coca-Cola, Sprite, Pepsi, Mountain Dew, Royal, Dalandan, Cobra energy drink). Both units have price tags along each shelf edge and a blank sign panel above the left case.
+Holds: Water, Soda.
+Connects to: 23, 0.
+
+## Checkpoint 23 [shelf] at (-2.45, 4.55)
+This checkpoint faces a row of glass-door refrigerated beverage cases stocked with bottled sodas (Coca-Cola, Sprite, RC Cola, Royal, Pepsi, Cobra, Milkis) and bottled water, with a neighboring cooler visible at the edge holding cartons of plant milk (Oatside) and dairy drinks (Daily Quezo). A tan wall section separates this fridge run from the adjacent cooler.
+Holds: Soda, Water.
+Connects to: 22, 9, 24.
+
+## Checkpoint 24 [shelf] at (-2.25, 3.85)
+This checkpoint faces a tall shelf stocked entirely with bagged and canned chip snacks (Nik, Lesli's, Oishi, Jack 'n Jill, Pringles, Calbee, and others), with dense rows of variously flavored chip bags from top to bottom. Overhead hanging signs read 'Chips / Canned Food' and 'Noodles / Chips', and a self-checkout kiosk with a counter is visible in the open area ahead, alongside another chip/noodle shelf further along the wall.
+Holds: Chips.
+Connects to: 0, 9, 23.
+
+## Checkpoint 25 [non_shelf] at (4.95, 3.95)
+The view from this checkpoint is filled entirely by a plain, textured surface (appears to be a wall or flat panel in a muted olive-grey tone) with no distinguishing features, products, or signage visible. No aisle openings, doorways, or other navigational landmarks can be discerned from this spot.
+Connects to: 26, 2.
+
+## Checkpoint 26 [non_shelf] at (4.95, 2.15)
+From this checkpoint the camera faces a plain, close-up textured surface (an olive-green wall or panel) that fills the entire frame; no aisle openings, doorways, signage, or other navigational features are visible from this spot.
+Connects to: 25, 27, 28.
+
+## Checkpoint 27 [non_shelf] at (4.95, 0.35)
+This checkpoint's view is filled entirely by a close-up of a plain textured surface (likely a wall or obstruction directly in front of the camera), with no discernible aisle, doorway, signage, or navigational features visible from this spot.
+Connects to: 26, 8.
+
+## Checkpoint 28 [shelf] at (3.05, 2.15)
+This checkpoint faces a double-sided end-cap shelf stocked with canned goods on one face and bagged snack/chip products on the other, with a glass-door refrigerated case visible beyond it and additional shelving units of packaged goods further back near the wall.
+Holds: Can, Chips.
+Connects to: 2, 8, 26.
+
+## Checkpoint 29 [non_shelf] at (3.65, 4.95)
+This checkpoint faces a blank, textured wall surface (plain olive-green paint) filling the entire view, with no shelving, products, doorway, or signage visible from this spot.
+Connects to: 30, 2.
+
+## Checkpoint 30 [non_shelf] at (2.65, 4.95)
+This checkpoint view shows only a blank, textured wall surface at close range, filling the entire frame with no distinguishing features, objects, or signage visible from this spot.
+Connects to: 29, 13.
+
+## Checkpoint 31 [shelf] at (-1.45, -3.45)
+A tall biscuit and snack-cake shelf run stocked mainly with cookies, wafers, sticks, and a few boxed breakfast cereals (Kellogg's, Nestle), with a smaller snack-food end-cap visible off to the left along a side wall.
+Holds: Biscuit, other.
+Connects to: 32, 3, 36.
+
+## Checkpoint 32 [shelf] at (0.25, -3.45)
+This shelf fixture is stocked mainly with packaged biscuits, wafers, cookies, and chocolate-coated snacks (brands like Hello Panda, Pocky, Schogetten, Richoco, Fita, Danisa, Mamon), with a few breakfast cereal boxes (Koko Krunch, Coco Pops, Gold Corn Flakes) mixed in on the lower shelves. An overhead aisle sign reading '2 / Chips / Canned' is visible above the fixture.
+Holds: Biscuit, other.
+Connects to: 31, 33, 37.
+
+## Checkpoint 33 [shelf] at (1.95, -3.45)
+This shelf holds a mix of packaged snack foods and breakfast cereals - cookies, biscuit sticks, crackers, and cereal boxes from brands like Nestle, Kellogg's, Lotte, and Glico. An aisle sign labeled 'Aisle 2 - Chips / Canned...' hangs to the left, and the shelf run ends here opening onto an open floor area beside a plain wall.
+Holds: Biscuit, other.
+Connects to: 32, 34, 38.
+
+## Checkpoint 34 [shelf] at (2.95, -1.75)
+This checkpoint faces the end of a biscuit/cookie shelf stocked with Danish butter cookie tins, RITZ cracker boxes, and various wafer-stick snacks. From here, an open floor area leads toward low shelving units holding chips and canned goods, with a canned-goods aisle visible to the right and overhead aisle signs marking numbered sections (1: Chips, 2: Chips/Canned Food, 3: Water/Soda, Dairies, Soup).
+Holds: Biscuit.
+Connects to: 33, 7, 40.
+
+## Checkpoint 35 [non_shelf] at (-3.15, -4.95)
+The image is essentially a blank, out-of-focus olive/tan colored surface with no discernible features, objects, text, or edges visible. It appears the camera may be extremely close to or obstructed by a plain surface (such as a wall or blurred obstruction), making it impossible to identify any navigational features from this viewpoint.
+Connects to: 36, 3, 64.
+
+## Checkpoint 36 [non_shelf] at (-1.45, -4.95)
+This view is essentially a blank, out-of-focus close-up of a flat surface (likely a wall or object directly in front of the camera), showing only a plain olive/tan color gradient with no discernible features, products, signage, or navigational landmarks visible.
+Connects to: 35, 37, 31.
+
+## Checkpoint 37 [non_shelf] at (0.25, -4.95)
+This view shows only a plain, featureless surface (likely a wall or close obstruction) filling the entire frame, with no discernible objects, signage, or navigational cues visible from this spot.
+Connects to: 36, 38, 32.
+
+## Checkpoint 38 [non_shelf] at (1.95, -4.95)
+This checkpoint's view is almost entirely filled by a plain, featureless olive-green surface with no visible edges, objects, or signage - likely a wall or other flat surface positioned very close to the camera. No aisle openings, doorways, or other navigational features can be discerned from this spot.
+Connects to: 37, 39, 33.
+
+## Checkpoint 39 [non_shelf] at (3.65, -4.95)
+The image shows only a flat, uniformly colored olive/grey-green surface filling the entire frame with no discernible objects, edges, signage, or spatial features. It's likely a close-up of a wall, panel, or obstruction directly in front of the camera at this checkpoint, giving no navigationally useful detail.
+Connects to: 38, 40.
+
+## Checkpoint 40 [non_shelf] at (4.95, -1.95)
+The camera is extremely close to a plain textured surface (likely a wall or floor) filling the entire frame in a flat olive-green color; no aisle openings, doorways, signage, or other navigational features are visible from this spot.
+Connects to: 39, 7, 34.
+
+## Checkpoint 41 [non_shelf] at (-4.25, -4.15)
+This checkpoint is at a self-checkout station: a scanner/POS terminal with a screen displaying a "Welcome to Self Checkout!" prompt sits against a plain textured wall, with mostly bare wall visible to the right of the kiosk.
+Connects to: 3, 4.
+
+## Checkpoint 42 [shelf] at (-2.85, -2.65)
+This checkpoint faces the end of a shelf aisle stocked with biscuits, cookies, and snack crackers (Mamon, Pocky, Ube Filled Crackers) alongside canned goods on an adjacent run of shelving to the left. An aisle number sign reading "2" hangs from the ceiling near the shelf's near end, and open floor space stretches out to the right beyond the shelf's end.
+Holds: Biscuit, Can.
+Connects to: 3, 4.
+
+## Checkpoint 43 [shelf] at (-4.55, -2.55)
+This checkpoint faces an instant-noodle shelf stocked with Lucky Me! Pancit Canton, Indomie Mi Goreng packs, Jin Ramen (Ottogi) bags, and Nissin Cup Noodles cups arranged across three shelf levels, each with its own price tag on the shelf edge.
+Holds: Noodles.
+Connects to: 4, 6.
+
+## Checkpoint 44 [shelf] at (-0.75, 3.95)
+A snack-food shelving unit stocked with bagged and canned chips, crackers, and pretzel-style snacks from brands like Oishi, Jack'n Jill/Chippy, Pringles, Piknik, Leslie's, Calbee, and Kamayong King, arranged across four shelf levels.
+Holds: Chips, Biscuit.
+Connects to: 5, 9, 45.
+
+## Checkpoint 45 [shelf] at (-0.75, 4.95)
+This checkpoint faces a dry-goods shelf stocked with instant soup and porridge mixes - Maya Champorado, Ajinomoto Soup&Go cups, and White King Champ-O-Rado boxes arranged in rows with price tags along the shelf edge. A separate glass-fronted refrigerated dairy case (milk, yogurt drinks, cheese) is visible on the left side of the frame, across a gap from this shelf.
+Holds: Soup.
+Connects to: 46, 5, 44.
+
+## Checkpoint 46 [shelf] at (-2.15, 4.55)
+This checkpoint faces two adjoining glass-door refrigerated cases separated by a support pillar: the left case holds bottled sodas and soft drinks, while the right case holds milk and dairy-based beverages/cartons.
+Holds: Soda, Dairies.
+Connects to: 45, 9.
+
+## Checkpoint 47 [shelf] at (-0.55, 4.95)
+This checkpoint sits at a corner where a glass-door dairy refrigerator meets a dry-goods shelf stocked with instant soup and porridge mixes; a blank overhead sign panel is visible above the fridge.
+Holds: Dairies, Soup.
+Connects to: 48, 5, 50.
+
+## Checkpoint 48 [shelf] at (0.95, 4.55)
+A shelf stocked entirely with instant breakfast porridge and soup-mix boxes - Aji brand 'Champorado' chocolate rice porridge and 'Soup & Go' cups, and White King 'Champ-O-Rado' boxes - arranged across three shelf levels against a plain wall.
+Holds: Soup, other.
+Connects to: 47, 49, 51.
+
+## Checkpoint 49 [non_shelf] at (2.45, 4.95)
+This checkpoint faces a plain textured wall taking up most of the view, with the vertical edge of a shelving unit visible at the left edge of frame. There is no aisle opening, doorway, or product display directly visible from this spot.
+Connects to: 48, 13.
+
+## Checkpoint 50 [shelf] at (-0.55, 3.95)
+This checkpoint faces a tall multi-tier shelving unit stocked with bagged and canned snack chips - prawn crackers, potato chips, pretzel twists, cheese curls/rings, and choco-filled pillow crackers from brands like Oishi, Pringles, Jack 'n Jill, Pik-Nik, Bangkok King, Leslie's, Chipsy, Loaded!, and Criss Cross. A red-bordered aisle sign is visible on the ceiling in the background but its text is not legible from here.
+Holds: Chips, Biscuit.
+Connects to: 51, 5, 47.
+
+## Checkpoint 51 [shelf] at (0.95, 3.95)
+This checkpoint faces a multi-tier metal shelving unit stocked entirely with bagged and canned chips, crackers, and savory snacks (Pringles, Pik-Nik, Oishi, Leslie's Clover Chips, Piattos, Vcut, and similar brands). A hanging overhead sign reading "Chips / Canned Food" is visible to the upper right, and the shelf ends against a tan-colored wall on the left.
+Holds: Chips, Biscuit.
+Connects to: 50, 13, 48.
+
+## Checkpoint 52 [shelf] at (-4.55, 0.35)
+This shelf holds a mix of instant noodle products (Pancit Canton, Jin Ramen, Indomie cup and packet noodles) on its upper level and bagged/canned potato and corn chip snacks (Piattos, Criss Cross, Pringles, Chipsy, Cheezy, Mr. Chips, Pretzel Twists) on its middle level, with an identical duplicate noodle display on a low front table. Another shelving unit is visible at the right edge of the frame.
+Holds: Chips, Noodles.
+Connects to: 6, 11.
+
+## Checkpoint 53 [shelf] at (2.95, -1.65)
+This checkpoint faces a shelf stocked with biscuits, crackers, and wafer-style snacks, including a visible RITZ cracker box. Overhead aisle signs read '1' (partially obscured), '2: Chips / Canned Food', and '3: Water/Soda / Dairies / Soup', with additional snack and canned-goods shelving visible across the open floor ahead.
+Holds: Biscuit.
+Connects to: 7, 8, 54.
+
+## Checkpoint 54 [non_shelf] at (4.95, -1.65)
+The image shows only a flat, featureless textured surface (likely a wall or obstruction) filling the entire frame at close range, with no visible aisle, doorway, signage, or navigational features discernible from this spot.
+Connects to: 55, 7, 53.
+
+## Checkpoint 55 [non_shelf] at (4.95, 0.15)
+This view shows only a plain, featureless textured surface (a wall or blank panel) filling the entire frame, with no products, signage, or navigational features visible from this spot.
+Connects to: 54, 8.
+
+## Checkpoint 56 [shelf] at (1.95, -0.55)
+This checkpoint faces a shelf stocked with imported cookies, biscuits, wafer sticks, and a few cereal boxes (brands like Danisa, Pocky, Pepero, Hello Panda, Kellogg's, and Nestle). A 'Chips' aisle sign for aisle 1 is visible at the upper right edge of the frame.
+Holds: Biscuit, other.
+Connects to: 57, 8, 59.
+
+## Checkpoint 57 [shelf] at (0.05, -0.55)
+This checkpoint faces a multi-tier shelf stocked mainly with packaged biscuits, wafers, cookies, crackers, and chocolate-coated sticks (Pocky, Pepero, Hello Panda, Danisa, Richoco), along with some boxed cereals (Kellogg's, Nestlé Honey Stars). An overhead aisle sign reading 'Chips' is visible in the distance but does not label this particular shelf.
+Holds: Biscuit, other.
+Connects to: 56, 58, 60.
+
+## Checkpoint 58 [shelf] at (-1.75, -0.55)
+This checkpoint faces a metal shelving unit stocked with packaged snack biscuits and cookies (Pepero, Pocky, Hello Panda, Danisa, Frootees, Kellogg's cereal-branded snacks, Schogetten chocolate, and similar boxed treats), with a hanging aisle sign reading "Chips" visible above. A self-checkout kiosk and counter stand to the right of the shelf, on open floor.
+Holds: Biscuit.
+Connects to: 57, 11, 61.
+
+## Checkpoint 59 [shelf] at (1.95, 1.05)
+This checkpoint faces a canned goods shelf stocked densely with corned beef, tuna, sardines, meat loaf, mushrooms, and squid cans (brands like Argentina, 555, San Marino, CDO, Century, Ligo, Mega, Bongga). The shelf sits at the end of an aisle where a tan-colored wall corner is visible open to the right, suggesting this is near a store corner with no through-passage in that direction.
+Holds: Can.
+Connects to: 60, 8, 56.
+
+## Checkpoint 60 [shelf] at (0.05, 1.05)
+This checkpoint faces a tall canned-goods shelf stocked with Filipino canned meats and seafood - tuna, sardines, corned beef, squid, mackerel, vienna sausage, mushrooms and similar canned products from brands like 555, San Marino, Bingo, Argentina, Mega, Star, CDO, Uni-Pak and Lucky 7. Rows of shelf-edge price tags run beneath each product row, and no aisle signage or other navigational landmarks are visible from this spot.
+Holds: Can.
+Connects to: 59, 61, 57.
+
+## Checkpoint 61 [shelf] at (-1.75, 1.05)
+This checkpoint faces a tall metal shelving unit stocked entirely with canned goods - corned beef, meat loaf, sardines, tuna, vienna sausage, and squid from brands like Century Tuna, CDO, Ligo, 555, Star, and Argentina. To the left, two glass-door refrigerated cases holding bottled water and soda/soft drinks are visible in the background. An overhead aisle sign reading 'Water/Soda, Dairies, Soup' with the number 3 hangs above, though it does not describe this particular canned-goods shelf.
+Holds: Can.
+Connects to: 60, 11, 58.
+
+## Checkpoint 62 [shelf] at (-4.65, 1.15)
+This checkpoint faces a shelving unit stocked with a mix of potato/corn chip snacks on the upper shelves and instant noodle products (Pancit Canton, Jin Ramen, cup noodles) on the middle and lower shelves; a second, similarly stocked shelf unit is visible further away across an open gap in the wall.
+Holds: Chips, Noodles.
+Connects to: 63, 10.
+
+## Checkpoint 63 [shelf] at (-4.55, 0.25)
+This shelving unit holds a mix of bagged snack chips (puffs, potato chips, corn chips, pretzels) on the upper and middle shelves and instant noodle products (pancit canton, ramen, cup noodles) on the lower and floor-level shelves, with a similar shelving unit visible to the left.
+Holds: Chips, Noodles.
+Connects to: 62, 11.
+
+## Checkpoint 64 [landmark] at (-3.85, -5.05)
+This checkpoint is at a self-checkout station, positioned against a corner wall. A checkout terminal with a screen displaying a welcome/start prompt and a barcode scanner unit is visible in front of the agent, with a countertop surface below it.
+Connects to: 35.

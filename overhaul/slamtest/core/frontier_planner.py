@@ -208,10 +208,30 @@ def astar(grid, start_cell, goal_cell, connectivity=8, window_radius=None, occup
     return None
 
 
-def _line_of_sight(grid, a, b, occupied_mask=None):
+def _line_of_sight(grid, a, b, occupied_mask=None, ignore_start=False):
+    """True if every cell on the Bresenham line a->b is passable.
+
+    ignore_start skips the passability test on `a` itself (the first cell of the
+    line). simplify_path passes it True because its anchor `a` is always a cell
+    the agent legitimately occupies - the path's start (the agent's CURRENT
+    position) or a waypoint A* already verified reachable - and the start cell
+    can itself be inside the body_radius inflation when the agent is parked right
+    against a shelf (its own cell within body_radius of an occupied cell, e.g.
+    a shelf hit at lateral 0.30m with body_radius 0.30m). MEASURED 2026-07-24:
+    testing that endpoint made EVERY shortcut from the start fail, so
+    simplify_path emitted the start as a duplicate first waypoint and the
+    executor was handed to_world(start) == its own position as the target - a
+    dist~0 step read as a false 'path blocked' with the forward arc wide open
+    (clearance 4.17m), which then looped replan->same-degenerate-path forever
+    until the no-movement circuit breaker ended the run with the map half-built
+    (the recurring 'blocked path premature end' at a shelf edge). Only `a` is
+    exempt; every cell strictly BETWEEN a and b is still tested, so a shortcut
+    can never cut a corner through a real obstacle."""
     if occupied_mask is None:
         occupied_mask = grid.log_odds > grid.OCCUPIED_THRESHOLD
-    for cx, cz in _bresenham_line(a[0], a[1], b[0], b[1]):
+    for idx, (cx, cz) in enumerate(_bresenham_line(a[0], a[1], b[0], b[1])):
+        if ignore_start and idx == 0:
+            continue
         if not _passable(occupied_mask, grid, (cx, cz)):
             return False
     return True
@@ -237,12 +257,27 @@ def simplify_path(path_cells, grid, occupied_mask=None):
     simplified = [path_cells[0]]
     anchor_idx = 0
     for i in range(1, len(path_cells)):
-        if not _line_of_sight(grid, path_cells[anchor_idx], path_cells[i], occupied_mask):
+        # ignore_start: the anchor is always a cell the agent legitimately stands on (the
+        # start, i.e. its current position, or an already-verified waypoint), so its own
+        # occupancy must never veto a shortcut - only the cells between it and the target
+        # matter. Without this, an inflated start cell (agent parked against a shelf) failed
+        # every shortcut and produced a degenerate duplicate-start path. See _line_of_sight.
+        if not _line_of_sight(grid, path_cells[anchor_idx], path_cells[i], occupied_mask,
+                              ignore_start=True):
             simplified.append(path_cells[i - 1])
             anchor_idx = i - 1
     if simplified[-1] != path_cells[-1]:
         simplified.append(path_cells[-1])
-    return simplified
+    # Drop any consecutive-duplicate cells before returning: a zero-length leading segment
+    # must never reach the executor, which reads to_world(cell) as the waypoint and would
+    # see it equal its own position (dist~0 -> false 'path blocked'). ignore_start above
+    # already removes the known cause, but this keeps the "waypoints are distinct cells"
+    # invariant regardless of how the list was built.
+    deduped = [simplified[0]]
+    for cell in simplified[1:]:
+        if cell != deduped[-1]:
+            deduped.append(cell)
+    return deduped
 
 
 class PlannerState(Enum):

@@ -269,6 +269,161 @@ def test_category_real_catalog_if_present():
         sc._CATEGORY_LEXICON = None  # don't leak the real lexicon into hermetic tests
 
 
+# --- cereal alias: catalog has NO 'Cereal' category (all filed under Biscuit), CLAUDE.md thread #5 ---
+
+def test_cereal_alias_grants_real_cereal():
+    # THE MEASURED 2026-07-24 refusal: target 'cereal', held KELLOGG'S_COCO_POPS_30G (a real cereal) was
+    # refused because 'cereal' is no catalog category, so it was a distinctive token demanding the
+    # literal substring "cereal" in the SKU. The alias is self-contained (needs no sim files) and must
+    # now GRANT. Force a real merge; reset in finally so hermetic tests don't inherit it.
+    sc._CATEGORY_LEXICON = None
+    try:
+        st = _state(leftGrippedState=True, gripped_name="KELLOGG'S_COCO_POPS_30G")
+        ok, reason = completion_predicate({"type": "pickup", "target": "cereal"}, st)
+        assert ok is True, reason
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_cereal_alias_refuses_non_cereal_biscuit():
+    # The alias SKU list is TIGHT: a Pocky (also under Biscuit, but NOT a cereal) must still refuse -
+    # proving the alias did not loosen 'cereal' to the whole Biscuit category.
+    sc._CATEGORY_LEXICON = None
+    try:
+        st = _state(rightGrippedState=True, gripped_name="GLICO_POCKY_CHOCOLATE_20G")
+        assert _granted({"type": "pickup", "target": "cereal"}, st) is False
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_cereal_alias_covers_all_six_skus():
+    # Completeness: every cereal that hides in Biscuit resolves, not just Coco Pops.
+    sc._CATEGORY_LEXICON = None
+    try:
+        for sku in ("KELLOGG'S_COCO_POPS_30G", "KELLOGG'S_FROOT_LOOPS_25G", "KELLOGG'S_FROSTIES_30G",
+                    "NESTLE_GOLD_CORN_FLAKES_275G", "NESTLE_HONEYSTARS_ORIGINAL_300G",
+                    "NESTLE_KOKOKRUNCH_CHOCOLATE_330G"):
+            st = _state(leftGrippedState=True, gripped_name=sku)
+            assert _granted({"type": "pickup", "target": "cereal"}, st) is True, sku
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_named_cereal_still_matches_distinctively():
+    # A NAMED cereal must still match on its own tokens (the alias must not have broken the normal path).
+    sc._CATEGORY_LEXICON = None
+    try:
+        st = _state(leftGrippedState=True, gripped_name="KELLOGG'S_COCO_POPS_30G")
+        assert _granted({"type": "pickup", "target": "Coco Pops"}, st) is True
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+# --- more aliases (2026-07-24): candy/chocolate bars, dairy cheese/yogurt, phrase aliases ---
+
+def _real_lex():
+    """Force the real merge; the aliases are self-contained (no sim files needed). Callers reset in a
+    finally so hermetic tests don't inherit the real lexicon."""
+    sc._CATEGORY_LEXICON = None
+
+
+def test_candy_and_chocolate_alias_the_bars():
+    _real_lex()
+    try:
+        for sku in ("SCHOGETTEN_ALPINE_MILK_100G", "LINDT_HELLO_CRUNCHY_NOUGAT_100G",
+                    "M&M'S_MILK_CHOCOLATE_87.9G", "KINDER_TRONKY_5x18G"):
+            st = _state(leftGrippedState=True, gripped_name=sku)
+            assert _granted({"type": "pickup", "target": "candy"}, st) is True, sku
+            assert _granted({"type": "pickup", "target": "chocolate"}, st) is True, sku
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_chocolate_alias_excludes_choco_flavored_biscuit():
+    # 'chocolate' as a bare token used to match 21 items across 4 categories (a flavor word). As a
+    # tight alias a choco-FLAVORED biscuit (Pocky) is NOT a chocolate bar and must refuse...
+    _real_lex()
+    try:
+        st = _state(leftGrippedState=True, gripped_name="GLICO_POCKY_CHOCOLATE_20G")
+        assert _granted({"type": "pickup", "target": "chocolate"}, st) is False
+        # ...but naming that biscuit still works via its distinctive brand token.
+        assert _granted({"type": "pickup", "target": "Pocky chocolate"}, st) is True
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_cheese_alias_dairy_only():
+    _real_lex()
+    try:
+        for sku in ("EDEN_ORIGINAL_CHEESE_160G", "MAGNOLIA_CHEEZEE_160G", "MAGNOLIA_DAILYQUEZO_160g"):
+            st = _state(leftGrippedState=True, gripped_name=sku)
+            assert _granted({"type": "pickup", "target": "cheese"}, st) is True, sku
+        # a cheese-FLAVORED chip is not dairy cheese
+        st = _state(leftGrippedState=True, gripped_name="LESLIES_CLOVERCHIPS_CHEESE_85G")
+        assert _granted({"type": "pickup", "target": "cheese"}, st) is False
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_yogurt_alias():
+    _real_lex()
+    try:
+        for sku in ("CIMORY_YOGURT_ORIGINAL_100G", "DUTCHMILL_PROYO_STRAWBERRY_400ML",
+                    "PASCUAL_GREEK_MANGO_250ML", "BAUER_FRUFRU_150G"):
+            st = _state(leftGrippedState=True, gripped_name=sku)
+            assert _granted({"type": "pickup", "target": "yogurt"}, st) is True, sku
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_phrase_alias_energy_drink_includes_sting():
+    # The whole point of the phrase alias: Sting is an energy drink but its SKU has no 'energy'.
+    _real_lex()
+    try:
+        for sku in ("COBRA_ENERGY_DRINK_350ML", "REDBULL_ENERGY_DRINK_150ML", "STING_330ML"):
+            st = _state(leftGrippedState=True, gripped_name=sku)
+            assert _granted({"type": "pickup", "target": "energy drink"}, st) is True, sku
+        st = _state(leftGrippedState=True, gripped_name="SPRITE_LEMON_LIME_DRINK_500ML")
+        assert _granted({"type": "pickup", "target": "energy drink"}, st) is False
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_phrase_alias_specific_brand_still_wins():
+    # 'Cobra energy drink' names Cobra - the phrase must NOT short-circuit past the distinctive 'cobra'
+    # and grant a Red Bull.
+    _real_lex()
+    try:
+        st = _state(leftGrippedState=True, gripped_name="REDBULL_ENERGY_DRINK_150ML")
+        assert _granted({"type": "pickup", "target": "Cobra energy drink"}, st) is False
+        st2 = _state(leftGrippedState=True, gripped_name="COBRA_ENERGY_DRINK_350ML")
+        assert _granted({"type": "pickup", "target": "Cobra energy drink"}, st2) is True
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_phrase_alias_soy_and_oat_milk():
+    _real_lex()
+    try:
+        st = _state(leftGrippedState=True, gripped_name="VITAMILK_300ML")
+        assert _granted({"type": "pickup", "target": "soy milk"}, st) is True
+        st = _state(leftGrippedState=True, gripped_name="OATSIDE_CHOCOLATE_1L")
+        assert _granted({"type": "pickup", "target": "oat milk"}, st) is True
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
+def test_bare_milk_unaffected_by_phrase_aliases():
+    # Regression guard: the soy/oat-milk phrases must not neutralize a BARE 'milk' target - 'pick up
+    # milk' still matches a real milk (distinctive token, no phrase present).
+    _real_lex()
+    try:
+        st = _state(leftGrippedState=True, gripped_name="COWHEAD_PURE_MILK_1L")
+        assert _granted({"type": "pickup", "target": "milk"}, st) is True
+    finally:
+        sc._CATEGORY_LEXICON = None
+
+
 # --- distinctive-token matching: the cross-brand false GRANT (2026-07-23) ---
 
 def test_false_grant_cross_brand_refused():

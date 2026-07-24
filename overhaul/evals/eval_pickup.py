@@ -24,7 +24,6 @@ Caps: --max-steps timesteps or --max-minutes wall-clock per task, whichever firs
 hits a cap scores success=False with whatever partial metrics it earned - report honestly.
 """
 import argparse
-import ast
 import base64
 import json
 import os
@@ -40,7 +39,9 @@ if _OVERHAUL_DIR not in sys.path:
 
 from agent_core.agent import EmbodiedAgent, ucl_qwen_config
 from sim.env import _REQUEST_SCREENSHOT_, downscale_for_storage
-from orchestrator.subtask_agents import dispatch_action, _fresh_agent_state, write_step_output
+from orchestrator.subtask_agents import (
+    dispatch_action, _fresh_agent_state, write_step_output, parse_actor_response,
+)
 from sim.hand_reset import reset_hands_in_front2
 
 # Targets verified present in the live store and reachable on open shelving (fridge items are
@@ -171,9 +172,11 @@ def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
             log({"event": "agent_stop", "step": step})
             break
 
-        try:
-            parsed = ast.literal_eval(EXTRACT.search(response["text"])[1])
-        except Exception:
+        # Same tolerant parse as the orchestrator (parse_actor_response) so the A/B baseline and the
+        # orchestrator recover the identical set of actor replies - a "Kellogg's" apostrophe must not
+        # waste a step here while the orchestrator salvages it, or the comparison drifts.
+        parsed = parse_actor_response(response["text"], EXTRACT)
+        if parsed is None:
             m["errors"] += 1
             log({"event": "parse_error", "step": step, "raw": response["text"][:400]})
             continue

@@ -85,6 +85,11 @@ MEASURED - DO NOT RE-ATTEMPT (2026-07, all on cp067 captures):
     MAX_READING_DISTANCE_M was 1.5m - parked just outside the legible range.
   * Thinking must be OFF (chat_template_kwargs={"enable_thinking": False}). With it on, Qwen3.6
     spent all 2048 tokens reasoning, fell into a repetition loop, and returned content=None.
+    Thinking OFF is necessary but not sufficient: on a dense shelf of near-identical facings, greedy
+    decoding (temperature=0) can still loop INSIDE the items array until it hits max_tokens (cp020,
+    2026-07-24 - a stack of Pancit Canton cups). Sampling penalties break the loop but gut recall;
+    see the measured note at the finish_reason=="length" branch in annotate_qwen.py. This is a qwen
+    decoding weakness, not a prompt bug - the claude-cli baseline does not loop on cp020.
 
 CALLER CONTRACT (the prompts below promise these; the client has to deliver them):
   * Image labelling. SYS_INST_ANNOTATE_BASE tells the model each image is labelled STANDING or

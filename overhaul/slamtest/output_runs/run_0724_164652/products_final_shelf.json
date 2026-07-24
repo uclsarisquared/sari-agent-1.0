@@ -1,0 +1,2906 @@
+[
+  {
+    "name": "Pocari Sweat",
+    "variant": null,
+    "price": null,
+    "appearance": "tall clear bottle with blue label, blue cap",
+    "category": "Water",
+    "checkpoint_id": 18
+  },
+  {
+    "name": "Nature's Spring",
+    "variant": null,
+    "price": null,
+    "appearance": "clear bottle with light blue/white label, blue cap",
+    "category": "Water",
+    "checkpoint_id": 18
+  },
+  {
+    "name": "Wilkins Pure",
+    "variant": null,
+    "price": null,
+    "appearance": "clear bottle, white label with green/blue 'pure W' logo, blue cap",
+    "category": "Water",
+    "checkpoint_id": 18
+  },
+  {
+    "name": "Absolute",
+    "variant": null,
+    "price": null,
+    "appearance": "clear bottle with dark red/green label reading 'Absolute'",
+    "category": "Water",
+    "checkpoint_id": 18
+  },
+  {
+    "name": "Le Mineral",
+    "variant": null,
+    "price": null,
+    "appearance": "clear bottle with green/blue label reading 'Le Mineral'",
+    "category": "Water",
+    "checkpoint_id": 18
+  },
+  {
+    "name": "Summit",
+    "variant": null,
+    "price": null,
+    "appearance": "clear bottle with dark blue label reading 'Summit'",
+    "category": "Water",
+    "checkpoint_id": 18
+  },
+  {
+    "name": "Refresh",
+    "variant": null,
+    "price": null,
+    "appearance": "clear bottle with red label reading 'Refresh'",
+    "category": "Water",
+    "checkpoint_id": 18
+  },
+  {
+    "name": "Nature's Spring",
+    "variant": null,
+    "price": "18.00",
+    "appearance": "clear plastic bottle, blue label with wave logo, blue cap",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "Pocari Sweat",
+    "variant": null,
+    "price": "49.00",
+    "appearance": "clear bottle with blue/navy label",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "Re Fresh",
+    "variant": null,
+    "price": "8.00",
+    "appearance": "clear bottle, red/pink label",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "pure",
+    "variant": null,
+    "price": "29.00",
+    "appearance": "clear bottle with green rounded label reading 'pure', blue cap",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "Le Mineral",
+    "variant": null,
+    "price": "17.00",
+    "appearance": "clear bottle, teal/green label",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "Absolute",
+    "variant": null,
+    "price": "21.00",
+    "appearance": "clear bottle, green label",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "Summit",
+    "variant": null,
+    "price": "11.00",
+    "appearance": "clear bottle, blue label",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "W",
+    "variant": null,
+    "price": "18.00",
+    "appearance": "clear bottle, dark navy label with large white 'W' letter",
+    "category": "Water",
+    "checkpoint_id": 19
+  },
+  {
+    "name": "Sardines",
+    "variant": null,
+    "price": null,
+    "appearance": "red and yellow label canned good, cylindrical can, text partially reading 'DINES', stacked in rows",
+    "category": "Can",
+    "checkpoint_id": 20
+  },
+  {
+    "name": "Lucky Me! Pancit Canton Chilimansi",
+    "variant": "Chilimansi",
+    "price": "14.00",
+    "appearance": "green pouch with red Lucky Me logo and photo of noodles",
+    "category": "Noodles",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Ottogi Jin Ramen Mild",
+    "variant": "Mild",
+    "price": "64.05",
+    "appearance": "yellow-topped pouch with blue 'Jin Ramen' text and bowl photo",
+    "category": "Noodles",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Indomie Mi Goreng",
+    "variant": "Goreng",
+    "price": "18.02",
+    "appearance": "red and white pouch with fried noodle photo",
+    "category": "Noodles",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Chippy Potato Chips Spicy BBQ Flavor",
+    "variant": "Spicy BBQ",
+    "price": "99.00",
+    "appearance": "orange bag, 'Potato Chips' text with red flame graphic",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Vcut Potato Chips",
+    "variant": "original/red",
+    "price": "16.02",
+    "appearance": "red bag with 'Vcut' logo",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Vcut Potato Chips Cheese",
+    "variant": "Cheese",
+    "price": "16.10",
+    "appearance": "blue bag with 'Vcut' logo",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Leslie's Clover Chips Cheesier",
+    "variant": "Cheesier",
+    "price": "32.05",
+    "appearance": "white and blue bag with clover shaped chip graphic",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Kangkong King Water Spinach Chips Original",
+    "variant": "Original",
+    "price": "149.00",
+    "appearance": "green box with cartoon king character and vegetable graphics",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Criss Cross Spicy Cheese",
+    "variant": "Spicy Cheese",
+    "price": "6.00",
+    "appearance": "orange/red bag with 'Criss Cross' crinkle chip graphic",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Pik-Nik Cheddar Cheese Shoestring Fries",
+    "variant": "Cheddar Cheese",
+    "price": "169.02",
+    "appearance": "red cylindrical can with 'Pik-Nik' logo",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Gaya Pretzel Twists",
+    "variant": null,
+    "price": "9.06",
+    "appearance": "purple bag with pretzel graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Criss Cross",
+    "variant": null,
+    "price": "6.00",
+    "appearance": "red/orange bag with 'Criss Cross' logo, ridged chip graphic",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Moby Caramel Puffs",
+    "variant": "Caramel",
+    "price": "14.09",
+    "appearance": "yellow bag with spider cartoon and 'Moby' text",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Tostitos Original Restaurant Style",
+    "variant": "Original Restaurant Style",
+    "price": "182.02",
+    "appearance": "large blue bag with tortilla chip photo and 'Tostitos' logo",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Loaded!",
+    "variant": null,
+    "price": "7.06",
+    "appearance": "yellow bag with red 'Loaded!' text",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Calbee Cheddar & Sour Cream",
+    "variant": "Cheddar & Sour Cream",
+    "price": "124.07",
+    "appearance": "orange bag with 'Calbee' logo",
+    "category": "Chips",
+    "checkpoint_id": 21
+  },
+  {
+    "name": "Nature's Spring",
+    "variant": null,
+    "price": "49.00",
+    "appearance": "clear bottled water, blue label with mountain graphic",
+    "category": "Water",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Nature Fresh",
+    "variant": null,
+    "price": "18.00",
+    "appearance": "clear bottled water, red/white label",
+    "category": "Water",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Absolute Pure Water",
+    "variant": null,
+    "price": "29.00",
+    "appearance": "clear bottle, blue cap, 'Pure W' label",
+    "category": "Water",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Wilkins",
+    "variant": "Distilled Water",
+    "price": "18.00",
+    "appearance": "clear bottle, blue cap, white 'W' logo label",
+    "category": "Water",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Summit",
+    "variant": null,
+    "price": "18.00",
+    "appearance": "clear bottled water, blue cap, blue/white label",
+    "category": "Water",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Coca-Cola",
+    "variant": null,
+    "price": "22.00",
+    "appearance": "red label plastic bottle, classic Coca-Cola script logo",
+    "category": "Soda",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Sprite",
+    "variant": null,
+    "price": "30.00",
+    "appearance": "clear/green bottle, green and yellow label",
+    "category": "Soda",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Pepsi",
+    "variant": null,
+    "price": "33.00",
+    "appearance": "blue and red bottle with Pepsi globe logo",
+    "category": "Soda",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Mountain Dew",
+    "variant": null,
+    "price": null,
+    "appearance": "green bottle, yellow/green Mountain Dew label",
+    "category": "Soda",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Royal",
+    "variant": null,
+    "price": null,
+    "appearance": "orange label bottle, 'Royal' brand",
+    "category": "Soda",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Dalandan",
+    "variant": null,
+    "price": "41.00",
+    "appearance": "orange juice bottle labeled Dalandan",
+    "category": "Juice",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Cobra",
+    "variant": "Energy Drink",
+    "price": "22.00",
+    "appearance": "tall dark bottle with Cobra snake logo",
+    "category": "Soda",
+    "checkpoint_id": 22
+  },
+  {
+    "name": "Coca-Cola",
+    "variant": null,
+    "price": null,
+    "appearance": "clear glass bottle, red cursive Coca-Cola logo",
+    "category": "Soda",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Sprite",
+    "variant": null,
+    "price": null,
+    "appearance": "green bottle with green/white Sprite label",
+    "category": "Soda",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "RC Cola",
+    "variant": null,
+    "price": "38.00",
+    "appearance": "blue and white bottle with RC logo",
+    "category": "Soda",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Royal",
+    "variant": null,
+    "price": "33.00",
+    "appearance": "red-capped bottle with white 'Royal' text",
+    "category": "Soda",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Pepsi",
+    "variant": null,
+    "price": null,
+    "appearance": "blue bottle with red/blue Pepsi globe logo",
+    "category": "Soda",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Cobra",
+    "variant": null,
+    "price": null,
+    "appearance": "dark bottle with red/black label reading 'Cobra'",
+    "category": "Soda",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Milkis",
+    "variant": null,
+    "price": null,
+    "appearance": "white bottle with blue 'Milkis' lettering and blue cap",
+    "category": "Soda",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Wilkins",
+    "variant": null,
+    "price": null,
+    "appearance": "clear bottle with blue cap and 'Wilkins' label",
+    "category": "Water",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Oatside",
+    "variant": null,
+    "price": "169.00",
+    "appearance": "black carton with white 'OATSIDE' text",
+    "category": "Dairies",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Daily Quezo",
+    "variant": null,
+    "price": null,
+    "appearance": "orange/yellow carton with 'Daily Quezo' branding",
+    "category": "Dairies",
+    "checkpoint_id": 23
+  },
+  {
+    "name": "Oishi Prawn Crackers",
+    "variant": null,
+    "price": "16",
+    "appearance": "red and white striped bag with prawn imagery",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Lesli's Clover Chips",
+    "variant": null,
+    "price": "27",
+    "appearance": "white bag with green clover chips logo",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Oishi Corn Chips Nacho Crispies BBQ",
+    "variant": "BBQ",
+    "price": "39",
+    "appearance": "yellow bag with brown BBQ chip graphic, red text 'Nacho Crispies BBQ'",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Jack 'n Jill Pic-A BBQ Overload",
+    "variant": "BBQ Overload",
+    "price": "55",
+    "appearance": "red bag with large yellow 'Pic-A' logo",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Ding Dong Cheese Ring",
+    "variant": "Cheese",
+    "price": "55",
+    "appearance": "blue bag with ring-shaped snack graphic labeled 'Cheese Ring'",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "McNik Potato Fries",
+    "variant": null,
+    "price": "169",
+    "appearance": "red cylindrical canister labeled 'Potato Fries'",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Pringles",
+    "variant": null,
+    "price": "119",
+    "appearance": "red cylindrical can with Pringles branding",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Calbee Cheddar & Sour Cream",
+    "variant": "Cheddar & Sour Cream",
+    "price": "124",
+    "appearance": "tall canister, white/orange label reading 'Cheddar & Sour Cream'",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Clover Chips Cheesier",
+    "variant": "Cheesier",
+    "price": "32",
+    "appearance": "white bag with yellow cheese-flavored chip graphic labeled 'Cheesier'",
+    "category": "Chips",
+    "checkpoint_id": 24
+  },
+  {
+    "name": "Grits",
+    "variant": null,
+    "price": null,
+    "appearance": "Red cylindrical can with yellow/white lettering reading 'Grits', stacked in rows on a middle shelf tier",
+    "category": "Can",
+    "checkpoint_id": 28
+  },
+  {
+    "name": "House of Polvoron HOP",
+    "variant": "Soft Cookies",
+    "price": "150.00",
+    "appearance": "red/orange box with rice-cake style cookies pictured, white lettering",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Kellogg's Froot Loops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "colorful cereal box with rings and mascot",
+    "category": "other",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Danisa Traditional Butter Cookies",
+    "variant": null,
+    "price": "366.00",
+    "appearance": "dark blue/navy square tin-style box with gold crest and cookie photo",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Fita Spreadz",
+    "variant": "Spicy Tuna",
+    "price": "69.94",
+    "appearance": "green and red box with cracker sandwich image",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Kellogg's Frosties",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "yellow/red cereal box with tiger mascot",
+    "category": "other",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Hansel Crackers",
+    "variant": null,
+    "price": "9.00",
+    "appearance": "yellow/tan cracker box",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Hello Panda",
+    "variant": null,
+    "price": "43.00",
+    "appearance": "brown box with panda mascot, biscuit cookies image",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Pepero",
+    "variant": "Double Choco Filled",
+    "price": "55.05",
+    "appearance": "dark purple/navy box, Lotte branding, choco stick image",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Frootees",
+    "variant": null,
+    "price": "60.00",
+    "appearance": "pink/purple box with fruit-filled biscuit sandwiches pictured",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Mamon Twin Packs",
+    "variant": "Cheesy Flavor",
+    "price": "63.00",
+    "appearance": "yellow and white striped box, muffin/mamon cake image, Lemon Square branding",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Richoco Wafer",
+    "variant": null,
+    "price": "11.01",
+    "appearance": "dark brown/black box with wafer bar image",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Pocky",
+    "variant": "Crushed Fruits",
+    "price": "62.20",
+    "appearance": "red box with strawberry-dipped sticks image, Glico branding",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": "44.95",
+    "appearance": "dark brown box with chocolate-coated sticks image, Glico branding",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Nestle Honey Stars",
+    "variant": "Lion King",
+    "price": "229.00",
+    "appearance": "blue box with lion character and honey cereal bowl image",
+    "category": "other",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Nestle Gold Corn Flakes",
+    "variant": null,
+    "price": "161.05",
+    "appearance": "green and white box with corn flakes image",
+    "category": "other",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Grandbisco Ube Filled Crackers",
+    "variant": null,
+    "price": "6.08",
+    "appearance": "yellow/green pouch with purple ube filling graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Nissin Cubee Wafer",
+    "variant": null,
+    "price": "10.00",
+    "appearance": "yellow small pouch, cube wafer image",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Lava Cake",
+    "variant": null,
+    "price": "7.08",
+    "appearance": "small red/brown pouch with chocolate cake image",
+    "category": "Biscuit",
+    "checkpoint_id": 31
+  },
+  {
+    "name": "Frootees",
+    "variant": null,
+    "price": "60.07",
+    "appearance": "orange and white box with cartoon face logo",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Kellogg's Frosties",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "red and blue box with tiger mascot",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Hansel Crackers",
+    "variant": null,
+    "price": "9.00",
+    "appearance": "blue box labeled 'Hansel Crackers'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Lava Cake",
+    "variant": null,
+    "price": "7.08",
+    "appearance": "gold wrapper chocolate cake bar",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Jolly",
+    "variant": null,
+    "price": null,
+    "appearance": "purple box labeled 'Jolly', 5 pairs marshmallow-type biscuit",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Choco Mallows",
+    "variant": null,
+    "price": "38.00",
+    "appearance": "yellow box, chocolate covered marshmallow biscuits",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Choco Coated Pie",
+    "variant": null,
+    "price": "5.00",
+    "appearance": "red box labeled 'Choco Coated Pie'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Schogetten",
+    "variant": "Alpine Milk Chocolate",
+    "price": "94.00",
+    "appearance": "blue box, 'Schogetten Alpine Milk Chocolate'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Choco Crunchies",
+    "variant": null,
+    "price": "80.01",
+    "appearance": "dark green/black box, 'Choco Crunchies' chocolate covered biscuits",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Hello Panda",
+    "variant": null,
+    "price": "43.00",
+    "appearance": "pink box with panda mascot",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Fita Spreadz",
+    "variant": null,
+    "price": "69.04",
+    "appearance": "red box, sandwich biscuits, 'Fita Spread'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Mamon Twin Packs",
+    "variant": "Cheesy Flavor",
+    "price": "63.00",
+    "appearance": "yellow box with cupcake image, 'Mamon Twin Packs'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Richoco Wafer",
+    "variant": null,
+    "price": "11.09",
+    "appearance": "dark brown/black box, 'Richoco Wafer'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": "27.00",
+    "appearance": "red box, chocolate covered biscuit sticks",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": "50.00",
+    "appearance": "white/cream box, cream covered biscuit sticks",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Danisa Traditional Butter Cookies",
+    "variant": null,
+    "price": "366.00",
+    "appearance": "dark blue tin box, 'Danisa Traditional Butter Cookies'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Bissin Blackcurrant Wafers",
+    "variant": null,
+    "price": "60.00",
+    "appearance": "purple box, 'Bissin Premium Blackcurrant Wafers'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Nissin Cubee Wafer",
+    "variant": null,
+    "price": "10.00",
+    "appearance": "small yellow pack, 'Nissin Cubee Wafer'",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Nestle Gold Corn Flakes",
+    "variant": null,
+    "price": null,
+    "appearance": "green and white box, 'Nestle Gold Corn Flakes'",
+    "category": "other",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Pepero",
+    "variant": "Choco Filled",
+    "price": "56.00",
+    "appearance": "orange box, 'Pepero choco filled' biscuit sticks",
+    "category": "Biscuit",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Koko Krunch",
+    "variant": null,
+    "price": "208.00",
+    "appearance": "brown box, Nestle 'Koko Krunch' cereal with cartoon character",
+    "category": "other",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Kellogg's Coco Pops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "small box, Kellogg's 'Coco Pops'",
+    "category": "other",
+    "checkpoint_id": 32
+  },
+  {
+    "name": "Hello Panda",
+    "variant": null,
+    "price": "43.00",
+    "appearance": "brown/red box with panda character",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Fita Spreadz",
+    "variant": null,
+    "price": "69.05",
+    "appearance": "green and red package",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Nestle Honey Stars",
+    "variant": "Whole Grain, Real Honey",
+    "price": "229.00",
+    "appearance": "dark blue box with rooster/lion king characters",
+    "category": "other",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Lava Cake",
+    "variant": null,
+    "price": "7.28",
+    "appearance": "dark chocolate bar wrapper",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "HOP Crisp Rice",
+    "variant": "with Stevia",
+    "price": "150.00",
+    "appearance": "white box, red HOP logo, image of crackers",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Kellogg's Frosties",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "blue box with tiger mascot",
+    "category": "other",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Pepero",
+    "variant": "double choco filled",
+    "price": "55.00",
+    "appearance": "dark purple box, Lotte brand",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Kellogg's Froot Loops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "colorful box with toucan character",
+    "category": "other",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": "27.00",
+    "appearance": "pink box, Glico brand",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Frootees",
+    "variant": "Strawberry",
+    "price": "60.07",
+    "appearance": "white and yellow package with fruit graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Pocky",
+    "variant": "Crushed Fruits",
+    "price": "62.10",
+    "appearance": "red box, Glico brand",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Jolly",
+    "variant": null,
+    "price": "134.00",
+    "appearance": "purple package",
+    "category": "other",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Pepero",
+    "variant": "choco filled",
+    "price": "56.05",
+    "appearance": "orange/brown box, Lotte brand",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Ritz Crackers",
+    "variant": "Original, 3 packs",
+    "price": "229.00",
+    "appearance": "red box with cracker image",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Koko Krunch",
+    "variant": "Chocolate Taste",
+    "price": "208.00",
+    "appearance": "dark green/red box with cereal character",
+    "category": "other",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Nestle Gold Corn Flakes",
+    "variant": "Tasty & Crunchy",
+    "price": "161.05",
+    "appearance": "tan box with corn graphic",
+    "category": "other",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Grandbisco White Choco Filled Crackers",
+    "variant": null,
+    "price": "6.08",
+    "appearance": "yellow bag with cracker image",
+    "category": "Biscuit",
+    "checkpoint_id": 33
+  },
+  {
+    "name": "Danish Butter Cookies",
+    "variant": null,
+    "price": null,
+    "appearance": "red rectangular box with image of a blue tin of butter cookies, white 'Danish' script text",
+    "category": "Biscuit",
+    "checkpoint_id": 34
+  },
+  {
+    "name": "RITZ",
+    "variant": "Tasty Cheese (partially legible)",
+    "price": null,
+    "appearance": "red and orange box with blue 'RITZ' logo, cracker imagery",
+    "category": "Biscuit",
+    "checkpoint_id": 34
+  },
+  {
+    "name": "Mamon",
+    "variant": "Twin Pack",
+    "price": null,
+    "appearance": "yellow box with red script logo, sponge cake illustration",
+    "category": "Biscuit",
+    "checkpoint_id": 42
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": null,
+    "appearance": "red box with white lettering, biscuit stick snack",
+    "category": "Biscuit",
+    "checkpoint_id": 42
+  },
+  {
+    "name": "Ube Filled Crackers",
+    "variant": null,
+    "price": null,
+    "appearance": "yellow packet with purple ube character illustration, 'Gardenia Co' style branding",
+    "category": "Biscuit",
+    "checkpoint_id": 42
+  },
+  {
+    "name": "Lucky Me! Pancit Canton",
+    "variant": "Chilimansi (green pack)",
+    "price": "14.00",
+    "appearance": "green plastic pack with noodle bowl photo, red Lucky Me logo",
+    "category": "Noodles",
+    "checkpoint_id": 43
+  },
+  {
+    "name": "Indomie",
+    "variant": "Mi goreng",
+    "price": "18.00",
+    "appearance": "red and yellow plastic pack with noodle bowl and egg photo",
+    "category": "Noodles",
+    "checkpoint_id": 43
+  },
+  {
+    "name": "Nissin Cup Noodles",
+    "variant": null,
+    "price": "21.00",
+    "appearance": "white/blue cup with plastic lid, red Nissin branding",
+    "category": "Noodles",
+    "checkpoint_id": 43
+  },
+  {
+    "name": "Jin Ramen",
+    "variant": "Mild",
+    "price": "64.00",
+    "appearance": "yellow plastic pack, Ottogi logo, blue lettering 'Jin Ramen MILD', bowl photo",
+    "category": "Noodles",
+    "checkpoint_id": 43
+  },
+  {
+    "name": "Oishi Prawn Crackers",
+    "variant": null,
+    "price": "27.05",
+    "appearance": "red and yellow striped bag with prawn imagery",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Pringles",
+    "variant": "Original",
+    "price": "119.05",
+    "appearance": "tall orange cylindrical can with mustache logo",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Jack 'n Jill Pic-A BBQ Overload",
+    "variant": "BBQ",
+    "price": "55.05",
+    "appearance": "red bag with bold 'Pic-A' logo",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Piknik Cheddar Cheese",
+    "variant": "Cheddar Cheese",
+    "price": "169.00",
+    "appearance": "red cylindrical can with fries image",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Oishi Pillows",
+    "variant": "Choco Filled Crackers",
+    "price": "10.05",
+    "appearance": "yellow bag with mustache mascot logo",
+    "category": "Biscuit",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Kamayong King Water Spinach Chips",
+    "variant": "Original",
+    "price": "149.00",
+    "appearance": "green box with cartoon chef logo",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Chipsy Cheese Ring",
+    "variant": "Cheese Flavored Snack",
+    "price": "55.00",
+    "appearance": "blue bag with orange ring-shaped snack graphic",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Knick Knacks",
+    "variant": null,
+    "price": "20.00",
+    "appearance": "dark blue/black bag with red accents",
+    "category": "Nuts",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Leslie's Clover Chips",
+    "variant": null,
+    "price": "39.02",
+    "appearance": "white bag with green clover logo and clover-shaped chips graphic",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Chippy Corn Chips",
+    "variant": "Nacho Crispies Cheese",
+    "price": "32.00",
+    "appearance": "yellow bag with bowl of corn chips graphic",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Loaded!",
+    "variant": "White Choc-Mallow Snack",
+    "price": "16.09",
+    "appearance": "white bag with red banner logo",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Chippy Potato Chips",
+    "variant": "Spicy BBQ",
+    "price": "99.00",
+    "appearance": "orange bag, potato chip graphic",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Oishi Potato Fries",
+    "variant": "Garlic Chili",
+    "price": "16.59",
+    "appearance": "green bag with fries graphic",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Choco Pretzel Twists",
+    "variant": "Choco Filled",
+    "price": "9.04",
+    "appearance": "blue bag with pretzel graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Pretzel Twists",
+    "variant": null,
+    "price": "9.04",
+    "appearance": "pink/purple bag with pretzel graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Criss Cross",
+    "variant": "Croissant Fries Snack",
+    "price": "6.00",
+    "appearance": "black bag with orange criss-cross snack graphic",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Calbee Cheddar & Sour Cream",
+    "variant": "Cheddar & Sour Cream",
+    "price": "124.00",
+    "appearance": "orange bag with Calbee logo",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Chippy Corn Chips Nacho Crispies",
+    "variant": "Cheese",
+    "price": "32.00",
+    "appearance": "yellow bag, corn chip bowl graphic",
+    "category": "Chips",
+    "checkpoint_id": 44
+  },
+  {
+    "name": "Maya Champorado",
+    "variant": "Chocolate Rice Porridge Mix, 227g",
+    "price": "74.05",
+    "appearance": "Red and yellow box with bowl of chocolate porridge photo, white lettering 'Champorado'",
+    "category": "Soup",
+    "checkpoint_id": 45
+  },
+  {
+    "name": "Ajinomoto Soup&Go",
+    "variant": "Creamy Potato, 3x19.2g",
+    "price": "85.00",
+    "appearance": "Yellow box with potato and creamy soup bowl photo",
+    "category": "Soup",
+    "checkpoint_id": 45
+  },
+  {
+    "name": "Ajinomoto Soup&Go",
+    "variant": "Creamy Corn, 3x19.2g",
+    "price": "85.00",
+    "appearance": "Green box with corn cob and soup bowl photo",
+    "category": "Soup",
+    "checkpoint_id": 45
+  },
+  {
+    "name": "Ajinomoto Soup&Go",
+    "variant": "Creamy Pumpkin, 3x19.2g",
+    "price": "85.00",
+    "appearance": "Orange/red box with pumpkin soup bowl photo",
+    "category": "Soup",
+    "checkpoint_id": 45
+  },
+  {
+    "name": "White King Champ-O-Rado",
+    "variant": "Real Cocoa & Malagkit Rice, 113g",
+    "price": "36.05",
+    "appearance": "Large yellow box with black 'White King' banner and bowl of chocolate rice porridge photo, '5 bowls' badge",
+    "category": "Soup",
+    "checkpoint_id": 45
+  },
+  {
+    "name": "RC Cola",
+    "variant": null,
+    "price": "35.00",
+    "appearance": "clear plastic bottle, red and white RC logo, dark cola liquid",
+    "category": "Soda",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Royal",
+    "variant": "Tru-Orange",
+    "price": "38.00",
+    "appearance": "clear plastic bottle with orange liquid, red cap, Royal branding",
+    "category": "Soda",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Sprite",
+    "variant": null,
+    "price": "37.05",
+    "appearance": "green-tinted plastic bottle, green cap, Sprite lettering",
+    "category": "Soda",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Milkis",
+    "variant": null,
+    "price": "19.05",
+    "appearance": "white/cream colored plastic bottle with blue cap, Milkis label",
+    "category": "Soda",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Vita Milk",
+    "variant": null,
+    "price": "29.20",
+    "appearance": "white carton with blue/green Vita Milk logo",
+    "category": "Dairies",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Oatside",
+    "variant": null,
+    "price": "146.00",
+    "appearance": "tall white and dark carton/box labeled OATSIDE",
+    "category": "Dairies",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Eden Melt Sarap",
+    "variant": null,
+    "price": "95.20",
+    "appearance": "yellow and blue box with Eden Melt Sarap branding",
+    "category": "Dairies",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Cowhead Pure Milk",
+    "variant": null,
+    "price": "102.00",
+    "appearance": "carton with blue Cowhead cow logo, 'Pure Milk' text",
+    "category": "Dairies",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Daily Quezo",
+    "variant": null,
+    "price": null,
+    "appearance": "blue box with yellow sun graphic, 'Daily Quezo' text",
+    "category": "Dairies",
+    "checkpoint_id": 46
+  },
+  {
+    "name": "Eden Melt Sarap",
+    "variant": null,
+    "price": "95.08",
+    "appearance": "yellow and white cheese box behind fridge glass",
+    "category": "Dairies",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Daily Quezo",
+    "variant": null,
+    "price": null,
+    "appearance": "blue box with sun logo, 'Daily Quezo' text, behind fridge glass",
+    "category": "Dairies",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Cowhead Pure Milk",
+    "variant": "1L",
+    "price": "102.00",
+    "appearance": "carton with black 'Cowhead Pure Milk' branding and pouring milk graphic",
+    "category": "Dairies",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "ProYo",
+    "variant": "Strawberry 400ml",
+    "price": "49.05",
+    "appearance": "clear bottle with pink cap and pink liquid, 'ProYo' label",
+    "category": "Dairies",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Delight",
+    "variant": "Original 400ml",
+    "price": "57.04",
+    "appearance": "clear bottle with white/red cap, 'Delight' label",
+    "category": "Dairies",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Maya Champorado",
+    "variant": "227g",
+    "price": "74.06",
+    "appearance": "yellow and red box with sun swirl graphic, 'Champorado Chocolate Rice Porridge Mix'",
+    "category": "other",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Ajinomoto Soup&Go",
+    "variant": "Creamy Potato, 3x19.2g",
+    "price": "85.00",
+    "appearance": "yellow box with potato graphic, 'Soup & Go' text",
+    "category": "Soup",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Ajinomoto Soup&Go",
+    "variant": "Corn, 3x19.2g",
+    "price": "85.00",
+    "appearance": "green box with corn graphic, 'Soup & Go' text",
+    "category": "Soup",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Ajinomoto Soup&Go",
+    "variant": "Pumpkin, 3x19.2g",
+    "price": "85.00",
+    "appearance": "orange box with pumpkin graphic, 'Soup & Go' text",
+    "category": "Soup",
+    "checkpoint_id": 47
+  },
+  {
+    "name": "Champ-O-Rado",
+    "variant": "Real Cocoa & Malagkit Rice, up to 5 bowls",
+    "price": "36.05",
+    "appearance": "Yellow box with red White King logo, photo of chocolate rice porridge in blue bowl",
+    "category": "Soup",
+    "checkpoint_id": 48
+  },
+  {
+    "name": "Champorado",
+    "variant": "Chocolate Rice Porridge Mix",
+    "price": "74.00",
+    "appearance": "Dark brown/maroon box with swirled porridge bowl graphic, Aji small logo",
+    "category": "Soup",
+    "checkpoint_id": 48
+  },
+  {
+    "name": "Soup & Go",
+    "variant": "Corn",
+    "price": "85.00",
+    "appearance": "Green-topped box with cup of yellow corn soup photo, Aji logo",
+    "category": "Soup",
+    "checkpoint_id": 48
+  },
+  {
+    "name": "Soup & Go",
+    "variant": "Potato",
+    "price": "85.00",
+    "appearance": "White/cream box with cup of creamy potato soup photo, Aji logo",
+    "category": "Soup",
+    "checkpoint_id": 48
+  },
+  {
+    "name": "Soup & Go",
+    "variant": "Pumpkin",
+    "price": "85.00",
+    "appearance": "Orange-topped box with cup of orange pumpkin soup photo, Aji logo",
+    "category": "Soup",
+    "checkpoint_id": 48
+  },
+  {
+    "name": "Oishi Prawn Crackers",
+    "variant": null,
+    "price": "27.05",
+    "appearance": "red and yellow striped bag with shrimp graphic",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Pringles",
+    "variant": "Original",
+    "price": "119.05",
+    "appearance": "red cylindrical canister with mustache-man logo",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Potato Fries",
+    "variant": null,
+    "price": "16.10",
+    "appearance": "red and white bag showing fried potato sticks",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Jack 'n Jill Pic-A",
+    "variant": "BBQ Overload",
+    "price": "55.05",
+    "appearance": "red package with snack mix photo",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Pik-Nik",
+    "variant": "Cheddar Cheese",
+    "price": "109.05",
+    "appearance": "red cylindrical can, cheese curls",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Bangkok King Water Spinach Chips",
+    "variant": "Original",
+    "price": "149.00",
+    "appearance": "green box with leafy vegetable graphic",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Pillows",
+    "variant": "Choco Filled Crackers",
+    "price": "10.05",
+    "appearance": "yellow and black bag, pillow-shaped crackers",
+    "category": "Biscuit",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Leslie's Clover Chips",
+    "variant": "Cheesier",
+    "price": "32.05",
+    "appearance": "white bag with corn/clover graphic and yellow cheese burst",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Loaded!",
+    "variant": "White Choc Mint",
+    "price": "16.00",
+    "appearance": "white bag with blue accents",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Cheese Ring",
+    "variant": "Cheese Flavored Snack",
+    "price": "55.00",
+    "appearance": "orange bag showing ring-shaped cheese puffs",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Chipsy Potato Chips",
+    "variant": "Spicy BBQ Flavor",
+    "price": "99.00",
+    "appearance": "orange bag with chip graphic",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Criss Cross",
+    "variant": "Crisscut Fries Sea Salt",
+    "price": "6.00",
+    "appearance": "black bag with crisscut fry graphic",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Choco Pretzel Twists",
+    "variant": null,
+    "price": "9.00",
+    "appearance": "blue bag with pretzel twist graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Chipsy Corn Chips",
+    "variant": "Nacho Crispies Cheese",
+    "price": "32.00",
+    "appearance": "yellow bag with corn chip graphic",
+    "category": "Chips",
+    "checkpoint_id": 50
+  },
+  {
+    "name": "Pringles Original",
+    "variant": "Original",
+    "price": "119.05",
+    "appearance": "tall red cylindrical can, mustache logo",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Pik-Nik Cheddar Cheese",
+    "variant": "Cheddar Cheese",
+    "price": "109.05",
+    "appearance": "orange cylindrical can",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Chippy Corn Chips",
+    "variant": "Nacho Cheese",
+    "price": "32.00",
+    "appearance": "yellow bag with bowl of corn chips graphic",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Oishi Prawn Crackers",
+    "variant": null,
+    "price": "27.05",
+    "appearance": "red and yellow striped bag with shrimp graphic",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Gaya Pretzel Twists",
+    "variant": null,
+    "price": "9.04",
+    "appearance": "purple bag with pretzel graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Criss Cross",
+    "variant": "Creamy Cheese",
+    "price": "6.00",
+    "appearance": "orange/red bag, potato chip lattice graphic",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Oishi Pillows",
+    "variant": "Choco Filled Crackers",
+    "price": "10.05",
+    "appearance": "dark green/black bag with pillow-shaped crackers",
+    "category": "Biscuit",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Leslie's Clover Chips",
+    "variant": "Cheese",
+    "price": "39.05",
+    "appearance": "white bag with green clover logo",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Leslie's Clover Chips Cheesier",
+    "variant": "Cheesier",
+    "price": "32.05",
+    "appearance": "blue/white bag with clover logo",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Potato Fries",
+    "variant": null,
+    "price": "16.10",
+    "appearance": "red and white bag, fries graphic",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Piattos",
+    "variant": "Sour Cream & Onion",
+    "price": "16.05",
+    "appearance": "green bag with diamond logo",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Vcut",
+    "variant": "Potato Chips",
+    "price": "16.10",
+    "appearance": "red bag, V-shaped chip graphic",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Jackpot King Water Spinach Chips",
+    "variant": "Original",
+    "price": "149.00",
+    "appearance": "green box with cartoon king mascot",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Mr. Chips",
+    "variant": null,
+    "price": "5.00",
+    "appearance": "blue bag, cheese flavored corn snack",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Cheezy Corn Crunch",
+    "variant": "Spicy & Cheesy",
+    "price": "26.05",
+    "appearance": "red/yellow bag, corn snack with face graphic",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Leslie's Cheezy",
+    "variant": "With Calamansi",
+    "price": "7.05",
+    "appearance": "blue bag, cheese snack",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Chippy Cheese Ring",
+    "variant": "Cheese Flavored Snack",
+    "price": "55.00",
+    "appearance": "blue package, ring-shaped cheese snacks",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Knick Knacks",
+    "variant": null,
+    "price": null,
+    "appearance": "black package with colorful graphic",
+    "category": "Chips",
+    "checkpoint_id": 51
+  },
+  {
+    "name": "Moby Caramel Puffs",
+    "variant": "Caramel",
+    "price": "14.09",
+    "appearance": "yellow bag with black spider logo",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Piattos",
+    "variant": "Sour Cream & Onion",
+    "price": "16.05",
+    "appearance": "dark green bag with diamond Piattos logo",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Lestio's Clover Chips",
+    "variant": "Cheese",
+    "price": "7.01",
+    "appearance": "white and green bag, 'Cheese to Day!' banner, clover leaf logo",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Pringles",
+    "variant": "Cheese",
+    "price": "119.05",
+    "appearance": "orange cylindrical can with mustache logo",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Indomie",
+    "variant": "Cup Noodles",
+    "price": "21.05",
+    "appearance": "white cup with red lid, Indomie branding",
+    "category": "Noodles",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Indomie",
+    "variant": "Mi Goreng",
+    "price": "18.02",
+    "appearance": "red packet with photo of fried noodles and egg",
+    "category": "Noodles",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Lucky Me! Pancit Canton",
+    "variant": "Chilimansi",
+    "price": "14.00",
+    "appearance": "dark green packet with round photo of noodle dish",
+    "category": "Noodles",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Jin Ramen",
+    "variant": "Mild",
+    "price": "64.05",
+    "appearance": "yellow packet with Ottogi branding and bowl photo",
+    "category": "Noodles",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Mr. Chips",
+    "variant": "Cheese Flavored Corn Chips",
+    "price": "5.09",
+    "appearance": "blue bag with Jack 'n Jill branding",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Criss Cross",
+    "variant": "BBQ",
+    "price": "6.09",
+    "appearance": "black bag, potato chips, BBQ flavor labeling",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Pretzel Twists",
+    "variant": null,
+    "price": "9.04",
+    "appearance": "pink bag with pretzel photo",
+    "category": "other",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Criss Cross",
+    "variant": "Creamy Onion",
+    "price": "6.09",
+    "appearance": "orange/red bag, potato chips",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Chipsy Corn Chips",
+    "variant": "Nacho Crispies BBQ",
+    "price": "32.00",
+    "appearance": "red bag with bowl of corn chips photo",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Pik-Nik Cheddar Cheese",
+    "variant": "Shoestring",
+    "price": "169.02",
+    "appearance": "red cylindrical can with shoestring potato photo",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Chipsy Corn Chips",
+    "variant": "Nacho Crispies Cheese",
+    "price": "32.00",
+    "appearance": "yellow bag with bowl of corn chips photo",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "Cheezy",
+    "variant": null,
+    "price": "7.01",
+    "appearance": "blue bag, Lestio's Cheezy corn chips",
+    "category": "Chips",
+    "checkpoint_id": 52
+  },
+  {
+    "name": "RITZ",
+    "variant": "Tasty",
+    "price": null,
+    "appearance": "Orange and red box with blue RITZ logo, cracker product",
+    "category": "Biscuit",
+    "checkpoint_id": 53
+  },
+  {
+    "name": "Danisa Traditional Butter Cookies",
+    "variant": null,
+    "price": "366.00",
+    "appearance": "dark blue rectangular tin-style box with gold crown logo and image of butter cookies",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Pepero",
+    "variant": "Choco Filled",
+    "price": "56.05",
+    "appearance": "orange box with red Pepero logo, image of chocolate-coated biscuit sticks",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "mamon",
+    "variant": "Twin Packs, Cheesy Flavor",
+    "price": "63.00",
+    "appearance": "yellow box with image of muffin-like mamon cakes",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Hello Panda",
+    "variant": null,
+    "price": "43.00",
+    "appearance": "pink/red box with panda cartoon character",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Hansel",
+    "variant": null,
+    "price": "9.00",
+    "appearance": "yellow and blue striped box of sandwich cookies",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Frootees",
+    "variant": "Grape",
+    "price": "60.27",
+    "appearance": "purple and white box with fruit-shaped cookie graphics",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Kellogg's Coco Pops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "red and yellow cereal box with cartoon monkey character",
+    "category": "other",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Kellogg's Froot Loops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "colorful cereal box with fruit loop rings graphic",
+    "category": "other",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "White Choco Filled Crackers",
+    "variant": null,
+    "price": "6.08",
+    "appearance": "yellow bag labeled 'Grandbisco White Choco Filled Crackers'",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Honey Stars",
+    "variant": "Lion King edition, with Real Honey",
+    "price": "229.00",
+    "appearance": "dark blue cereal box with Lion King character graphic, Nestle logo",
+    "category": "other",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Fita Spreadz",
+    "variant": "Spicy Tuna",
+    "price": "69.06",
+    "appearance": "green and red packet with cracker sandwich image",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Pepero",
+    "variant": "Crunchy",
+    "price": "44.00",
+    "appearance": "dark brown/maroon box with Pepero logo",
+    "category": "Biscuit",
+    "checkpoint_id": 56
+  },
+  {
+    "name": "Hello Panda",
+    "variant": null,
+    "price": "43.00",
+    "appearance": "red and yellow box with cartoon panda mascot",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "HOP Crisp Rice",
+    "variant": "soft cookies",
+    "price": "150.00",
+    "appearance": "white box with red 'HOP' logo, House of Polvoron brand",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Danisa Traditional Butter Cookies",
+    "variant": null,
+    "price": "366.00",
+    "appearance": "round dark blue and gold tin with photo of butter cookies",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": null,
+    "appearance": "slim red box with photo of chocolate-coated biscuit sticks",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Pepero",
+    "variant": "Double Choco Filled",
+    "price": "44.00",
+    "appearance": "dark purple/black box with chocolate stick photo, Lotte logo",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Kellogg's Froot Loops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "red box with colorful cereal loops",
+    "category": "other",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Kellogg's Coco Pops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "blue box with chocolate cereal balls",
+    "category": "other",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Hansel Crackers",
+    "variant": null,
+    "price": "9.00",
+    "appearance": "yellow box with 'Hansel Crackers' text",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Choco Mallows",
+    "variant": null,
+    "price": "38.00",
+    "appearance": "yellow box with melting marshmallow/chocolate illustration",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Bisrin Premium Blackcurrant Wafers",
+    "variant": null,
+    "price": "60.00",
+    "appearance": "purple box with wafer photo and blackcurrant leaf graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Lava Cake",
+    "variant": null,
+    "price": "7.98",
+    "appearance": "gold/brown wrapper bar, Meiji logo, chocolate lava cake photo",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Richoco Wafer",
+    "variant": null,
+    "price": "11.99",
+    "appearance": "dark red/brown box with wafer photo",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Nissin Cube Wafer",
+    "variant": null,
+    "price": "10.00",
+    "appearance": "small yellow box, partially obscured",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Ube Filled Crackers",
+    "variant": null,
+    "price": "6.98",
+    "appearance": "purple bag, Grandbisco brand, ube-filled crackers text",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "White Choco Filled Crackers",
+    "variant": null,
+    "price": "6.00",
+    "appearance": "white and yellow bag, Grandbisco brand",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Nestlé Honey Stars",
+    "variant": null,
+    "price": "229.00",
+    "appearance": "blue cereal box with rooster/lion imagery and 'Honey Stars' text",
+    "category": "other",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Schogetten Alpine Milk Chocolate",
+    "variant": null,
+    "price": "94.00",
+    "appearance": "blue box of chocolate tablets",
+    "category": "other",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Kinder Tronky",
+    "variant": null,
+    "price": null,
+    "appearance": "white box with 'Kinder Tronky' red text",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Choco Crunchies",
+    "variant": null,
+    "price": null,
+    "appearance": "red and green box, Meiji brand",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Frootees",
+    "variant": null,
+    "price": null,
+    "appearance": "small light-colored box with 'Frootees' text",
+    "category": "Biscuit",
+    "checkpoint_id": 57
+  },
+  {
+    "name": "Danisa Traditional Butter Cookies",
+    "variant": null,
+    "price": "366.00",
+    "appearance": "round tin-style box, dark red with gold oval logo, image of butter cookies",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Pepero",
+    "variant": "double choco filled",
+    "price": "55.00",
+    "appearance": "purple box with Lotte logo, chocolate stick image",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": "50.00",
+    "appearance": "tall thin cream/gold box, Glico logo",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Frootees",
+    "variant": null,
+    "price": "60.00",
+    "appearance": "purple package with cookie image",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Hello Panda",
+    "variant": null,
+    "price": "43.00",
+    "appearance": "red box with panda cartoon characters",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Pepero",
+    "variant": "crunchy",
+    "price": "44.00",
+    "appearance": "red box labeled 'Pepero crunchy'",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Hansel Crackers",
+    "variant": null,
+    "price": "9.00",
+    "appearance": "blue and yellow box labeled 'Hansel'",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "FITA Spreadz",
+    "variant": "Spicy Tuna Flavor",
+    "price": "69.04",
+    "appearance": "red and green box with sandwich cracker image",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Pepero",
+    "variant": "choco filled",
+    "price": "56.05",
+    "appearance": "orange/yellow box labeled 'Pepero choco filled'",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Pocky",
+    "variant": null,
+    "price": "27.10",
+    "appearance": "dark red/black slim box labeled Pocky",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Mamon Twin Packs",
+    "variant": "Cheesy Flavor",
+    "price": "63.00",
+    "appearance": "yellow box with cupcake image, labeled 'mamon Twin Packs! Cheesy Flavor'",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Kellogg's Coco Pops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "pink box with cartoon monkey, Kellogg's logo",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Schogetten",
+    "variant": "Alpine Milk Chocolate",
+    "price": "94.00",
+    "appearance": "dark blue box labeled 'Schogetten Alpine Milk Chocolate'",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "HOP",
+    "variant": "Crisp Rice soft cookies with Stevia",
+    "price": "150.00",
+    "appearance": "white box labeled 'House of Polvoron / HOP Crisp Rice soft cookies with Stevia'",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Kellogg's Froot Loops",
+    "variant": null,
+    "price": "15.00",
+    "appearance": "red box with colorful loops cereal image, Kellogg's logo",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Grandbisco White Choco Filled Crackers",
+    "variant": null,
+    "price": "6.00",
+    "appearance": "yellow package labeled 'Grandbisco White Choco Filled Crackers'",
+    "category": "Biscuit",
+    "checkpoint_id": 58
+  },
+  {
+    "name": "Argentina Corned Beef",
+    "variant": null,
+    "price": null,
+    "appearance": "green can with red and white label",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Ligo Corned Beef",
+    "variant": null,
+    "price": null,
+    "appearance": "red and white label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "555 Tuna",
+    "variant": "Flakes in Oil",
+    "price": null,
+    "appearance": "gold and red label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "555 Tuna",
+    "variant": "Hot & Spicy",
+    "price": null,
+    "appearance": "dark red/black label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Young's Town Beef Loaf",
+    "variant": null,
+    "price": null,
+    "appearance": "red and white label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "CDO Beef Loaf",
+    "variant": null,
+    "price": null,
+    "appearance": "green can with CDO logo",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Ulam King Beef Loaf",
+    "variant": null,
+    "price": null,
+    "appearance": "dark green can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "San Marino",
+    "variant": null,
+    "price": null,
+    "appearance": "yellow label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Century Tuna",
+    "variant": null,
+    "price": null,
+    "appearance": "red label can with fish image",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "CDO Corned Beef",
+    "variant": null,
+    "price": null,
+    "appearance": "pink/red label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Uni-Pak Mackerel",
+    "variant": null,
+    "price": null,
+    "appearance": "blue label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Relish Mushrooms",
+    "variant": null,
+    "price": null,
+    "appearance": "green label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Mega Squid",
+    "variant": null,
+    "price": null,
+    "appearance": "black can with red squid graphic",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Vienna Sausage",
+    "variant": null,
+    "price": null,
+    "appearance": "blue label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "555 Sardines",
+    "variant": "Escabeche",
+    "price": null,
+    "appearance": "gold and red label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Ligo Sardines",
+    "variant": null,
+    "price": null,
+    "appearance": "red label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Winner Meat Loaf",
+    "variant": null,
+    "price": null,
+    "appearance": "black label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Hunt's Pork and Beans",
+    "variant": null,
+    "price": null,
+    "appearance": "red label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Bongga Corned Beef",
+    "variant": null,
+    "price": null,
+    "appearance": "pink label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Star Corned Beef",
+    "variant": null,
+    "price": null,
+    "appearance": "red and yellow label can",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "UFC Shitake Mushroom Slices",
+    "variant": null,
+    "price": null,
+    "appearance": "grey label can with mushroom image",
+    "category": "Can",
+    "checkpoint_id": 59
+  },
+  {
+    "name": "Century Tuna",
+    "variant": null,
+    "price": null,
+    "appearance": "red can with tuna imagery, Century Tuna branding",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "San Marino Sardines",
+    "variant": null,
+    "price": null,
+    "appearance": "red can labeled SARDINES, San Marino brand",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "San Marino Caldereta",
+    "variant": "Caldereta",
+    "price": "28.00",
+    "appearance": "red can with San Marino branding, Caldereta label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Bingo Corned Beef",
+    "variant": null,
+    "price": "21.00",
+    "appearance": "yellow and red can, BINGO CORNED BEEF text",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "555 Corned Beef",
+    "variant": null,
+    "price": null,
+    "appearance": "red can with 555 logo, corned beef label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "555 Tuna Flakes in Oil",
+    "variant": "Flakes in Oil",
+    "price": "34.00",
+    "appearance": "yellow/red can, 555 brand, tuna flakes in oil label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "555 Tuna Hot & Spicy",
+    "variant": "Hot & Spicy",
+    "price": null,
+    "appearance": "red can, 555 brand, hot and spicy tuna label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Mega Squid in Soy Sauce",
+    "variant": "Soy Sauce",
+    "price": "43.00",
+    "appearance": "black can, MEGA brand, squid illustration",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Mega Sardines",
+    "variant": null,
+    "price": null,
+    "appearance": "can with MEGA brand, sardines label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Argentina Corned Beef",
+    "variant": null,
+    "price": null,
+    "appearance": "yellow can, Argentina brand, corned beef label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Star Mackerel",
+    "variant": null,
+    "price": null,
+    "appearance": "blue can, STAR brand, mackerel fish imagery",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Star Nutri-Meats Corned Beef",
+    "variant": "Nutri-Meats",
+    "price": "25.00",
+    "appearance": "red can, STAR brand, Nutri-Meats Corned Beef label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Star Beef Loaf",
+    "variant": null,
+    "price": "18.00",
+    "appearance": "red/white can, STAR brand, beef loaf label with egg imagery",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Shiitake Mushroom Slices",
+    "variant": null,
+    "price": "35.00",
+    "appearance": "black can with mushroom photo, Shiitake Mushroom Slices label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Relish Mushrooms",
+    "variant": null,
+    "price": "25.00",
+    "appearance": "green can, Relish brand, mushrooms label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Uni-Pak",
+    "variant": null,
+    "price": "46.00",
+    "appearance": "white/red can, Uni-Pak brand",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Lucky 7 Corned Tuna",
+    "variant": "Corned Tuna",
+    "price": "53.00",
+    "appearance": "red can with number 7 logo, Lucky 7 brand",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "CDO Karne Norte",
+    "variant": null,
+    "price": "19.00",
+    "appearance": "orange can, cdo brand, Karne Norte label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Wow Vienna Sausage",
+    "variant": "Vienna Sausage",
+    "price": "25.00",
+    "appearance": "blue can, WOW brand, vienna sausage label",
+    "category": "Can",
+    "checkpoint_id": 60
+  },
+  {
+    "name": "Relish Mushroom",
+    "variant": null,
+    "price": "25.00",
+    "appearance": "green and white can with mushroom graphic, stacked three-high",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Lucky 7",
+    "variant": "Carne Norte",
+    "price": "19.00",
+    "appearance": "red and white can with number 7 logo",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "CDO Corned Beef",
+    "variant": null,
+    "price": "19.00",
+    "appearance": "blue and red can labeled CDO",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Star Nutri-Meats",
+    "variant": "Corned Beef",
+    "price": "38.00",
+    "appearance": "red can with white 'Star' text",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Argentina",
+    "variant": "Corned Beef",
+    "price": "19.00",
+    "appearance": "blue label can, 'Argentina' brand",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Ulam King",
+    "variant": null,
+    "price": "38.00",
+    "appearance": "yellow/gold can with 'Ulam King' text",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Ligo Sardines",
+    "variant": null,
+    "price": "23.00",
+    "appearance": "red can with 'Ligo' branding and sardine image",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Century Tuna",
+    "variant": null,
+    "price": "24.00",
+    "appearance": "silver/white can with red 'Century Tuna' label",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "San Marino",
+    "variant": null,
+    "price": "34.00",
+    "appearance": "yellow can labeled 'San Marino'",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "555 Tuna Caldereta",
+    "variant": "Caldereta",
+    "price": "22.00",
+    "appearance": "yellow can with '555' logo and tuna caldereta label",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Winner Meat Loaf",
+    "variant": null,
+    "price": "19.00",
+    "appearance": "red/white can labeled 'Winner Meat Loaf'",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Mega Squid",
+    "variant": null,
+    "price": "43.00",
+    "appearance": "dark blue can labeled 'Mega Squid'",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "King Cup Sardines",
+    "variant": null,
+    "price": "22.00",
+    "appearance": "red can with 'King Cup Sardines' label",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Hunts Pork & Beans",
+    "variant": "Pork & Beans",
+    "price": "24.00",
+    "appearance": "red can with 'Hunts' logo and pork & beans label",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "555 Tuna Flakes in Oil",
+    "variant": "Flakes in Oil",
+    "price": "27.00",
+    "appearance": "red/yellow can labeled '555 Tuna Flakes in Oil'",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "WOW Carne Norte",
+    "variant": null,
+    "price": "50.00",
+    "appearance": "green can with 'WOW Carne Norte' label",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "555 Vienna Sausage",
+    "variant": "Vienna Sausage",
+    "price": "39.00",
+    "appearance": "blue can labeled '555 Vienna Sausage'",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Hekkaido Mackerel",
+    "variant": "Mackerel",
+    "price": "59.00",
+    "appearance": "blue can with 'Hekkaido Mackerel' label and fish graphic",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Star Nutri-Meats",
+    "variant": "Meat Loaf",
+    "price": "25.00",
+    "appearance": "gold/tan can labeled 'Star Nutri-Meats Meat Loaf'",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "West Uni-Pak",
+    "variant": null,
+    "price": "27.00",
+    "appearance": "white can with 'Uni-Pak' text",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Bonggang",
+    "variant": null,
+    "price": "46.00",
+    "appearance": "red/maroon can labeled 'Bonggang'",
+    "category": "Can",
+    "checkpoint_id": 61
+  },
+  {
+    "name": "Clover Chips",
+    "variant": "Cheese Day",
+    "price": null,
+    "appearance": "green bag with blue banner, cheese flavor chips",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Moby Caramel Puffs",
+    "variant": "Caramel",
+    "price": null,
+    "appearance": "yellow bag with corn puff graphic",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Piattos",
+    "variant": "Sour Cream & Onion",
+    "price": null,
+    "appearance": "green bag, potato crisps",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Pringles",
+    "variant": "Cheese",
+    "price": "119.05",
+    "appearance": "orange cylindrical can with mascot face",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Lucky Me! Pancit Canton",
+    "variant": "Chilimansi",
+    "price": "14.00",
+    "appearance": "green package with bowl of noodles graphic",
+    "category": "Noodles",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Jin Ramen",
+    "variant": "Mild",
+    "price": "64.05",
+    "appearance": "red and white package with Korean text, Ottogi brand",
+    "category": "Noodles",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Ottogi Cup Noodles",
+    "variant": null,
+    "price": "21.05",
+    "appearance": "small white cup noodle container",
+    "category": "Noodles",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Pretzel Twists",
+    "variant": null,
+    "price": null,
+    "appearance": "pink bag with pretzel graphic",
+    "category": "Biscuit",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Criss Cross",
+    "variant": null,
+    "price": "6.00",
+    "appearance": "black and orange bag, potato chips",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Chippy Corn Chips",
+    "variant": "Nacho Crisples BBQ",
+    "price": "32.00",
+    "appearance": "red bag with bowl of chips graphic",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Nik-Nik",
+    "variant": "Cheddar Cheese",
+    "price": "169.00",
+    "appearance": "large cylindrical can, orange and yellow label",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Chippy Corn Chips",
+    "variant": "Nacho Crisples Cheese",
+    "price": "32.00",
+    "appearance": "yellow bag with bowl of chips graphic",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Cheezy",
+    "variant": null,
+    "price": null,
+    "appearance": "blue bag with cheese curls graphic",
+    "category": "Chips",
+    "checkpoint_id": 62
+  },
+  {
+    "name": "Moby Caramel Puffs",
+    "variant": "Caramel",
+    "price": "14.00",
+    "appearance": "yellow bag with cartoon spider mascot",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Piattos",
+    "variant": "Sour Cream & Onion",
+    "price": "16.00",
+    "appearance": "dark green bag with potato chip logo",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Clover Chips",
+    "variant": "Cheese",
+    "price": "7.00",
+    "appearance": "white and green bag, 'Cheese Day!' banner",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Pringles",
+    "variant": "Cheese",
+    "price": "119.00",
+    "appearance": "orange cylindrical can with mustache logo",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Lucky Me! Pancit Canton",
+    "variant": "Chilimansi",
+    "price": "14.00",
+    "appearance": "dark green pack with bowl of noodles photo",
+    "category": "Noodles",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Jin Ramen",
+    "variant": "Mild",
+    "price": "64.00",
+    "appearance": "yellow pack with red Korean text and bowl photo",
+    "category": "Noodles",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Indomie",
+    "variant": "Mi Goreng",
+    "price": "18.00",
+    "appearance": "red and white pack with fried noodle and egg photo",
+    "category": "Noodles",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Cup Noodles",
+    "variant": "Seafood",
+    "price": "21.00",
+    "appearance": "blue cup-shaped instant noodle container",
+    "category": "Noodles",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Mr. Chips",
+    "variant": null,
+    "price": "5.00",
+    "appearance": "blue bag potato snack",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Criss Cross",
+    "variant": "Sweet Chili",
+    "price": "6.00",
+    "appearance": "black bag potato chips",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Pretzel Twists",
+    "variant": null,
+    "price": "9.00",
+    "appearance": "pink bag with pretzel shapes",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Criss Cross",
+    "variant": "Creamy Cheese",
+    "price": "6.00",
+    "appearance": "orange bag potato chips",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Chipsy Corn Chips",
+    "variant": "Nacho Crispies BBQ",
+    "price": "32.00",
+    "appearance": "red bag with corn chip bowl photo",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Pik-Nik",
+    "variant": "Cheddar Cheese",
+    "price": "169.00",
+    "appearance": "large red cylindrical can",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Chipsy Corn Chips",
+    "variant": "Nacho Crispies Cheese",
+    "price": "32.00",
+    "appearance": "yellow bag with corn chip bowl photo",
+    "category": "Chips",
+    "checkpoint_id": 63
+  },
+  {
+    "name": "Cheezy",
+    "variant": null,
+    "price": "7.00",
+    "appearance": "blue bag cheese-flavored chips",
+    "category": "Chips",
+    "checkpoint_id": 63
+  }
+]

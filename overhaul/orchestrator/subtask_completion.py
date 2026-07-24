@@ -188,6 +188,46 @@ _RECONCILED_INDEX = None    # {sku_lower: "clean name variant appearance ..."} (
 # NOT size tokens (no unit), so they stay distinctive.
 _SIZE_TOKEN = re.compile(r"^\d+(g|kg|mg|ml|l|pcs)$|^\d+x\d+")
 
+# Colloquial words the store catalog has no clean category/token for -> the specific SKUs they name,
+# matched as lowercase substrings (same containment the category lexicon uses; brand+product suffices).
+# Each key is merged into the lexicon as a pseudo-category AND marked generic, so a BARE alias target
+# ('cereal') resolves to its SKU list while a NAMED product still wins on its own distinctive token
+# ('Coco Pops' -> coco_pops). Lists are kept TIGHT (only true members) so an alias can never grant a
+# neighbour that merely shares a broad category - it does NOT alias to a whole loose category.
+# Every list below was checked against the frozen catalog (measure, don't assume): the coverage sweep
+# is in tests + the 2026-07-24 session notes. WHY each is needed rather than left to substring match:
+#   cereal    - MEASURED refusal (run 2026-07-24: target 'cereal', held KELLOGG'S_COCO_POPS_30G,
+#               refused): no cereal SKU contains "cereal"; all six are filed under Biscuit by brand.
+#   candy /   - both alias the eat-as-is chocolate BARS (Schogetten, Lindt, M&M, Kinder Tronky - a
+#   chocolate   choco wafer bar, counted here per user call 2026-07-24). 'candy' matched 0 SKUs;
+#               'chocolate' matched 21 across 4 categories as a FLAVOR word - the alias TIGHTENS it to
+#               the bars, while a choco-flavored biscuit still matches on its brand ('Pocky chocolate').
+#   cheese    - dairy cheese only (Eden, Magnolia Cheezee/DailyQuezo). 'cheese'/'cheesy' is a flavor
+#               across Chips/Can/Nuts (19 raw matches); a flavored snack still matches on its brand.
+#   yogurt    - Cimory, Dutchmill Proyo, Pascual Greek, Bauer FruFru. Dutchmill *Delight* (cultured
+#               milk, not yogurt) is deliberately OUT.
+_CATEGORY_ALIASES = {
+    "cereal": ["coco_pops", "froot_loops", "frosties",
+               "corn_flakes", "honeystars", "kokokrunch"],
+    "candy": ["schogetten", "lindt", "m&m", "kinder"],
+    "chocolate": ["schogetten", "lindt", "m&m", "kinder"],
+    "cheese": ["eden", "cheezee", "dailyquezo"],
+    "yogurt": ["cimory", "proyo", "pascual_greek", "frufru"],
+}
+
+# Multi-word colloquialisms the single-token path can't resolve: 'energy drink' tokenizes to
+# energy+drink, and 'drink' alone matches Sprite/Pocari/Delmonte while MISSING Sting (no 'energy' in
+# its SKU). Keyed on the whole PHRASE, tested as a normalized substring of the target. A matched
+# phrase contributes its words to the generic set FOR THAT TARGET ONLY (see blob_matches_target), so
+# 'Cobra energy drink' still prefers the distinctive 'cobra' (won't grant a Red Bull) while a bare
+# 'energy drink' resolves to the tight list. This keeps bare 'milk' UNaffected - it's only neutralized
+# when the actual phrase 'soy milk' / 'oat milk' is present, so 'pick up milk' still matches real milk.
+_PHRASE_ALIASES = {
+    "energy drink": ["cobra", "redbull", "sting"],
+    "soy milk": ["vitamilk"],
+    "oat milk": ["oatside"],
+}
+
 
 def _singular(word: str) -> str:
     """Cheap plural folding so a target token 'biscuits' finds category 'Biscuit' ('ies'->'y',
@@ -218,6 +258,15 @@ def _category_lexicon() -> dict:
                     generic.add(_singular(tok))
         except (OSError, ValueError):
             lex, generic = {}, set()
+        # Colloquial aliases (see _CATEGORY_ALIASES): merged AFTER the file load so they apply even
+        # when the sim repo is absent (they carry their own SKU substrings), and via setdefault so a
+        # real catalog category of the same name always wins. Each alias key is also generic, so a
+        # bare-alias target ('cereal') falls to category membership instead of demanding a substring.
+        for alias, sku_substrs in _CATEGORY_ALIASES.items():
+            key = _singular(alias)
+            lex.setdefault(key, list(sku_substrs))
+            generic.add(alias)
+            generic.add(key)
         _CATEGORY_LEXICON = lex
         _GENERIC_NAMES = generic
     return _CATEGORY_LEXICON
@@ -261,6 +310,12 @@ def _reconciled_index() -> dict:
     return _RECONCILED_INDEX
 
 
+def _norm_phrase(text) -> str:
+    """Lowercase + collapse every non-alphanumeric run to a single space, so a multi-word phrase alias
+    ('energy drink') can be tested as a plain substring of a target ('an Energy-Drink!')."""
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
 def blob_matches_target(blob, target) -> bool:
     """True iff `blob` (a held/hovered SKU string, any case) is the `target` product.
 
@@ -275,9 +330,11 @@ def blob_matches_target(blob, target) -> bool:
       - no content tokens in the target -> True (can't ground it, don't block).
       - the held SKU string is ENRICHED with its reconciled clean name/variant/appearance when known
         (soft, additive: appearance colour can only HELP a match like 'green Piattos', never block).
+      - a multi-word PHRASE alias present in the target ('energy drink', 'soy milk') neutralizes its
+        own words but not a co-occurring brand, so 'Cobra energy drink' still needs 'cobra'.
       - if the target has any DISTINCTIVE token -> match iff one of them is in the enriched text.
-      - if the target is PURELY generic ('Biscuits', 'Canned Tuna') -> fall to category membership:
-        the held SKU is one of that category's SKUs (this is the earlier category-grounding fix).
+      - else a matched phrase resolves to its SKU list; else a PURELY generic target ('Biscuits',
+        'cereal', 'candy') falls to category / single-word-alias membership.
     """
     kws = _tokens(target)
     if not kws:
@@ -289,10 +346,23 @@ def blob_matches_target(blob, target) -> bool:
     for sku, txt in _reconciled_index().items():
         if sku in blob:
             full += " " + txt
-    distinctive = [k for k in kws if not _is_generic(k)]
+    # Phrase aliases (see _PHRASE_ALIASES): a multi-word colloquialism present in the target resolves
+    # to a tight SKU list. Its component words go generic FOR THIS TARGET, so a more specific brand
+    # token still wins ('Cobra energy drink' -> cobra, never a stray Red Bull); a bare phrase falls to
+    # its SKU list below. Component words are neutralized ONLY when the phrase is actually present, so
+    # bare 'milk' keeps matching real milk.
+    ntarget = _norm_phrase(target)
+    phrase_words, phrase_skus = set(), []
+    for phrase, skus in _PHRASE_ALIASES.items():
+        if phrase in ntarget:
+            phrase_words.update(_tokens(phrase))
+            phrase_skus.extend(skus)
+    distinctive = [k for k in kws if not _is_generic(k) and k not in phrase_words]
     if distinctive:
         return any(k in full for k in distinctive)
-    # Purely-generic target: category membership (any SKU of the named category counts).
+    if phrase_skus:
+        return any(s in blob for s in phrase_skus)
+    # Purely-generic target: category (or single-word alias) membership - any member SKU counts.
     lex = _category_lexicon()
     for k in kws:
         skus = lex.get(_singular(k))

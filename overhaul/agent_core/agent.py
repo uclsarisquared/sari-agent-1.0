@@ -39,6 +39,57 @@ def _extract_json(pattern, text: str) -> str:
     return text.strip()
 
 
+# Safe default the semantic learner degrades to when its JSON reply is truncated or malformed.
+# MEASURED 2026-07-24 (orchestrator run, leg 4 step 1): the learner hand-traced a BFS through the
+# whole connectivity map into `recall` ("21 -> 20 -> 19 ... 54 connects to 32"), overflowed the
+# 1536-token cap mid-string, and ast.literal_eval raised "unterminated string literal" - killing the
+# step (recovered only on the next). Navigation is the correct recovery: the overflow happens ONLY
+# while the learner is route-planning, and the deterministic graph navigator (_graph_navigate, A*
+# over the store map) - not this discarded reply - actually computes the path.
+_SEMANTIC_FALLBACK = {'new_semantic_memory': '', 'recall': '', 'mode': 'navigation', 'next_action': None}
+
+
+def _parse_semantic_response(pattern, text: str) -> dict:
+    """ast.literal_eval the learner's JSON, degrading to _SEMANTIC_FALLBACK on a truncated/malformed
+    reply instead of raising (an unguarded raise aborts the whole step). The returned dict always
+    carries new_semantic_memory / recall / mode / next_action, so the callers' direct indexing is
+    safe even when the model omitted a field."""
+    raw = _extract_json(pattern, text)
+    try:
+        parsed = ast.literal_eval(raw)
+        if isinstance(parsed, dict) and 'mode' in parsed:
+            return {**_SEMANTIC_FALLBACK, **parsed}
+        logger.warning("[learner] reply parsed but missing 'mode'; using navigation fallback")
+    except (SyntaxError, ValueError, TypeError) as e:
+        logger.warning(f"[learner] unparseable reply ({type(e).__name__}: {e}); "
+                       "using navigation fallback")
+    return dict(_SEMANTIC_FALLBACK)
+
+
+# The episodic reflector emits the same single-quoted Python-literal dict as the learner, so it has
+# the same failure mode: an apostrophe in a value ("Kellogg's", "it's") breaks ast.literal_eval.
+# When that happens the step keeps going with an empty reflection rather than crashing.
+_EPISODIC_FALLBACK = {'dense_summary': '', 'what_worked': '', 'what_to_avoid': ''}
+
+
+def _safe_ast_dict(pattern, text: str, fallback: dict, tag: str = "parse") -> dict:
+    """ast.literal_eval an extracted ```json block, degrading to `fallback` on a malformed/truncated
+    reply instead of raising. The actor prompt asks for a single-quoted Python-literal dict, so any
+    apostrophe in a value (product names like "Kellogg's", prose like "it's") can break the literal
+    parse - and an unguarded raise here aborts the WHOLE step (measured 2026-07-24, the "Get a
+    cereal" run: every actor/episodic reply that named a cereal brand crashed the step). Returns
+    fallback merged with whatever fields did parse, so callers' direct indexing stays safe."""
+    raw = _extract_json(pattern, text)
+    try:
+        parsed = ast.literal_eval(raw)
+        if isinstance(parsed, dict):
+            return {**fallback, **parsed}
+        logger.warning(f"[{tag}] reply parsed but was not a dict; using fallback")
+    except (SyntaxError, ValueError, TypeError) as e:
+        logger.warning(f"[{tag}] unparseable reply ({type(e).__name__}: {e}); using fallback")
+    return dict(fallback)
+
+
 def _reach_move_steps(last_reach) -> Optional[int]:
     """If `last_reach` is a measured MOVE verdict, return its move_forward step count, else None.
 
@@ -721,10 +772,10 @@ class EmbodiedAgent:
             )
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response_text}")
 
-            semantic_response = ast.literal_eval(_extract_json(
+            semantic_response = _parse_semantic_response(
                 self.associative_learner.extractable_json_structured_output,
                 semantic_response_text
-            ))
+            )
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
@@ -803,16 +854,14 @@ class EmbodiedAgent:
             response_text = self.vlm_agent.send_message(vlm_content)
             print(f"VLMAgent RESPONSE: {response_text}")
 
-            response_json = ast.literal_eval(_extract_json(
-                self.vlm_agent.extractable_json_structured_output,
-                response_text
-            ))
-
+            # The actor's action dict is parsed DOWNSTREAM (subtask_agents / eval_pickup) off the
+            # returned 'text'. Parsing it here as well was dead - the result (response_json) was
+            # never read - and its only live effect was to crash the entire step when a single-
+            # quoted value carried an apostrophe ("Kellogg's Coco Pops"). Dropped 2026-07-24.
             episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = ast.literal_eval(_extract_json(
+            episodic_response = _safe_ast_dict(
                 self.associative_learner.extractable_json_structured_output,
-                episodic_response_text
-            ))
+                episodic_response_text, _EPISODIC_FALLBACK, tag="episodic")
 
             episodic_memory = (f"@ timestep {timestep}:\n"
                                f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"
@@ -830,10 +879,10 @@ class EmbodiedAgent:
             semantic_response_text = self._call_associative(
                 SYS_INST_ASSOCIATIVE_SEMANTIC, screenshot, user_msg
             )
-            semantic_response = ast.literal_eval(_extract_json(
+            semantic_response = _parse_semantic_response(
                 self.associative_learner.extractable_json_structured_output,
                 semantic_response_text
-            ))
+            )
             new_semantic_memory = semantic_response['new_semantic_memory']
             recall = semantic_response['recall']
             agent_mode = semantic_response['mode']
@@ -904,16 +953,14 @@ class EmbodiedAgent:
             vlm_content = _build_content(screenshot, "## CURRENT OBSERVATION\n" + user_msg)
             response_text = self.vlm_agent.send_message(vlm_content)
 
-            response_json = ast.literal_eval(_extract_json(
-                self.vlm_agent.extractable_json_structured_output,
-                response_text
-            ))
-
+            # The actor's action dict is parsed DOWNSTREAM (subtask_agents / eval_pickup) off the
+            # returned 'text'. Parsing it here as well was dead - the result (response_json) was
+            # never read - and its only live effect was to crash the entire step when a single-
+            # quoted value carried an apostrophe ("Kellogg's Coco Pops"). Dropped 2026-07-24.
             episodic_response_text = self._call_episodic(self.vlm_agent.get_history_text(n=8))
-            episodic_response = ast.literal_eval(_extract_json(
+            episodic_response = _safe_ast_dict(
                 self.associative_learner.extractable_json_structured_output,
-                episodic_response_text
-            ))
+                episodic_response_text, _EPISODIC_FALLBACK, tag="episodic")
 
             episodic_memory = (f"@ timestep {timestep}:\n"
                                f"## DENSE SUMMARY: {episodic_response['dense_summary']}\n"

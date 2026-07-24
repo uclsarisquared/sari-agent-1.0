@@ -139,24 +139,52 @@ def annotate(image_path, system, schema, *, model=DEFAULT_MODEL, effort=None,
     resp = _post(base, payload, key, timeout)
     dt = time.time() - t0
 
-    message = resp["choices"][0]["message"]
+    choice = resp["choices"][0]
+    message = choice["message"]
+    # finish_reason is the whole diagnostic when the JSON won't parse - "length" (truncated,
+    # never terminated) needs a completely different response than "stop" (model finished but
+    # emitted malformed output). The old error threw it away and reported every failure as "not
+    # valid JSON", which read as a formatting bug when it was really a max_tokens truncation.
+    finish = choice.get("finish_reason")
+    usage = resp.get("usage", {})
+    completion = usage.get("completion_tokens")
     text = message.get("content")
     if not text:
         # content=None: the model never reached an answer (e.g. thinking ate max_tokens). A real
         # outcome, surfaced as a failure so annotate_pass records it and moves on.
-        raise QwenAnnotateError("qwen returned empty content (thinking may have hit max_tokens; "
-                                "enable_thinking is off by default for exactly this reason)")
+        raise QwenAnnotateError(
+            f"qwen returned empty content (finish_reason={finish}, completion={completion}; "
+            "thinking may have hit max_tokens - enable_thinking is off by default for exactly "
+            "this reason)")
     try:
         result = json.loads(text)
     except json.JSONDecodeError:
-        raise QwenAnnotateError(f"qwen output was not valid JSON: {text[:300]}")
+        # finish_reason splits the two ways this happens; they need opposite fixes.
+        #   * "length": the model never terminated the JSON. On THIS store that is a REPETITION
+        #     LOOP, not an honestly-long shelf - greedy decoding (temperature=0) on a shelf of
+        #     visually near-identical facings (a stack of Pancit Canton cups) makes the model emit
+        #     the same item row over and over until it exhausts max_tokens. MEASURED on cp020
+        #     (2026-07-24): neither raising max_tokens nor a sampling penalty rescues QUALITY -
+        #     repetition_penalty 1.05/1.1 broke the loop but returned items=[] (empty shelf), and
+        #     frequency_penalty 0.5 returned generic/blank names ("Cup Noodles", ""). The loop is a
+        #     qwen weakness on dense repetitive shelves; claude-cli (the baseline) reads cp020 as a
+        #     single item and never loops. Do NOT re-attempt sampling knobs here.
+        #   * anything else: genuinely malformed output - show more of it to diagnose.
+        if finish == "length":
+            raise QwenAnnotateError(
+                f"qwen hit max_tokens without terminating the JSON (finish_reason=length, "
+                f"completion={completion}) - the model did not finish its output, on this store "
+                f"typically a repetition loop on a visually repetitive shelf. Raising max_tokens or "
+                f"adding a sampling penalty does NOT fix this (measured 2026-07-24); the claude-cli "
+                f"backend handles this checkpoint.")
+        raise QwenAnnotateError(f"qwen output was not valid JSON (finish_reason={finish}): {text[:600]}")
 
-    usage = resp.get("usage", {})
     envelope = {
         "backend": "qwen",
         "model": model,
         "total_cost_usd": None,   # self-hosted; no per-call billing (claude parity field)
         "duration_ms": dt * 1000.0,
+        "finish_reason": finish,
         "usage": usage,
     }
     return result, envelope

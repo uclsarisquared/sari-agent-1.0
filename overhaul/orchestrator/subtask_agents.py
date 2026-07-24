@@ -293,6 +293,55 @@ def _grab_ready(state):
     return lc.startswith("SUCCESS") or lr.startswith("REACHABLE")
 
 
+# The actor emits a single-quoted Python-literal dict (sys_inst OUTPUT FORMAT). ast.literal_eval
+# parses that - UNTIL a value carries an apostrophe ("Kellogg's", "it's"), which terminates the
+# single-quoted string early and raises SyntaxError. The free-text fields (reasoning, notes) are
+# where apostrophes live; the ACTIONABLE fields (actions, times) are apostrophe-free flat lists.
+# So when the whole-dict parse fails we recover just those two, letting the step execute instead of
+# being wasted. Measured 2026-07-24 on the "Get a cereal" run, where every cereal-brand mention
+# crashed the actor parse and burned the leg's 3-error budget.
+_ACTOR_LIST_RE = lambda key: re.compile(r"['\"]%s['\"]\s*:\s*\[([^\[\]]*)\]" % key, re.DOTALL)
+_ACTOR_ITEM_RE = re.compile(r"""['"]([^'"]+)['"]""")
+
+
+def _salvage_actions_times(blob: str):
+    """Recover (actions, times) by regex from an actor blob whose full literal parse failed. Both
+    are flat lists of short, apostrophe-free tokens, so a bracket-scoped match is robust to broken
+    quoting anywhere else in the dict. Returns None if either list is missing or their lengths
+    disagree (a mismatch means the salvage is unreliable - fall through to the error path)."""
+    am, tm = _ACTOR_LIST_RE("actions").search(blob), _ACTOR_LIST_RE("times").search(blob)
+    if not (am and tm):
+        return None
+    actions = [a.strip() for a in _ACTOR_ITEM_RE.findall(am.group(1)) if a.strip()]
+    times = [int(x) for x in re.findall(r"-?\d+", tm.group(1))]
+    if actions and len(actions) == len(times):
+        return actions, times
+    return None
+
+
+def parse_actor_response(text: str, pattern) -> dict:
+    """Parse the actor's fenced dict, tolerant of the apostrophe break above. Tiers, cheapest first:
+    ast.literal_eval (the contract) -> json.loads (a model that emitted real JSON) -> regex salvage
+    of actions/times with notes defaulted to {} (dispatch_action reads every notes field via .get,
+    so an empty dict is safe). Returns None only when even the actions/times can't be recovered."""
+    m = re.search(pattern, text or "")
+    blob = m.group(1) if m else (text or "").strip()
+    if not blob:
+        return None
+    for parse in (ast.literal_eval, json.loads):
+        try:
+            d = parse(blob)
+        except Exception:  # noqa: BLE001 - any parse failure just falls through to the next tier
+            continue
+        if isinstance(d, dict) and "actions" in d:
+            return d
+    salvaged = _salvage_actions_times(blob)
+    if salvaged:
+        actions, times = salvaged
+        return {"actions": actions, "times": times, "notes": {}}
+    return None
+
+
 def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None,
                     mode: str = None, debug_dir: str = None, agent=None, leg_type: str = None) -> dict:
     """Execute one action. Returns a result dict; grab actions include a 'gripped' key, and the
@@ -735,13 +784,10 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             continue
 
         # ---- parse the actor's action JSON (a bad parse skips the step, run_one parity) --------
-        match = re.search(agent.vlm_agent.extractable_json_structured_output, response.get("text") or "")
-        parsed = None
-        if match:
-            try:
-                parsed = ast.literal_eval(match.group(1))
-            except Exception:  # noqa: BLE001
-                parsed = None
+        # Tolerant of the single-quote-apostrophe break (see parse_actor_response): a value like
+        # "Kellogg's" no longer wastes the step - actions/times are salvaged so it still executes.
+        parsed = parse_actor_response(response.get("text") or "",
+                                      agent.vlm_agent.extractable_json_structured_output)
         if parsed is None:
             m["errors"] += 1
             log({"event": "parse_error", "step": step, "raw": (response.get("text") or "")[:400]})

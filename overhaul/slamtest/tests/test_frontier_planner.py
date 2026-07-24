@@ -18,7 +18,7 @@ if _SLAM_DIR not in sys.path:
     sys.path.insert(0, _SLAM_DIR)
 import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
 
-from occupancy_grid import OccupancyGrid  # noqa: E402
+from occupancy_grid import OccupancyGrid, _bresenham_line  # noqa: E402
 from frontier_planner import (  # noqa: E402
     cluster_frontiers,
     score_cluster,
@@ -209,6 +209,64 @@ class TestSimplifyPath(unittest.TestCase):
         for a, b in zip(simplified, simplified[1:]):
             self.assertTrue(_line_of_sight(grid, a, b),
                              f"simplified waypoints {a}->{b} are not actually clear")
+
+    def test_inflated_start_cell_does_not_produce_degenerate_first_waypoint(self):
+        # Regression: with the agent parked against a shelf, its own cell sits inside the
+        # body_radius inflation. _line_of_sight tested that start endpoint too, so EVERY
+        # shortcut from the start failed and simplify_path emitted the start cell as a
+        # DUPLICATE first waypoint. The executor then read to_world(start) == its own
+        # position as the target -> dist~0 -> false 'path blocked' (forward arc wide open,
+        # clearance 4.17m in the live log) -> replan->same-degenerate-path until the
+        # no-movement circuit breaker ended the run with the map half-built.
+        grid = OccupancyGrid(size_m=6.0, resolution=0.1)
+        grid.log_odds[:, :] = -1.0
+        grid.log_odds[30, 20:40] = 5.0                       # shelf column
+        occupied = _inflate_occupied(grid, body_radius=0.3)  # r_cells = 3
+
+        start, goal = (33, 30), (55, 30)  # start on the inflation edge; (34,30) is free
+        self.assertTrue(occupied[start], "precondition: the start cell must be inflated")
+
+        path = astar(grid, start, goal, connectivity=8, occupied_mask=occupied)
+        self.assertIsNotNone(path, "A* can still step out toward the open goal")
+        simplified = simplify_path(path, grid, occupied_mask=occupied)
+
+        self.assertNotEqual(simplified[0], simplified[1],
+                            "the start cell must not be duplicated as the first waypoint")
+        self.assertNotEqual(grid.to_world(*simplified[1]), grid.to_world(*start),
+                            "the first waypoint must not equal the agent's own position")
+        # Efficient string-pull: with the start-endpoint exemption, the straight shot to the
+        # far goal is now visible, so it's one stride, not a 1-cell (0.1m) crawl.
+        self.assertEqual(simplified[1], goal,
+                         "should string-pull straight to the far goal past the inflated start")
+
+    def test_start_exemption_does_not_enable_corner_cutting(self):
+        # Negative control for the fix above: exempting the START endpoint from the
+        # passability test must NOT let a shortcut cut a corner through a real obstacle -
+        # only `a` is exempt, every cell strictly between a and b is still tested.
+        grid = OccupancyGrid(size_m=8.0, resolution=0.1)
+        grid.log_odds[:, :] = -1.0
+        grid.log_odds[40, 10:70] = 5.0                       # wall blocking the straight line
+        occupied = _inflate_occupied(grid, body_radius=0.3)
+
+        start, goal = (43, 40), (20, 40)  # start inside the wall's inflation; goal past it
+        self.assertTrue(occupied[start], "precondition: the start cell must be inflated")
+
+        path = astar(grid, start, goal, connectivity=8, occupied_mask=occupied)
+        self.assertIsNotNone(path, "goal is reachable by routing around the wall")
+        simplified = simplify_path(path, grid, occupied_mask=occupied)
+
+        # The straight start->goal line crosses the wall and must be rejected even with the
+        # start exemption on.
+        self.assertFalse(
+            _line_of_sight(grid, start, goal, occupied_mask=occupied, ignore_start=True),
+            "a straight line through the wall must not pass line-of-sight",
+        )
+        # Every retained segment's interior must stay clear (skip each segment's own start
+        # cell, which is the exempted anchor).
+        for a, b in zip(simplified, simplified[1:]):
+            for cx, cz in _bresenham_line(a[0], a[1], b[0], b[1])[1:]:
+                self.assertFalse(occupied[cx, cz],
+                                 f"segment {a}->{b} cuts through an occupied/inflated cell at ({cx},{cz})")
 
 
 class TestFrontierPlannerStateMachine(unittest.TestCase):

@@ -68,6 +68,16 @@ later step's (learner rule 5); (2) the actor is told to execute ONLY the first n
 `recall` and never skip ahead to the grab while still in *perception* (actor rule 4). agent.execute_lean
 also threads `next_action` into the actor prompt (soft - .get, and suppressed once the graph dispatcher
 has already driven). Prompt change => A/B before believing it.
+
+ROUTE-TRACING edit (2026-07-24, UNMEASURED - user to A/B on identical (frame, state) pairs): prompted
+by orchestrator run leg 4 step 1, where the learner hand-traced a BFS through the whole connectivity
+map into `recall` ("21 -> 20 -> 19 ... 54 connects to 32"), overflowed the 1536-token cap mid-string,
+and killed the step (ast.literal_eval "unterminated string literal"). That path-planning is BOTH
+wasted (navigation is deterministic - _graph_navigate runs A* over the store map; the learner's route
+is discarded) AND the crash's root cause. Rule 2 rewritten: name the destination + at most the ONE
+next checkpoint, never enumerate a chain of links. Paired CODE half in agent._parse_semantic_response
+(a truncated/malformed learner reply now degrades to a navigation default instead of raising).
+Prompt change => A/B (agreed-nav / parse-fail rate on identical steps) before believing it.
 """
 from toolset.actions_str import ATOMIC_ACTIONS
 
@@ -132,7 +142,7 @@ Your output must be a JSON object with exactly these components:
 
 **Critical rules & constraints (Procedural Memory)**:
 1. Do not emit *STOP* or *manipulation* prematurely: route to *manipulation* only once the target is centred AND within reach; emit *STOP* only when the task's end state holds (e.g. the item is gripped).
-2. When you synthesize `recall`, insert helpful routing information from the memory. Example: if the task is to reach Checkpoint 12 and the memory shows Checkpoint 9 connects to it and is easier to reach, recall that the agent can go to Checkpoint 9 first, then continue to 12. Refer to locations exactly as the memory names them ("Checkpoint N", "the checkout counter"); never invent shelf numbers or names the memory does not contain.
+2. **Name the destination, do not trace the route.** When `recall` involves travelling, state the target and, if it helps, the ONE next checkpoint to head for - then stop (e.g. "navigate to Checkpoint 54, the self-checkout; Checkpoint 32 connects to it"). A deterministic navigator computes the full hop-by-hop path from the connectivity map; you do NOT. NEVER enumerate a chain of links ("21 connects to 20, 20 connects to 19, ...") - it is discarded, wastes your reply, and can truncate the JSON mid-string. Refer to locations exactly as the memory names them ("Checkpoint N", "the checkout counter"); never invent shelf numbers or names the memory does not contain.
 3. If the screenshot shows an obstruction (shelf, wall) between the agent and its heading, recall an adjustment (pan left/right, back up) so the agent does not walk into it.
 4. **Switch to *manipulation* proactively.** As soon as the target is centred in the frame and within reach (it dominates the central view, or a hovered field matches it), route to *manipulation* that SAME step - do not leave the agent in *perception* until it attempts a grab and gets blocked. And if `last_action_blocked` is already set, the agent tried to grab from the wrong mode and is positioned to grab, so route to *manipulation* now. The `last_reach` field is a MEASURED reach check: if it says REACHABLE, route to *manipulation*; if it says MOVE (measurably too far), route to *navigation* so the agent closes the measured distance; "CROUCHED and GRABBED" means a low item was picked up (the tool crouched and stood back up by itself - the agent is standing); other CROUCHED messages state what to fix (usually move/re-center, then retry the grab); UNREACHABLE (too high) means no posture reaches it - closing in further will not achieve the grab.
 5. **`mode` matches THIS step's action, not the end goal.** `recall` may span several steps (e.g. "release the wrong item, then center, then switch to *manipulation* and grab"). Set `next_action` to the FIRST of those not yet done, and set `mode` to the mode THAT action runs in: centering or visually confirming the target -> *perception*; releasing, gripping, or grabbing an item -> *manipulation* (hand actions are DEAD in every other mode); travelling to a location -> *navigation*; the task's end state already holds -> *STOP*. Do NOT return *perception* because "we still need to center later" when the immediate next action is a release/grab, and do NOT return *manipulation* because "the goal is to grab" when the immediate next action is to center. This is the mode for the ONE action happening now - a later step gets its own timestep and its own mode.

@@ -1,0 +1,463 @@
+{
+  "checkpoints": [
+    {
+      "id": 0,
+      "cell": [
+        259,
+        340
+      ],
+      "world_xz": [
+        -4.049999999999997,
+        4.050000000000004
+      ],
+      "kind": "junction",
+      "neighbors": [
+        1,
+        10,
+        9
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 1,
+      "cell": [
+        248,
+        346
+      ],
+      "world_xz": [
+        -5.149999999999999,
+        4.649999999999999
+      ],
+      "kind": "junction",
+      "neighbors": [
+        0
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 2,
+      "cell": [
+        337,
+        341
+      ],
+      "world_xz": [
+        3.75,
+        4.149999999999999
+      ],
+      "kind": "junction",
+      "neighbors": [
+        8,
+        13
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 3,
+      "cell": [
+        266,
+        258
+      ],
+      "world_xz": [
+        -3.349999999999998,
+        -4.149999999999999
+      ],
+      "kind": "junction",
+      "neighbors": [
+        7,
+        4
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 4,
+      "cell": [
+        262,
+        272
+      ],
+      "world_xz": [
+        -3.75,
+        -2.75
+      ],
+      "kind": "junction",
+      "neighbors": [
+        3,
+        12,
+        6
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 5,
+      "cell": [
+        293,
+        342
+      ],
+      "world_xz": [
+        -0.6499999999999986,
+        4.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        9,
+        13
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 6,
+      "cell": [
+        261,
+        291
+      ],
+      "world_xz": [
+        -3.849999999999998,
+        -0.8499999999999979
+      ],
+      "kind": "junction",
+      "neighbors": [
+        4,
+        16,
+        11
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 7,
+      "cell": [
+        339,
+        282
+      ],
+      "world_xz": [
+        3.950000000000003,
+        -1.75
+      ],
+      "kind": "junction",
+      "neighbors": [
+        3,
+        8
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 8,
+      "cell": [
+        339,
+        302
+      ],
+      "world_xz": [
+        3.950000000000003,
+        0.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        2,
+        7,
+        11
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 9,
+      "cell": [
+        277,
+        342
+      ],
+      "world_xz": [
+        -2.25,
+        4.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        0,
+        5
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 10,
+      "cell": [
+        261,
+        313
+      ],
+      "world_xz": [
+        -3.849999999999998,
+        1.3500000000000014
+      ],
+      "kind": "junction",
+      "neighbors": [
+        0,
+        11,
+        17
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 11,
+      "cell": [
+        262,
+        302
+      ],
+      "world_xz": [
+        -3.75,
+        0.25
+      ],
+      "kind": "junction",
+      "neighbors": [
+        6,
+        8,
+        10
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 12,
+      "cell": [
+        248,
+        264
+      ],
+      "world_xz": [
+        -5.149999999999999,
+        -3.549999999999997
+      ],
+      "kind": "junction",
+      "neighbors": [
+        4
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 13,
+      "cell": [
+        324,
+        343
+      ],
+      "world_xz": [
+        2.450000000000003,
+        4.350000000000001
+      ],
+      "kind": "junction",
+      "neighbors": [
+        2,
+        5
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 14,
+      "cell": [
+        244,
+        291
+      ],
+      "world_xz": [
+        -5.549999999999997,
+        -0.8499999999999979
+      ],
+      "kind": "end",
+      "neighbors": [
+        16
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 15,
+      "cell": [
+        244,
+        313
+      ],
+      "world_xz": [
+        -5.549999999999997,
+        1.3500000000000014
+      ],
+      "kind": "end",
+      "neighbors": [
+        17
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 16,
+      "cell": [
+        245,
+        291
+      ],
+      "world_xz": [
+        -5.449999999999999,
+        -0.8499999999999979
+      ],
+      "kind": "doorway",
+      "neighbors": [
+        6,
+        14
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    },
+    {
+      "id": 17,
+      "cell": [
+        245,
+        313
+      ],
+      "world_xz": [
+        -5.449999999999999,
+        1.3500000000000014
+      ],
+      "kind": "doorway",
+      "neighbors": [
+        10,
+        15
+      ],
+      "shelf_side": null,
+      "reading_distance_m": null,
+      "shelf_cell": null,
+      "interaction_xz": null
+    }
+  ],
+  "edges": [
+    {
+      "a": 0,
+      "b": 1,
+      "length_m": 0.30000000000000004
+    },
+    {
+      "a": 0,
+      "b": 10,
+      "length_m": 2.3000000000000007
+    },
+    {
+      "a": 0,
+      "b": 9,
+      "length_m": 1.424264068711929
+    },
+    {
+      "a": 2,
+      "b": 8,
+      "length_m": 3.600000000000002
+    },
+    {
+      "a": 2,
+      "b": 13,
+      "length_m": 1.0414213562373094
+    },
+    {
+      "a": 3,
+      "b": 7,
+      "length_m": 9.324264068711912
+    },
+    {
+      "a": 3,
+      "b": 4,
+      "length_m": 1.1828427124746188
+    },
+    {
+      "a": 4,
+      "b": 12,
+      "length_m": 1.672792206135786
+    },
+    {
+      "a": 4,
+      "b": 6,
+      "length_m": 1.6000000000000003
+    },
+    {
+      "a": 5,
+      "b": 9,
+      "length_m": 1.4000000000000001
+    },
+    {
+      "a": 5,
+      "b": 13,
+      "length_m": 3.041421356237311
+    },
+    {
+      "a": 6,
+      "b": 16,
+      "length_m": 1.5000000000000002
+    },
+    {
+      "a": 16,
+      "b": 14,
+      "length_m": 0.1
+    },
+    {
+      "a": 6,
+      "b": 11,
+      "length_m": 1.0414213562373094
+    },
+    {
+      "a": 7,
+      "b": 8,
+      "length_m": 1.8000000000000005
+    },
+    {
+      "a": 8,
+      "b": 11,
+      "length_m": 7.582842712474609
+    },
+    {
+      "a": 10,
+      "b": 11,
+      "length_m": 0.9414213562373095
+    },
+    {
+      "a": 10,
+      "b": 17,
+      "length_m": 1.5000000000000002
+    },
+    {
+      "a": 17,
+      "b": 15,
+      "length_m": 0.1
+    }
+  ]
+}
