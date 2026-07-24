@@ -51,7 +51,7 @@ if _SLAM_DIR not in sys.path:
     sys.path.insert(0, _SLAM_DIR)
 import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
 
-from sim.env import TransformAgent, SetHandsActive, SetCrouch, RequestScreenshot, downscale_for_storage  # noqa: E402
+from sim.env import TransformAgent, SetHandsActive, SetCrouch, RequestScreenshot  # noqa: E402
 
 from occupancy_grid import OccupancyGrid  # noqa: E402
 from lidar_client import RequestLidarScan  # noqa: E402
@@ -210,12 +210,17 @@ def capture_plan(n_angles):
 
 def capture(args, out_path):
     """Grab the agent's current view. save_image=False so we own the filename/location rather
-    than letting env.py drop it in its own screenshots folder."""
+    than letting env.py drop it in its own screenshots folder.
+
+    Capture-walk is the ONE exception to the pipeline's 1080p storage cap: it writes the sim's
+    NATIVE full-res bytes verbatim, no downscale_for_storage. These PNGs are the annotator's VLM
+    input, and legibility is bottlenecked on effective resolution after the encoder's own
+    downscale - so every pixel the sim renders is worth keeping on disk here, even though it makes
+    these the bulk of the pipeline's image storage. Everything else in the pipeline still caps at
+    1080p."""
     result = RequestScreenshot(save_image=False, uri=args.uri)
-    # save_image=False returns the full-res bytes; cap them at 1080p before writing the capture PNG
-    # (39 checkpoints x primary+crouch, so this is the bulk of the pipeline's image storage).
     with open(out_path, "wb") as f:
-        f.write(downscale_for_storage(result["image"]))
+        f.write(result["image"])
     return out_path
 
 

@@ -1,46 +1,35 @@
 This semantic memory outlines the store's environment, rendered from the annotated checkpoint map (not hand-written). Positions are world coordinates; checkpoints are reachable standing positions.
 
 **Store contents by checkpoint** (what is visible standing at each):
-15. Checkpoint 15 (unclassified): 
-16. Checkpoint 16 (unclassified): 
-17. Checkpoint 17 (unclassified): 
-18. Checkpoint 18 (unclassified): 
-19. Checkpoint 19 (unclassified): 
-20. Checkpoint 20 (unclassified): 
-21. Checkpoint 21 (unclassified): 
-22. Checkpoint 22 (unclassified): 
-23. Checkpoint 23 (unclassified): 
-24. Checkpoint 24 (unclassified): 
-25. Checkpoint 25 (unclassified): 
-26. Checkpoint 26 (unclassified): 
-27. Checkpoint 27 (unclassified): 
-28. Checkpoint 28 (unclassified): 
-29. Checkpoint 29 (unclassified): 
-30. Checkpoint 30 (unclassified): 
-31. Checkpoint 31 (unclassified): 
-32. Checkpoint 32 (unclassified): 
-33. Checkpoint 33 (unclassified): 
-34. Checkpoint 34 (unclassified): 
-35. Checkpoint 35 (unclassified): 
-36. Checkpoint 36 (unclassified): 
-37. Checkpoint 37 (unclassified): 
-38. Checkpoint 38 (unclassified): 
-39. Checkpoint 39 (unclassified): 
-40. Checkpoint 40 (unclassified): 
-41. Checkpoint 41 (unclassified): 
-42. Checkpoint 42 (unclassified): 
-43. Checkpoint 43 (unclassified): 
-44. Checkpoint 44 (unclassified): 
-45. Checkpoint 45 (unclassified): 
-46. Checkpoint 46 (unclassified): 
-47. Checkpoint 47 (unclassified): 
-48. Checkpoint 48 (unclassified): 
-49. Checkpoint 49 (unclassified): 
-50. Checkpoint 50 (unclassified): 
-51. Checkpoint 51 (unclassified): 
-52. Checkpoint 52 (unclassified): 
-53. Checkpoint 53 (unclassified): 
-54. Checkpoint 54 (COUNTER / drop-off): This checkpoint is a self-checkout station: a kiosk with a screen displaying a "Welcome to Self Checkout!" prompt and green "Start" button, a barcode scanner unit, and a flat bagging/tray surface, positioned against a plain wall corner.
+15. Checkpoint 15 (Water, Soda): This checkpoint faces two glass-door refrigerated cases: the left one is stocked mainly with bottled water and isotonic drinks (Pocari Sweat, Nature's Spring, Le Minerale, Wilkins Pure, Summit) across multiple shelves, while the case to its right holds soft drinks (Coca-Cola, Sprite, Pepsi, and other bottled sodas). Each shelf edge has small price tags, though most are too small to read reliably.
+16. Checkpoint 16 (Water): A glass-doored refrigerated case stocked entirely with bottled water of various brands (Pocari Sweat, Nature's Spring, Re Fresh, Absolute, Le Mineral, and others), arranged across multiple shelves with price tags along each shelf edge. An adjacent similar refrigerated case holding soda/juice bottles is visible at the right edge of the frame.
+17. Checkpoint 17 (Can, Chips): This checkpoint faces a double-sided end-cap shelf stocked with canned goods and bagged snack items; a partially visible overhead sign reading "Canne..." (likely "Canned Goods") hangs to the upper right. Additional shelving with boxed goods is visible to either side at the edges of the frame.
+18. Checkpoint 18 (Chips, Noodles): This shelf fixture holds a mix of instant noodles/cup noodles on its upper level and a wide variety of chip and snack bags on its lower levels, including local brands like Lucky Me, Jin Ramen, V-cut, Criss Cross, and Tostitos.
+19. Checkpoint 19 (Water, Soda): This checkpoint faces two glass-door refrigerated beverage cases: the left case is stocked with bottled water in several brands, and the right case holds bottled and canned sodas.
+20. Checkpoint 20 (Soda): A glass-door refrigerated case stocked with bottled soft drinks of various brands, arranged in four rows with price tags along the shelf edges. A tan wall pillar separates this cooler from a neighboring refrigerated unit visible at the frame's edge.
+21. Checkpoint 21 (Chips): This checkpoint faces a shelf stocked with an assortment of chip and snack bags (Nik-Nik, Cheese Ring, Oishi Prawn Crackers, Clover Chips, Criss Cross, Pic-A, Pretzel Twists, and more) with price tags along the shelf edge. From here an open floor area is visible leading toward a self-checkout counter, with overhead aisle signage reading "Noodles / Chips" and "Chips / Canned Food" for a numbered aisle, and another shelf visible along the far wall.
+25. Checkpoint 25 (Can, Chips): This checkpoint faces a canned-food shelf stocked with various canned goods, jarred fruit, and bagged snack items, with refrigerated glass-door cases visible beyond it and additional shelving units further along the aisle. An overhead aisle sign reading 'Chips' and 'Canned Food' hangs nearby.
+26. Checkpoint 26 (Chips, Biscuit): This checkpoint faces a multi-shelf chips and snack fixture stocked with numerous potato chip, corn chip, and cracker brands (Oishi, Pringles, Clover Chips, Piattos, Cheezy, and others), each with a price tag on the shelf edge below it. An overhead aisle sign reading "Chips / Canned Food" is visible to the upper right.
+27. Checkpoint 27 (Chips, Biscuit): This checkpoint faces a tall chip/snack shelf stocked densely with potato chips, pretzels, and corn chip bags (Pringles, Oishi, Pik-Nik, Mangkok King, Loaded!, Criss Cross, Chippy, and similar brands) arranged across three rows with price tags along each shelf edge.
+30. Checkpoint 30 (Soup, other): A packaged-soup and instant-porridge shelf stocking 'Soup & Go' instant soup mixes in several flavors alongside 'Champorado' and 'Champ-O-Rado' chocolate rice porridge mixes, with a plain wall visible to the right of the shelf.
+31. Checkpoint 31 (Soup, Dairies): This checkpoint stands between a refrigerated dairy case stocked with milk, cheese and yogurt drinks on one side, and an open shelf of instant soup and rice-porridge mix boxes (Champorado, Soup & Go, Champ-O-Rado) on the other.
+32. Checkpoint 32 (Noodles): This checkpoint faces a metal shelving unit stocked entirely with instant noodle products, including bagged noodles like Lucky Me! Pancit Canton, Indomie Mi Goreng, and Jin Ramen, as well as small instant cup noodles arranged across three shelf tiers.
+33. Checkpoint 33 (Biscuit): This checkpoint faces a shelf stocked with boxed biscuits, cookies, and snack wafers (Hello Panda, Pepero, Pocky, Fita Spreadz, Danisa Butter Cookies, Nestle cereal boxes). In the background to the left is a row of shorter shelving and a glass-door refrigerated case, with a wall sign reading category labels for other aisles.
+34. Checkpoint 34 (Biscuit, other): This shelf holds an assortment of packaged snack biscuits, wafers, cookies, and stick snacks (Hello Panda, Pocky, Pepero, Choco Crunchies, Richoco, Schogetten, Fita Spreadz) along with several boxed breakfast cereals (Frosties, Koko Krunch, Nestle Gold Corn Flakes, Honey Stars). A hanging aisle sign reading '2 Chips Canned' is visible above the shelf, indicating a nearby aisle marker.
+35. Checkpoint 35 (Biscuit, other): A packaged snack-food shelf stocked mainly with cereals, cookies, and stick/wafer snacks (Nestle Honey Stars, Kellogg's, Pepero, Pocky, Ritz, Koko Krunch). An overhead aisle sign reading '2 Chips Canned...' is visible to the upper left, and the shelf run ends into an open floor area with a plain wall beyond.
+42. Checkpoint 42 (Chips): A multi-tier shelf fixture stocked entirely with bagged and boxed potato/corn chip snacks from brands like Oishi, Jack 'n Jill, Pringles, Calbee, and Leslie's, with individual price tags on the shelf edge under each product.
+43. Checkpoint 43 (Dairies, Soup): This checkpoint faces a refrigerated dairy case on the left holding milk, oat milk, and cheese-style products, and a dry-goods shelf on the right stocked with instant soup and porridge mix boxes.
+44. Checkpoint 44 (Soda, Dairies): This spot faces two glass-door refrigerated cases side by side, separated by a wall pillar: the left case holds bottled sodas and soft drinks, while the right case holds packaged dairy and milk-substitute products.
+45. Checkpoint 45 (Chips, Noodles): A snack aisle shelf stocked with chips, corn snacks, pretzels, and instant noodle/cup noodle products, arranged across three shelf levels from bagged chips at the top to noodle packs and canisters below.
+46. Checkpoint 46 (Biscuit, other): This checkpoint faces a tall shelving unit stocked with packaged biscuits, cookies, wafer sticks, and a few boxed cereals (brands like Danisa, Pocky, Pepero, Mamon, Hello Panda, Kellogg's Coco Pops, and Nestle Honey Stars). A hanging aisle sign reading "Chips" with the number "1" is visible at the upper right edge of the standing view, though it appears to mark a different, adjoining aisle rather than this shelf.
+47. Checkpoint 47 (Biscuit): This checkpoint faces a snack and biscuit shelf stocked mainly with cookies, wafers, biscuit sticks (Pocky/Pepero) and filled crackers across three visible shelf levels. A hanging aisle sign reading "Chips" is visible overhead toward the right, indicating a nearby aisle.
+48. Checkpoint 48 (Biscuit): This shelf holds packaged biscuits and cookies - Pepero, Pocky, Hello Panda, Fita, Frootees, Hansel, Mamon, and similar snack boxes stacked across three shelf tiers, with a self-checkout kiosk visible in the open floor space beyond the shelf.
+49. Checkpoint 49 (Can): A canned-goods shelf stocked with a wide variety of Filipino canned meat and seafood products - corned beef, tuna, sardines, squid, sausages, and beef loaf - arranged across four shelf rows, with a plain wall and open floor space visible beyond the shelf's end.
+50. Checkpoint 50 (Can): This checkpoint faces a long metal shelving unit stocked almost entirely with canned goods - tuna, sardines, corned beef, mushrooms, and squid from brands like Century, 555, San Marino, Bingo, Argentina, and CDO - stacked in dense rows across three visible shelf levels with price tags along each shelf edge.
+51. Checkpoint 51 (Can): This checkpoint faces a canned goods shelf stocked with corned beef, meat/beef loaf, sardines, tuna, Vienna sausage, and pork & beans cans across three shelf rows. Two glass-door refrigerated cases holding bottled water and soda are visible along the wall to the left.
+52. Checkpoint 52 (Chips, Noodles): This shelving unit holds a mix of chip and snack bags on the top and middle shelves, and instant noodle products (pancit canton packs, cup noodles, and Jin Ramen) filling the lower shelves.
+53. Checkpoint 53 (Chips, Noodles): This checkpoint faces a snack-food shelf stocked mainly with instant noodle packs (Lucky Me! Pancit Canton, Jin Ramen) on the upper-middle shelf and a wide variety of chip and pretzel bags (Clover Chips, Piattos, Pringles, Criss Cross, Chippy, Nik-Nik, Cheezy) on the top and bottom shelves. A second shelving unit with similar noodle and chip products is visible across a gap to the right, separated by a plain wall section.
+54. Checkpoint 54 (COUNTER / drop-off): This checkpoint is a self-checkout station, positioned near a wall corner. The kiosk has a screen displaying a welcome/start prompt, a barcode scanner unit, and a checkout counter surface visible below.
 
 **Connectivity** (which checkpoints link to which - use for rough routing):
 - Checkpoint 15 connects to: 16, 0
@@ -50,26 +39,15 @@ This semantic memory outlines the store's environment, rendered from the annotat
 - Checkpoint 19 connects to: 20, 0
 - Checkpoint 20 connects to: 19, 8, 21
 - Checkpoint 21 connects to: 0, 8, 20
-- Checkpoint 22 connects to: 23, 2
-- Checkpoint 23 connects to: 22, 24, 25
-- Checkpoint 24 connects to: 23, 7
 - Checkpoint 25 connects to: 2, 7, 23
 - Checkpoint 26 connects to: 27, 2, 30
 - Checkpoint 27 connects to: 26, 5, 31
-- Checkpoint 28 connects to: 29, 2
-- Checkpoint 29 connects to: 28, 30
 - Checkpoint 30 connects to: 29, 31, 26
 - Checkpoint 31 connects to: 30, 5, 27
 - Checkpoint 32 connects to: 3, 6, 54
 - Checkpoint 33 connects to: 34, 4, 37
 - Checkpoint 34 connects to: 33, 35, 38
 - Checkpoint 35 connects to: 34, 7, 39
-- Checkpoint 36 connects to: 37, 4
-- Checkpoint 37 connects to: 36, 38, 33
-- Checkpoint 38 connects to: 37, 39, 34
-- Checkpoint 39 connects to: 38, 40, 35
-- Checkpoint 40 connects to: 39, 41
-- Checkpoint 41 connects to: 40, 7
 - Checkpoint 42 connects to: 5, 8, 43
 - Checkpoint 43 connects to: 44, 5, 42
 - Checkpoint 44 connects to: 43, 8
@@ -85,55 +63,54 @@ This semantic memory outlines the store's environment, rendered from the annotat
 - Checkpoint 54 connects to: 32
 
 **Fast Tracking** (use this to guide you quickly to the target object):
-- Checkpoint 15 (?) has the target position -> translation: (-4.35, 1.36, 4.55), rotation: (0.0, 11.3, 0.0)
-- Checkpoint 16 (?) has the target position -> translation: (-4.85, 1.36, 4.55), rotation: (0.0, 16.7, 0.0)
-- Checkpoint 17 (?) has the target position -> translation: (-3.05, 1.36, 2.65), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 18 (?) has the target position -> translation: (-4.55, 1.36, 2.65), rotation: (0.0, 270.0, 0.0)
-- Checkpoint 19 (?) has the target position -> translation: (-3.75, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
-- Checkpoint 20 (?) has the target position -> translation: (-2.45, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
-- Checkpoint 21 (?) has the target position -> translation: (-2.25, 1.36, 3.85), rotation: (0.0, 168.7, 0.0)
-- Checkpoint 22 (?) has the target position -> translation: (4.95, 1.36, 3.95), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 23 (?) has the target position -> translation: (4.95, 1.36, 2.15), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 24 (?) has the target position -> translation: (4.95, 1.36, 0.35), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 25 (?) has the target position -> translation: (3.05, 1.36, 2.15), rotation: (0.0, 270.0, 0.0)
-- Checkpoint 26 (?) has the target position -> translation: (0.75, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 27 (?) has the target position -> translation: (-0.65, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 28 (?) has the target position -> translation: (3.55, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 29 (?) has the target position -> translation: (2.15, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 30 (?) has the target position -> translation: (0.75, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 31 (?) has the target position -> translation: (-0.65, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 32 (?) has the target position -> translation: (-4.55, 1.36, -2.55), rotation: (0.0, 270.0, 0.0)
-- Checkpoint 33 (?) has the target position -> translation: (-1.55, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 34 (?) has the target position -> translation: (0.25, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 35 (?) has the target position -> translation: (2.05, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 36 (?) has the target position -> translation: (-3.25, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 37 (?) has the target position -> translation: (-1.55, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 38 (?) has the target position -> translation: (0.25, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 39 (?) has the target position -> translation: (2.05, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 40 (?) has the target position -> translation: (3.75, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 41 (?) has the target position -> translation: (4.95, 1.36, 0.15), rotation: (0.0, 95.7, 0.0)
-- Checkpoint 42 (?) has the target position -> translation: (-0.85, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 43 (?) has the target position -> translation: (-0.85, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 44 (?) has the target position -> translation: (-2.15, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 45 (?) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 275.7, 0.0)
-- Checkpoint 46 (?) has the target position -> translation: (1.95, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 47 (?) has the target position -> translation: (0.05, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 48 (?) has the target position -> translation: (-1.75, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 49 (?) has the target position -> translation: (1.95, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 50 (?) has the target position -> translation: (0.05, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 51 (?) has the target position -> translation: (-1.75, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 52 (?) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 264.3, 0.0)
-- Checkpoint 53 (?) has the target position -> translation: (-4.65, 1.36, 1.15), rotation: (0.0, 264.3, 0.0)
+- Checkpoint 15 (Water, Soda) has the target position -> translation: (-4.35, 1.36, 4.55), rotation: (0.0, 11.3, 0.0)
+- Checkpoint 16 (Water) has the target position -> translation: (-4.85, 1.36, 4.55), rotation: (0.0, 16.7, 0.0)
+- Checkpoint 17 (Can, Chips) has the target position -> translation: (-3.05, 1.36, 2.65), rotation: (0.0, 90.0, 0.0)
+- Checkpoint 18 (Chips, Noodles) has the target position -> translation: (-4.55, 1.36, 2.65), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 19 (Water, Soda) has the target position -> translation: (-3.75, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
+- Checkpoint 20 (Soda) has the target position -> translation: (-2.45, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
+- Checkpoint 21 (Chips) has the target position -> translation: (-2.25, 1.36, 3.85), rotation: (0.0, 168.7, 0.0)
+- Checkpoint 25 (Can, Chips) has the target position -> translation: (3.05, 1.36, 2.15), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 26 (Chips, Biscuit) has the target position -> translation: (0.75, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 27 (Chips, Biscuit) has the target position -> translation: (-0.65, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 30 (Soup, other) has the target position -> translation: (0.75, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 31 (Soup, Dairies) has the target position -> translation: (-0.65, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 32 (Noodles) has the target position -> translation: (-4.55, 1.36, -2.55), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 33 (Biscuit) has the target position -> translation: (-1.55, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 34 (Biscuit, other) has the target position -> translation: (0.25, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 35 (Biscuit, other) has the target position -> translation: (2.05, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 42 (Chips) has the target position -> translation: (-0.85, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 43 (Dairies, Soup) has the target position -> translation: (-0.85, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 44 (Soda, Dairies) has the target position -> translation: (-2.15, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 45 (Chips, Noodles) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 275.7, 0.0)
+- Checkpoint 46 (Biscuit, other) has the target position -> translation: (1.95, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 47 (Biscuit) has the target position -> translation: (0.05, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 48 (Biscuit) has the target position -> translation: (-1.75, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 49 (Can) has the target position -> translation: (1.95, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 50 (Can) has the target position -> translation: (0.05, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 51 (Can) has the target position -> translation: (-1.75, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 52 (Chips, Noodles) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 264.3, 0.0)
+- Checkpoint 53 (Chips, Noodles) has the target position -> translation: (-4.65, 1.36, 1.15), rotation: (0.0, 264.3, 0.0)
 - Checkpoint 54 (counter) has the target position -> translation: (-4.45, 1.36, -3.55), rotation: (0.0, 212.0, 0.0)
 
-@ leg 1 step 1: The Jin Ramen packages are located on the shelves to the immediate left of the agent's starting position, specifically on the middle and lower shelves. The agent is currently facing down an aisle towards refrigerated units (Aisle 3), with the target items off to the left.
-@ leg 1 step 2: The Jin Ramen packages are stocked on the middle and lower shelves of the aisle rack to the agent's left. The agent is currently standing near Checkpoint 54 (self-checkout) and has successfully centered a Jin Ramen package on the screen.
-@ leg 1 step 3: The Jin Ramen packages are located on the middle and lower shelves of the aisle rack to the left. The agent is currently at Checkpoint 54 (self-checkout area) and needs to move closer to the shelves to reach the items.
-@ leg 1 step 4: The Jin Ramen packages are stocked on the middle and lower shelves of the aisle rack to the left. The agent is currently at Checkpoint 32 (near self-checkout area) and has successfully centered a Jin Ramen package on the screen after moving closer.
-@ leg 1 step 5: The Jin Ramen packages are located on the lower and middle shelves of the aisle rack near Checkpoint 32. The agent is currently positioned in front of the shelf but is too far away to reach the items (slant distance 1.34 m).
-@ leg 1 step 6: The Jin Ramen packages are located on the middle shelf of the aisle rack near Checkpoint 32. The agent has successfully centered the target and is now positioned to attempt a grab.
-@ leg 1 step 7: The Jin Ramen Mild 120g packages are successfully located on the middle shelf near Checkpoint 32. The agent has gripped the item in the left hand.
-@ leg 2 step 1: The self-checkout counter (Checkpoint 54) is located near the end of the aisle, adjacent to the refrigerated units. It features a scanner and a bagging area. The agent is currently holding the Jin Ramen and needs to navigate to this counter to complete the checkout.
-@ leg 2 step 2: The self-checkout counter (Checkpoint 54) is located in the open area to the right of the noodle aisle, near the refrigerated units. When exiting the aisle to reach the counter, the agent must turn right to avoid colliding with the shelving unit.
-@ leg 2 step 3: The self-checkout counter (Checkpoint 54) is located in the open area to the right of the noodle aisle, near the refrigerated units. When exiting the aisle to reach the counter, the agent must turn right to avoid colliding with the shelving unit.
-@ leg 2 step 4: The self-checkout kiosk at Checkpoint 54 requires the agent to be in manipulation mode to execute the `checkout_held_item` action. The scanner and bagging area are positioned directly in front of the agent when facing the counter.
+@ leg 1 step 1: The agent is currently at Checkpoint 4, facing down an aisle with refrigerated cases at the far end. Jin Ramen is visible on the shelves to the immediate left, but the target checkpoints for this item are 18, 32, 45, and 52.
+@ leg 1 step 2: At Checkpoint 32, the shelf contains Jin Ramen Mild (yellow packages) on the middle and lower shelves. The target item is clearly visible and accessible from this position.
+@ leg 1 step 3: At Checkpoint 32, the Jin Ramen packages are located on the middle and lower shelves of the metal rack. The shelf is fully stocked with various instant noodle brands.
+@ leg 1 step 4: At Checkpoint 32, the Jin Ramen Mild packages are located on the middle and lower shelves of the metal rack, surrounded by other instant noodle brands like Lucky Me and Indomie.
+@ leg 1 step 5: At Checkpoint 32, the Jin Ramen Mild packages are on the middle and lower shelves of the metal rack. The shelf is fully stocked with various instant noodle brands.
+@ leg 1 step 6: At Checkpoint 32, the Jin Ramen Mild packages are located on the middle and lower shelves of the metal rack, surrounded by other instant noodle brands like Lucky Me and Indomie. The target is currently centered and ready for interaction.
+@ leg 1 step 7: At Checkpoint 32, the Jin Ramen Mild packages are located on the middle and lower shelves of the metal rack, surrounded by other instant noodle brands like Lucky Me and Indomie. The target is currently centered and ready for interaction.
+@ leg 1 step 8: At Checkpoint 32, the Jin Ramen Mild (yellow packages) is located on the middle shelf of the metal rack, surrounded by Indomie and Lucky Me noodles. The target is centered and visually confirmed.
+@ leg 1 step 9: At Checkpoint 32, the Jin Ramen Mild packages are on the middle shelf. The agent is currently slightly out of reach (0.88m vs 0.85m limit) and needs to close the gap.
+@ leg 1 step 10: At Checkpoint 32, the Jin Ramen Mild packages are on the middle shelf, surrounded by Indomie and Lucky Me noodles. The target is centered and visually confirmed.
+@ leg 1 step 11: At Checkpoint 32, the Jin Ramen Mild (yellow package) is successfully gripped by the left hand. The item is confirmed picked up and ready for the next subtask.
+@ leg 2 step 1: The self-checkout kiosk is located at Checkpoint 54, which connects directly to Checkpoint 32 (the noodle aisle). The kiosk features a screen, a barcode scanner unit, and a counter surface for bagging items.
+@ leg 2 step 2: The self-checkout kiosk at Checkpoint 54 requires the agent to be in manipulation mode to execute the checkout_held_item action. The kiosk screen displays a 'Start' prompt and has a scanner unit positioned above the counter surface.
+@ leg 2 step 3: The self-checkout process at Checkpoint 54 successfully scanned and bagged the Jin Ramen Mild. The kiosk scanner and bagging area are positioned directly in front of the agent when facing the counter.
+@ leg 3 step 1: The Oishi Prawn Crackers are located in the chips aisle, specifically at Checkpoints 21, 26, 27, and 42. Checkpoint 21 is noted to have Oishi Prawn Crackers on the shelf along with other snacks like Clover Chips and Criss Cross.
+@ leg 3 step 2: At Checkpoint 21, the Oishi Prawn Crackers are located on the middle shelf, identifiable by their red and yellow striped packaging. They are positioned between green Clover Chips bags and red Chippy Corn Chips bags.
+@ leg 3 step 3: At Checkpoint 21, the Oishi Prawn Crackers are located on the middle shelf, identifiable by their red and yellow striped packaging. They are positioned between green Clover Chips bags and red Chippy Corn Chips bags.
+@ leg 3 step 4: At Checkpoint 21, the Oishi Prawn Crackers (red and yellow striped packaging) are located on the middle shelf. They are positioned between green Clover Chips bags and red Chippy Corn Chips bags. The shelf is well-stocked with various snack brands.
+@ leg 3 step 5: Oishi Prawn Crackers (red/yellow striped packaging) are located on the middle shelf at Checkpoint 21, positioned between Clover Chips and Chippy Corn Chips. The item is successfully gripped by the left hand.
+@ leg 4 step 2: The agent is currently holding Oishi Prawn Crackers in the left hand at Checkpoint 21. The immediate goal is to transport this item to the self-checkout kiosk at Checkpoint 54. The path from Checkpoint 21 to 54 requires navigating through the store layout, likely via Checkpoint 20 or 32.
+@ leg 4 step 3: The self-checkout kiosk at Checkpoint 54 is positioned against a wall corner. The agent must face the kiosk directly to scan items. The 'checkout_held_item' action requires the agent to be in manipulation mode.

@@ -733,6 +733,18 @@ class EmbodiedAgent:
             # Soft .get: an older learner reply without the field just omits the line below.
             next_action = semantic_response.get('next_action')
 
+            # Location gate (2026-07-24): run_leg sets force_navigate when the graph says the agent is
+            # not yet at the target's checkpoint(s). The graph owns spatial truth, so OVERRIDE a router
+            # that hallucinated the target onto whatever is in front of it (e.g. a just-checked-out item
+            # on the counter) and chose perception/manipulation to grab in place. Force *navigation*, and
+            # drop any stale MOVE verdict so the nav branch drives a candidate HOP to the shelf instead
+            # of a metric creep that inches against the wrong fixture forever.
+            if request.get('force_navigate'):
+                if agent_mode in ("perception", "manipulation"):
+                    agent_mode = "navigation"
+                if agent_mode == "navigation":
+                    reach_move_steps = None
+
             nav_note = ""
             if agent_mode == "navigation" and self.nav_mode in ("graph", "graph-advised"):
                 # Arm B: navigation executes deterministically; the VLM resumes in perception
@@ -830,6 +842,16 @@ class EmbodiedAgent:
 
             self.vlm_agent.base_semantic_memory += f"{self._semantic_tag(timestep)}: {new_semantic_memory}\n"
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
+
+            # Location gate (2026-07-24): see the timestep==1 branch above. run_leg's force_navigate
+            # lets the graph override a router that put the target where the agent already stands and
+            # chose perception/manipulation; force *navigation* and drop the stale MOVE verdict so the
+            # nav branch does a candidate HOP to the shelf, not a metric creep in place.
+            if request.get('force_navigate'):
+                if agent_mode in ("perception", "manipulation"):
+                    agent_mode = "navigation"
+                if agent_mode == "navigation":
+                    reach_move_steps = None
 
             nav_note = ""
             if agent_mode == "navigation" and self.nav_mode in ("graph", "graph-advised"):

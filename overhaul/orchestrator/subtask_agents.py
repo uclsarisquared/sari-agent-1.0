@@ -468,6 +468,42 @@ def write_step_output(out_dir, step, response):
         fh.write(f"--- EPISODIC REFLECTION ---\n{response.get('episodic') or '(n/a)'}\n")
 
 
+# Location gate (2026-07-24) — the graph, not the VLM, owns "am I at the target yet". A checkpoint
+# counts as "at the target" if it is one of the leg's resolved candidates OR within this many graph
+# hops of one. The graph navigator parks the agent ON a candidate, so this margin only tolerates the
+# fine-approach creep nudging localisation to an immediate neighbour (node spacing 2.0 m, reading
+# distance 1.0 m). MEASURED basis: in run 0724_145735 the agent that hallucinated its target onto a
+# just-checked-out item sat 8–12 hops from every candidate, so any small margin fires the gate; 1
+# keeps it from fighting a legitimate arrival.
+_AT_TARGET_HOP_MARGIN = 1
+
+# Only legs whose in-place work REQUIRES standing at the target's resolved checkpoints are gated:
+# pickup (centre/grab must happen at the shelf) and goto (arrival IS the goal). checkout drives to
+# the counter via its own macro; compare sweeps its candidate sets — neither is force-navigated here.
+_LOCATION_GATED_TYPES = {"pickup", "goto"}
+
+
+def _off_target(sm, leg, near_cp) -> bool:
+    """True iff this leg's work must happen AT its resolved candidate checkpoints and the agent is not
+    there yet — more than `_AT_TARGET_HOP_MARGIN` hops from EVERY candidate. Lets the graph, not the
+    mode-router VLM, own "am I in the right place": the fix for the router hallucinating the target
+    onto whatever is in front of it (e.g. a product left on the checkout counter after a checkout leg)
+    and centre-grabbing in place forever instead of navigating to the shelf (run 0724_145735, leg 3).
+
+    Returns False (gate OFF) whenever it cannot ground the check — wrong leg type, no resolved
+    candidates, no localisation, or a disconnected graph — never a silent force-navigate the wiring
+    can't justify."""
+    if leg.get("type") not in _LOCATION_GATED_TYPES:
+        return False
+    cands = [c for c in (leg.get("candidates") or []) if c in sm.by_id]
+    if not cands or near_cp is None:
+        return False
+    dists = [h for h in (sm.hops(near_cp, c) for c in cands) if h is not None]
+    if not dists:
+        return False
+    return min(dists) > _AT_TARGET_HOP_MARGIN
+
+
 def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             visited=None, leg_idx=0):
     """Run ONE typed subtask leg as a self-contained embodied-agent loop - eval_pickup.run_one
@@ -542,7 +578,12 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
     state = _fresh_agent_state()
     # The leg's STARTING checkpoint counts as visited (the post-action refresh only records positions
     # AFTER a step, so without this a compare leg that starts at a candidate gets no credit for it).
-    visited.add(sm.nearest_checkpoint((state["translation"][0], state["translation"][2])))
+    # Also store it as `nearest_checkpoint` so STEP 1 already has a localisation — the per-step refresh
+    # below only fills that field from step 2 on, but the location gate must judge off-target on the
+    # very first step, which is exactly when the mode router latches onto whatever is in front of it.
+    start_near = sm.nearest_checkpoint((state["translation"][0], state["translation"][2]))
+    visited.add(start_near)
+    state["nearest_checkpoint"] = start_near
     halt_refusals = 0
     corrective_release_done = False   # one wrong-item auto-release allowance per leg (see the refusal branch)
     goal_met_streak = 0        # consecutive steps the completion predicate would grant (backstop)
@@ -577,7 +618,20 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
         # GOAL line so it isn't reading the cumulative context / future-goals blob when it only has to
         # pick the next hop or judge the product visible HERE (see execute_lean's nav_goal note). The
         # actor/learner still get the full augmented_task; only the graph-advised advisor narrows.
-        request = {"task": augmented_task, "nav_goal": leg_text,
+        # Location gate (2026-07-24): the graph, not the VLM, owns "am I at the target yet". Surface
+        # the leg's resolved checkpoint(s) to the model (target_checkpoints), and flag force_navigate
+        # whenever the agent is not there — the fix for the mode router hallucinating the target onto
+        # whatever is in front of it (a just-checked-out item on the counter) and centre-grabbing in
+        # place forever instead of driving to the shelf. execute_lean honours force_navigate by
+        # overriding the mode to *navigation* (a candidate hop). Scoped to pickup/goto legs.
+        gated_cps = ([c for c in (leg.get("candidates") or []) if c in sm.by_id]
+                     if leg.get("type") in _LOCATION_GATED_TYPES else [])
+        state["target_checkpoints"] = gated_cps or None
+        off_target = _off_target(sm, leg, state.get("nearest_checkpoint"))
+        if off_target:
+            print(f"[GATE] off-target: at cp{state.get('nearest_checkpoint')}, target at "
+                  f"{gated_cps} — forcing navigation this step.")
+        request = {"task": augmented_task, "nav_goal": leg_text, "force_navigate": off_target,
                    "image": imageb64, "state": _model_facing_state(state)}
 
         try:
@@ -819,7 +873,7 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
              "reach": last_reach, "near_cp": near, "pos": state.get("translation"),
              "hovered": [state.get("leftHoveredObject"), state.get("rightHoveredObject")],
              "gripped": [state.get("leftGrippedState"), state.get("rightGrippedState")],
-             "gripped_names": dict(gripped_names),
+             "gripped_names": dict(gripped_names), "off_target": off_target or None,
              "checkout": checkout_result, "goal_met": met, "status": notes.get("status")})
 
         if goal_met_streak >= COMPLETION_BACKSTOP:
