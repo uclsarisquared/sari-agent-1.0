@@ -71,9 +71,14 @@ EXTRACT = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 from orchestrator.subtask_completion import name_matches
 
 
-def return_to_start(agent):
+def return_to_start(agent, output_dir=None):
     """Drive the agent back to a fixed start checkpoint between tasks - harness machinery,
     identical for both arms, so every task starts from the same place.
+
+    `output_dir` selects the slamtest output the StoreMap loads (topology/annotations/grid);
+    None uses StoreMap's DEFAULT_OUTPUT_DIR. The (sm, nav, start_cp) triple is cached on the
+    first call, so within one process every task shares one map - pass the same dir the agent
+    was built with.
 
     This REPLACES env.Reset(): MEASURED 2026-07-19, Unity's ResetEnvironment destroys only
     'RetailItem'-tagged objects before LoadStore() re-instantiates the whole store, so each
@@ -83,7 +88,7 @@ def return_to_start(agent):
     different product, so at most one prior grab per shelf; noted, not hidden."""
     from nav.store_map import StoreMap, NavSession
     if not hasattr(return_to_start, "_nav"):
-        sm = StoreMap()
+        sm = StoreMap(output_dir=output_dir) if output_dir else StoreMap()
         return_to_start._nav = (sm, NavSession(sm, stow_hands=False),
                                 sm.nearest_checkpoint((-3.0, -5.0)))  # nearest to spawn
     sm, nav, start_cp = return_to_start._nav
@@ -100,8 +105,8 @@ def return_to_start(agent):
     nav.pos, nav.rot = face(nav.args, nav.pos, nav.rot, 0.0)
 
 
-def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None):
-    return_to_start(agent)
+def run_one(agent, task, keywords, max_steps, max_minutes, log_path=None, output_dir=None):
+    return_to_start(agent, output_dir=output_dir)
     time.sleep(1.0)
     state = _fresh_agent_state()
     t0 = time.time()
@@ -265,6 +270,9 @@ def main():
     ap.add_argument("--max-steps", type=int, default=150)
     ap.add_argument("--max-minutes", type=float, default=40.0)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--output-dir", default=None,
+                    help="slamtest output dir to load the map from (topology/annotations/grid). "
+                         "Default: slamtest/output (StoreMap's DEFAULT_OUTPUT_DIR).")
     args = ap.parse_args()
 
     if args.task:
@@ -276,7 +284,7 @@ def main():
     agent = EmbodiedAgent(
         vlm_config=ucl_qwen_config(temperature=0.5),
         associative_config=ucl_qwen_config(temperature=0.3),
-        mode='lean', nav_mode=args.arm)
+        mode='lean', nav_mode=args.arm, map_output_dir=args.output_dir)
 
     # Startup hand-centering DISABLED (user, 2026-07-21): Unity now owns the default hand pose.
     # Was needed here because without it the default pose filled the camera (giant ghost hands);
@@ -293,7 +301,8 @@ def main():
     for idx, (task, kw) in enumerate(todo):
         print(f"\n### {task}")
         m = run_one(agent, task, kw, args.max_steps, args.max_minutes,
-                    log_path=os.path.join(run_dir, f"task{idx:02d}.jsonl"))
+                    log_path=os.path.join(run_dir, f"task{idx:02d}.jsonl"),
+                    output_dir=args.output_dir)
         rows.append({"task": task, "arm": args.arm, **m})
         print(f"### {m['end_reason']}: success={m['success']} t_manip={m['t_manip']} "
               f"t_grip={m['t_grip']} steps={m['timesteps']} llm={m['llm_calls']} "

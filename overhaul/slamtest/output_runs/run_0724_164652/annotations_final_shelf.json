@@ -713,7 +713,7 @@
           "category": "Chips"
         },
         {
-          "name": "Oishi Corn Chips Nacho Crispies BBQ",
+          "name": "Chipsy Corn Chips Nacho Crispies BBQ",
           "variant": "BBQ",
           "price": "39",
           "appearance": "yellow bag with brown BBQ chip graphic, red text 'Nacho Crispies BBQ'",
@@ -727,14 +727,14 @@
           "category": "Chips"
         },
         {
-          "name": "Ding Dong Cheese Ring",
+          "name": "Chipsy Cheese Ring",
           "variant": "Cheese",
           "price": "55",
           "appearance": "blue bag with ring-shaped snack graphic labeled 'Cheese Ring'",
           "category": "Chips"
         },
         {
-          "name": "McNik Potato Fries",
+          "name": "Oishi Potato Fries",
           "variant": null,
           "price": "169",
           "appearance": "red cylindrical canister labeled 'Potato Fries'",

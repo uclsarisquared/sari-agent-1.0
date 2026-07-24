@@ -946,9 +946,9 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
 # Orchestrator
 # ---------------------------------------------------------------------------
 
-def _load_store_map():
+def _load_store_map(output_dir=None):
     from nav.store_map import StoreMap
-    return StoreMap()
+    return StoreMap(output_dir=output_dir) if output_dir else StoreMap()
 
 
 def _current_nearest_cp(sm):
@@ -963,7 +963,8 @@ def _current_nearest_cp(sm):
 
 
 def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
-                resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1):
+                resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1,
+                output_dir=None):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then
     run each with run_leg until the AGENT stops (predicate-granted) or a per-leg cap fires. Shared
     semantic/episodic memory + a between-leg findings summary carry context forward. A failed leg is
@@ -998,7 +999,8 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     client = _llm_client()
     init_logger(run_name=f"subtask-{datetime.now():%m%d_%H%M%S}")
     agent = EmbodiedAgent(vlm_config=VLM_CONFIG, associative_config=ASSOCIATIVE_CONFIG,
-                          mode='lean', nav_mode=arm, resolver_backend=resolver_backend)
+                          mode='lean', nav_mode=arm, resolver_backend=resolver_backend,
+                          map_output_dir=output_dir)
 
     # Run outputs (per-leg JSONL + screenshots + summary.json) land under overhaul/subtask_run_outputs/
     # (_OVERHAUL_DIR is overhaul/), one timestamped dir per task run.
@@ -1012,7 +1014,7 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     # -- decompose (1 LLM) + resolve each leg on the map (N LLM, plan time) --
     subtasks = decompose_task(client, task)
     task_llm = 1
-    sm = _load_store_map()
+    sm = _load_store_map(output_dir)
     resolve_call = make_resolve_call(resolver_backend)
     legs, n_resolves = plan_legs(sm, resolve_call, subtasks)
     task_llm += n_resolves
@@ -1036,7 +1038,7 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     if reset_start:
         try:
             from evals.eval_pickup import return_to_start
-            return_to_start(agent)
+            return_to_start(agent, output_dir=output_dir)
         except Exception as e:  # noqa: BLE001 - a reset hiccup shouldn't abort the whole task
             print(f"[ORCHESTRATOR] return_to_start skipped ({type(e).__name__}: {e})")
 
@@ -1154,6 +1156,9 @@ def main():
     ap.add_argument("--out", default=None, help="summary.json path (default: <run-dir>/summary.json)")
     ap.add_argument("--run-dir", default=None)
     ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"], default="qwen")
+    ap.add_argument("--output-dir", default=None,
+                    help="slamtest output dir to load the map from (topology/annotations/grid). "
+                         "Default: slamtest/output (StoreMap's DEFAULT_OUTPUT_DIR).")
     ap.add_argument("--leg-retries", type=int, default=1,
                     help="how many times to RETRY a failed leg with the failure reason in context "
                          "before aborting the task (orchestrator-level self-correction; 0 restores "
@@ -1173,7 +1178,7 @@ def main():
     orchestrate(task, arm=args.arm, caps=(args.max_steps, args.max_minutes), out=args.out,
                 run_dir=args.run_dir, resolver_backend=args.resolver_backend,
                 reset_start=args.reset_start, restart_env=args.restart_env,
-                leg_retries=max(0, args.leg_retries))
+                leg_retries=max(0, args.leg_retries), output_dir=args.output_dir)
 
 
 if __name__ == "__main__":

@@ -301,7 +301,8 @@ class EmbodiedAgent:
                  mode: Literal['base', 'lean'] = 'base',
                  nav_mode: Literal['vlm', 'graph', 'graph-advised'] = 'vlm',
                  resolver_backend: Literal['qwen', 'claude-cli'] = 'qwen',
-                 advisor_backend: Literal['qwen', 'claude-cli'] = 'qwen') -> None:
+                 advisor_backend: Literal['qwen', 'claude-cli'] = 'qwen',
+                 map_output_dir: Optional[str] = None) -> None:
 
         self.vlm_agent = VLMAgent(vlm_config)
         self.mode = mode
@@ -329,6 +330,10 @@ class EmbodiedAgent:
         self._advised_stats = []        # per-hop records {hop, cur, pick, advice, agreed, ...}
         self._advised_shot_idx = 0      # monotonically-named advisor screenshots
         self._graph_nav = None          # lazy: needs the sim up
+        # Which slamtest output dir the graph arm loads its map (topology/annotations/grid) from.
+        # None -> StoreMap's DEFAULT_OUTPUT_DIR (slamtest/output). Threaded from the entry points'
+        # --output-dir so a run can be pointed at an alternate map without touching the default.
+        self._map_output_dir = map_output_dir
         self._nav_candidates = []       # resolver output for the current task, in visit order
         self._nav_visited = set()
         self._nav_task = None
@@ -414,7 +419,8 @@ class EmbodiedAgent:
         dispatch because NavSession needs the sim live."""
         if self._graph_nav is None:
             from nav.store_map import StoreMap, NavSession
-            sm = StoreMap()
+            sm = (StoreMap(output_dir=self._map_output_dir) if self._map_output_dir
+                  else StoreMap())
             nav = NavSession(sm, stow_hands=False)  # hands managed per-leg, not per-session
             self._graph_nav = (sm, nav)
         return self._graph_nav
