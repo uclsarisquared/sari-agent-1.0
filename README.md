@@ -1,4 +1,4 @@
-Virtual Embodied Agent operating in a 3D Convenience Store Environment
+Sari Agent Squared
 ========================
 
 An embodied agent that navigates and manipulates objects in a Unity grocery-store sim. The store
