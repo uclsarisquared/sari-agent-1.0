@@ -209,6 +209,85 @@ class WatchState:
         _log(f"killed {key} (pid {pid}); the runner will release its lease")
         return {"ok": True, "pid": pid}
 
+    def verdict(self, key: str, success: bool, *, note: str = "", by: str = "") -> dict[str, Any]:
+        """Records a human's pass/fail for one halted attempt.
+
+        The predicates that end a run with `halt_granted` are the ones that grant on state they
+        cannot ground - several of them say `[unverified]` in their own reason string. This is the
+        check on them, so the verdict is stamped BESIDE `success`, never over it: a measured pass with
+        a verified fail is exactly the discrepancy worth collecting, and overwriting `success` would
+        erase it.
+
+        The eligibility check is repeated here rather than trusted from the UI: the button is only
+        rendered on a verifiable card, but the route is reachable without the page.
+        """
+        battery = self.resolve_battery()
+        if battery is None:
+            return {"ok": False, "error": "no battery"}
+        run_dir = _safe_run_dir(battery, key)
+        if run_dir is None:
+            return {"ok": False, "error": "unknown attempt"}
+
+        manifest_path = run_dir / scan.ATTEMPT_MANIFEST
+        with self._lock:
+            manifest = scan._read_json(manifest_path)
+            state = str(manifest.get("state") or "")
+            end_reason = str(manifest.get("end_reason") or "")
+            if not scan.is_verifiable(state, end_reason):
+                return {"ok": False,
+                        "error": f"not reviewable (state={state or '?'}, end={end_reason or '?'}); "
+                                 f"only {'/'.join(sorted(scan.VERIFIABLE_END_REASONS))} can be judged"}
+            fields = {
+                "verified_success": bool(success),
+                "verified_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "verified_by": by or os.environ.get("USER") or "watcher",
+                "verified_note": note,
+            }
+            _stamp(manifest_path, fields)
+            # The cached snapshot predates the stamp, so the next poll would show the old badge for
+            # up to `min_interval`. Drop it and let the reviewer see their own click land.
+            self._cached_at = 0.0
+
+        _log(f"verdict on {key}: {'SUCCESS' if success else 'FAIL'} by {fields['verified_by']}"
+             f"{' (predicate disagreed)' if bool(manifest.get('success')) != bool(success) else ''}")
+        return {"ok": True, **fields}
+
+    def clear_verdict(self, key: str) -> dict[str, Any]:
+        """Un-reviews an attempt, for a misclick. Leaves no trace, so the row reads as never looked at
+        rather than as a verdict of False."""
+        battery = self.resolve_battery()
+        if battery is None:
+            return {"ok": False, "error": "no battery"}
+        run_dir = _safe_run_dir(battery, key)
+        if run_dir is None:
+            return {"ok": False, "error": "unknown attempt"}
+
+        manifest_path = run_dir / scan.ATTEMPT_MANIFEST
+        with self._lock:
+            manifest = scan._read_json(manifest_path)
+            if "verified_success" not in manifest:
+                return {"ok": True, "cleared": False}
+            for field in ("verified_success", "verified_at", "verified_by", "verified_note"):
+                manifest.pop(field, None)
+            _write_json(manifest_path, manifest)
+            self._cached_at = 0.0
+        _log(f"verdict cleared on {key}")
+        return {"ok": True, "cleared": True}
+
+    def replay_status(self, key: str) -> tuple[str, Path | None]:
+        """(status, clip path). Renders on demand, on the replay worker - never on this thread."""
+        if self.replay is None:
+            return replay_mod.UNAVAILABLE, None
+        battery = self.resolve_battery()
+        if battery is None:
+            return replay_mod.UNAVAILABLE, None
+        run_dir = _safe_run_dir(battery, key)
+        if run_dir is None:
+            return replay_mod.UNAVAILABLE, None
+        status = self.replay.request(key, run_dir)
+        clip = run_dir / video.UPLOAD_NAME
+        return status, (clip if status == replay_mod.READY and clip.is_file() else None)
+
     def log_tail(self, key: str, lines: int = LOG_TAIL_LINES) -> dict[str, Any]:
         battery = self.resolve_battery()
         if battery is None:
@@ -239,15 +318,20 @@ class WatchState:
         return scan._latest_frame(run_dir)
 
 
-def _stamp(path: Path, fields: dict[str, Any]) -> None:
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Atomic replace, so a poller mid-read never sees a half-written manifest."""
     try:
-        payload = scan._read_json(path)
-        payload.update(fields)
         temp = path.with_name(f".{path.name}.tmp")
         temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(temp, path)
     except OSError as error:  # noqa: BLE001
-        _log(f"could not stamp {path}: {error!r}")
+        _log(f"could not write {path}: {error!r}")
+
+
+def _stamp(path: Path, fields: dict[str, Any]) -> None:
+    payload = scan._read_json(path)
+    payload.update(fields)
+    _write_json(path, payload)
 
 
 def _safe_run_dir(battery: Path, key: str) -> Path | None:
@@ -313,6 +397,71 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, payload: Any, code: int = 200) -> None:
         self._send(code, json.dumps(payload, default=str).encode("utf-8"), "application/json")
 
+    def _send_file(self, path: Path, content_type: str) -> None:
+        """Serves a file, honouring a single byte range.
+
+        `<video>` needs this. Without `Accept-Ranges` a browser treats the clip as unseekable and the
+        reviewer can only watch it start to finish - which defeats the point of attaching it to a
+        verdict. The clips are capped at a few megabytes, so the whole file is still read at once and
+        only the slice and the headers differ.
+        """
+        try:
+            body = path.read_bytes()
+        except OSError as error:
+            self._send(404, f"unreadable: {error!r}".encode("utf-8"), "text/plain")
+            return
+
+        total = len(body)
+        start, end = 0, total - 1
+        partial = False
+        header = self.headers.get("Range", "")
+        if header.startswith("bytes=") and "," not in header and total:
+            first, _, last = header[len("bytes="):].partition("-")
+            try:
+                if first:
+                    start = int(first)
+                    end = int(last) if last else total - 1
+                elif last:  # a suffix range: the LAST n bytes
+                    start = max(0, total - int(last))
+                partial = True
+            except ValueError:
+                partial = False
+        end = min(end, total - 1)
+
+        if partial and (start > end or start >= total):
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{total}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        chunk = body[start:end + 1] if partial else body
+        self.send_response(206 if partial else 200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(chunk)))
+        self.send_header("Accept-Ranges", "bytes")
+        if partial:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+        # Not `no-store` like the JSON routes: a browser that may not keep the clip re-fetches on
+        # every seek, and some refuse to seek at all. A rendered clip only changes if it is rendered
+        # again, so a short window is safe and makes scrubbing usable.
+        self.send_header("Cache-Control", "private, max-age=60")
+        self.end_headers()
+        self.wfile.write(chunk)
+
+    def _body(self) -> dict[str, Any]:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return {}
+        if length <= 0:
+            return {}
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
@@ -339,16 +488,46 @@ class Handler(BaseHTTPRequestHandler):
             if action == "log":
                 self._json(self.state.log_tail(key))
                 return
+            if action == "replay.mp4":
+                status, clip = self.state.replay_status(key)
+                if clip is not None:
+                    self._send_file(clip, "video/mp4")
+                elif status == replay_mod.RENDERING:
+                    # 202: the encode is queued on the replay worker. The page polls until 200.
+                    self._json({"status": status}, code=202)
+                else:
+                    self._json({"status": replay_mod.UNAVAILABLE,
+                                "reason": "no frames, no ffmpeg, or the clip busts the size budget"},
+                               code=409)
+                return
 
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:  # noqa: N802
         path = unquote(urlparse(self.path).path)
-        if path.startswith("/api/attempt/") and path.endswith("/kill"):
-            key = path[len("/api/attempt/"):-len("/kill")]
-            result = self.state.kill(key)
-            self._json(result, code=200 if result.get("ok") else 400)
-            return
+        if path.startswith("/api/attempt/"):
+            rest = path[len("/api/attempt/"):]
+            if rest.endswith("/verdict/clear"):
+                result = self.state.clear_verdict(rest[:-len("/verdict/clear")])
+                self._json(result, code=200 if result.get("ok") else 400)
+                return
+            if rest.endswith("/verdict"):
+                body = self._body()
+                if not isinstance(body.get("success"), bool):
+                    self._json({"ok": False, "error": "body needs a boolean 'success'"}, code=400)
+                    return
+                result = self.state.verdict(
+                    rest[:-len("/verdict")],
+                    body["success"],
+                    note=str(body.get("note") or ""),
+                    by=str(body.get("by") or ""),
+                )
+                self._json(result, code=200 if result.get("ok") else 400)
+                return
+            if rest.endswith("/kill"):
+                result = self.state.kill(rest[:-len("/kill")])
+                self._json(result, code=200 if result.get("ok") else 400)
+                return
         self._send(404, b"not found", "text/plain")
 
 
@@ -395,9 +574,12 @@ def serve(argv: list[str] | None = None) -> int:
         width=args.replay_width,
         fps=args.replay_fps,
     )
-    if replay.enabled:
+    # Started whenever rendering is on, not only when Discord is: the dashboard's review flow asks
+    # this same worker for clips, and it must be running with no webhook configured.
+    if replay.render_enabled:
         if shutil.which("ffmpeg") is None:
-            _log("replay clips are ON but ffmpeg is not on PATH; halts will post without one")
+            _log("replay clips are ON but ffmpeg is not on PATH; halts will post without one "
+                 "and the dashboard cannot show replays")
         replay.start()
 
     state = WatchState(

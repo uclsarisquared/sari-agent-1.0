@@ -12,7 +12,10 @@ exercised against the real shapes rather than a mock. What is being pinned down:
   5. a rotated-aside requeue dir does not merge with the attempt that replaced it;
   6. every halt is announced exactly once whatever its outcome, and carries a replay clip inside the
      upload budget - written beside, never over, the CLI's uncapped replay.mp4;
-  7. a watcher restart does not replay finishes that predate it into the channel.
+  7. a watcher restart does not replay finishes that predate it into the channel;
+  8. a human verdict is offered only where the AGENT chose to halt, is stored beside `success` and
+     never over it, and reaches attempts.csv blank - not False - where nobody has looked;
+  9. the dashboard renders and serves a seekable replay clip with Discord switched off entirely.
 
 The Discord tests stub `_post` rather than the socket, except for one that stands up a throwaway HTTP
 sink to pin the multipart body: that encoding is the part a wrong guess would break silently.
@@ -63,7 +66,8 @@ def _real_png(path: Path, size: tuple[int, int], index: int) -> None:
 def make_attempt(battery: Path, prompt_id: str, attempt: int, *, steps: list[dict],
                  state: str = "running", pid: int | None = None, started_ago: float = 60.0,
                  max_steps: int = 150, outcome: str = "", frames: bool = True,
-                 success: bool = False, frame_size: tuple[int, int] = (1, 1)) -> Path:
+                 success: bool = False, end_reason: str = "halt_granted",
+                 frame_size: tuple[int, int] = (1, 1)) -> Path:
     run_dir = battery / prompt_id / f"try{attempt:02d}"
     run_dir.mkdir(parents=True, exist_ok=True)
     now = time.time()
@@ -79,6 +83,7 @@ def make_attempt(battery: Path, prompt_id: str, attempt: int, *, steps: list[dic
         manifest["outcome"] = outcome
         manifest["wall_seconds"] = started_ago
         manifest["success"] = success
+        manifest["end_reason"] = end_reason
     _write(run_dir / "attempt.json", json.dumps(manifest))
 
     lines = [json.dumps({"event": "leg_start", "leg": 0, "type": "pickup", "text": "go get it"})]
@@ -273,11 +278,12 @@ def test_report_and_kill_stamp() -> None:
         print("ok  report flattens attempts/legs; kill refuses finished and traversal keys")
 
 
-def _finish(run_dir: Path, *, outcome: str, success: bool = False) -> None:
+def _finish(run_dir: Path, *, outcome: str, success: bool = False,
+            end_reason: str = "halt_granted") -> None:
     """Stamps an attempt closed the way the runner does when its agent exits."""
     manifest = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
     manifest.update({"state": "finished", "outcome": outcome, "success": success,
-                     "wall_seconds": 61.0, "pid": None})
+                     "end_reason": end_reason, "wall_seconds": 61.0, "pid": None})
     _write(run_dir / "attempt.json", json.dumps(manifest))
 
 
@@ -363,7 +369,7 @@ def test_finish_attaches_replay_mp4() -> None:
 
         discord, posts = _recording_discord()
         worker = ReplayNotifier(discord, max_bytes=8_000_000, width=320, fps=6.0)
-        assert worker.enabled
+        assert worker.announce_enabled
         worker.start()
         try:
             state = WatchState(bench_root=Path(temp), fixed_battery=battery, discord=discord,
@@ -426,6 +432,253 @@ def test_replay_seed_suppresses_backfill() -> None:
         print("ok  a watcher restart seeds old finishes silently and still catches new ones")
 
 
+def test_only_voluntary_halts_are_reviewable() -> None:
+    """The gate on the verdict buttons.
+
+    A run the harness cut off at its step or time cap never claimed to be done, so there is nothing
+    for a human to confirm or deny. Only `halt_granted` (the agent said STOP and the predicate granted
+    it) and `completed_no_stop` (the backstop) put a claim on the record worth checking.
+    """
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        make_attempt(battery, "granted", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+        make_attempt(battery, "backstop", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="completed_no_stop")
+        make_attempt(battery, "capped", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=False, end_reason="step_cap")
+        make_attempt(battery, "timedout", 1, steps=healthy_steps(3), state="finished",
+                     outcome="harness_timeout", success=False, end_reason="time_cap")
+        make_attempt(battery, "live", 1, steps=healthy_steps(3), pid=os.getpid())
+
+        view = scan.scan_battery(battery, time.time()).as_dict()
+        by_id = {a["prompt_id"]: a for a in view["attempts"]}
+        assert by_id["granted"]["verifiable"] is True
+        assert by_id["backstop"]["verifiable"] is True
+        assert by_id["capped"]["verifiable"] is False, "a step-capped run offered a verdict"
+        assert by_id["timedout"]["verifiable"] is False
+        assert by_id["live"]["verifiable"] is False, "a running attempt offered a verdict"
+        assert all(a["verified"] is False for a in view["attempts"])
+        assert all(a["verified_success"] is None for a in view["attempts"])
+        assert view["counts"]["awaiting_verdict"] == 2, view["counts"]
+        print("ok  only attempts the agent halted itself are offered for human review")
+
+
+def test_verdict_round_trip_and_refusals() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        make_attempt(battery, "p", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+        make_attempt(battery, "capped", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="step_cap")
+        make_attempt(battery, "live", 1, steps=healthy_steps(3), pid=os.getpid())
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+
+        result = state.verdict("p/try01", False, note="never actually grabbed it", by="tester")
+        assert result["ok"] is True, result
+        manifest = json.loads((battery / "p" / "try01" / "attempt.json").read_text())
+        assert manifest["verified_success"] is False
+        assert manifest["verified_by"] == "tester"
+        assert manifest["verified_note"] == "never actually grabbed it"
+        # The predicate's own verdict is untouched: the disagreement is the point.
+        assert manifest["success"] is True, "the human verdict overwrote the measured one"
+
+        view = scan.scan_battery(battery, time.time()).as_dict()
+        reviewed = {a["prompt_id"]: a for a in view["attempts"]}["p"]
+        assert reviewed["verified"] is True and reviewed["verified_success"] is False
+        assert reviewed["success"] is True
+        assert view["counts"]["verified"] == 1 and view["counts"]["verified_fail"] == 1
+        assert view["counts"]["disagree"] == 1, view["counts"]
+
+        # Correctable: the other button overwrites.
+        assert state.verdict("p/try01", True)["ok"] is True
+        manifest = json.loads((battery / "p" / "try01" / "attempt.json").read_text())
+        assert manifest["verified_success"] is True
+
+        # Cleared, an attempt reads as never looked at - not as a verdict of False.
+        assert state.clear_verdict("p/try01") == {"ok": True, "cleared": True}
+        manifest = json.loads((battery / "p" / "try01" / "attempt.json").read_text())
+        assert "verified_success" not in manifest and "verified_by" not in manifest
+        assert state.clear_verdict("p/try01") == {"ok": True, "cleared": False}
+
+        # The server re-checks eligibility: the button is not the only gate.
+        for key in ("capped/try01", "live/try01"):
+            refused = state.verdict(key, True)
+            assert refused["ok"] is False and "not reviewable" in refused["error"], refused
+        assert state.verdict("../../etc", True)["ok"] is False
+        assert state.clear_verdict("../../etc")["ok"] is False
+        print("ok  verdicts round-trip beside `success`, overwrite, clear, and refuse the ineligible")
+
+
+def test_verdict_and_replay_over_http() -> None:
+    """The review surface end to end, without needing ffmpeg for the parts that are not the encode.
+
+    The clip for the ready path is pre-placed, exactly as an already-announced halt would have left
+    it: `request()` serves an in-budget replay.discord.mp4 straight off disk. That keeps the routing,
+    the range handling and the verdict round trip covered on a host with no ffmpeg, and leaves only
+    the encode itself to `test_finish_attaches_replay_mp4`.
+    """
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from threading import Thread
+
+    from sari_bench import video
+    from sari_bench.watch.replay import ReplayNotifier
+    from sari_bench.watch.server import Handler
+
+    def request(path: str, *, data: bytes | None = None,
+                headers: dict[str, str] | None = None) -> tuple[int, bytes, Any]:
+        req = urllib.request.Request(f"{base}{path}", data=data, headers=headers or {},
+                                     method="POST" if data is not None else "GET")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                return response.status, response.read(), response.headers
+        except urllib.error.HTTPError as error:
+            return error.code, error.read(), error.headers
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(6), state="finished",
+                               outcome="completed", success=True, end_reason="halt_granted")
+        clip_bytes = b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8
+        (run_dir / video.UPLOAD_NAME).write_bytes(clip_bytes)
+        make_attempt(battery, "bare", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted", frames=False)
+
+        # Discord OFF: the dashboard's review flow must work with no webhook configured at all.
+        discord, posts = _recording_discord()
+        discord.enabled = False
+        worker = ReplayNotifier(discord, max_bytes=8_000_000, width=320, fps=6.0)
+        assert worker.render_enabled is True, "rendering was disabled along with Discord"
+        assert worker.announce_enabled is False
+        worker.start()
+
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery, discord=discord,
+                           replay=worker, min_interval=0.0)
+        Handler.state = state
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            code, body, headers = request("/api/attempt/p/try01/replay.mp4")
+            assert code == 200, (code, body[:200])
+            assert headers["Content-Type"] == "video/mp4"
+            assert headers["Accept-Ranges"] == "bytes", "the clip advertises as unseekable"
+            assert body == clip_bytes
+            total = len(clip_bytes)
+
+            # Seekable, or the reviewer can only watch the clip straight through.
+            code, chunk, headers = request("/api/attempt/p/try01/replay.mp4",
+                                           headers={"Range": "bytes=0-99"})
+            assert code == 206, code
+            assert chunk == clip_bytes[:100], len(chunk)
+            assert headers["Content-Range"] == f"bytes 0-99/{total}", headers["Content-Range"]
+
+            # An open-ended range, which is what a browser sends to start streaming.
+            code, chunk, headers = request("/api/attempt/p/try01/replay.mp4",
+                                           headers={"Range": "bytes=64-"})
+            assert code == 206 and chunk == clip_bytes[64:], len(chunk)
+            assert headers["Content-Range"] == f"bytes 64-{total - 1}/{total}"
+
+            # A suffix range, and one that runs off the end.
+            code, chunk, _ = request("/api/attempt/p/try01/replay.mp4",
+                                     headers={"Range": "bytes=-32"})
+            assert code == 206 and chunk == clip_bytes[-32:], len(chunk)
+            code, _, _ = request("/api/attempt/p/try01/replay.mp4",
+                                 headers={"Range": f"bytes={total + 10}-"})
+            assert code == 416, code
+
+            # An attempt with no frames is terminal, not re-queued on every 2s poll.
+            code, body_bare, _ = request("/api/attempt/bare/try01/replay.mp4")
+            assert code == 202, (code, body_bare[:200])
+            worker._queue.join()
+            code, body_bare, _ = request("/api/attempt/bare/try01/replay.mp4")
+            assert code == 409, (code, body_bare[:200])
+            assert json.loads(body_bare)["status"] == "unavailable"
+
+            code, body, _ = request("/api/attempt/p/try01/verdict",
+                                    data=json.dumps({"success": False, "note": "wrong shelf"}).encode())
+            assert code == 200 and json.loads(body)["ok"] is True, (code, body[:200])
+
+            payload = json.loads(request("/api/state")[1])
+            card = {a["prompt_id"]: a for a in payload["attempts"]}["p"]
+            assert card["verified"] is True and card["verified_success"] is False
+            assert card["success"] is True and card["verifiable"] is True
+            assert payload["counts"]["disagree"] == 1, payload["counts"]
+
+            code, body, _ = request("/api/attempt/p/try01/verdict/clear", data=b"")
+            assert code == 200 and json.loads(body)["cleared"] is True
+
+            # A malformed body is rejected rather than stored as a falsey verdict.
+            code, _, _ = request("/api/attempt/p/try01/verdict", data=b'{"success": "yes"}')
+            assert code == 400, code
+            code, _, _ = request("/api/attempt/p/try01/verdict", data=b"not json")
+            assert code == 400, code
+            code, _, _ = request("/api/attempt/p/try01/verdict",
+                                 data=json.dumps({"success": True}).encode())
+            assert code == 200, code
+
+            # Kill still routes correctly now that do_POST dispatches on three suffixes.
+            code, body, _ = request("/api/attempt/p/try01/kill", data=b"")
+            assert code == 400 and "finished" in json.loads(body)["error"], body
+
+            assert posts == [], "the dashboard review flow posted to Discord"
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.stop()
+        print("ok  HTTP records verdicts and serves a seekable replay with Discord off")
+
+
+def test_report_carries_the_human_verdict() -> None:
+    from sari_bench.report import ATTEMPT_COLUMNS, collect
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        # "judged" gets the agent's summary.json; "unseen" deliberately does not, so the row has to
+        # fall back to the manifest for `success` the way the dashboard does. The two surfaces
+        # disagreeing on `success` would silently invert `verdict_agrees`.
+        judged = make_attempt(battery, "judged", 1, steps=healthy_steps(3), state="finished",
+                              outcome="completed", success=True, end_reason="halt_granted")
+        _write(judged / "summary.json", json.dumps({"success": True, "legs": []}))
+        make_attempt(battery, "unseen", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+        assert state.verdict("judged/try01", False, by="tester")["ok"] is True
+
+        rows = {row["prompt_id"]: row for row in collect(battery)[0]}
+
+        disputed = rows["judged"]
+        assert disputed["success"] is True, "the predicate's verdict was overwritten"
+        assert disputed["verified"] is True and disputed["verified_success"] is False
+        assert disputed["verdict_agrees"] is False, disputed["verdict_agrees"]
+        assert disputed["success_final"] is False, "success_final ignored the human"
+        assert disputed["verified_by"] == "tester"
+
+        # Unreviewed must be blank, never False: a pivot must not read "not looked at" as "failed".
+        unseen = rows["unseen"]
+        assert unseen["verified"] is False
+        assert unseen["verified_success"] == "", repr(unseen["verified_success"])
+        assert unseen["verdict_agrees"] == "", repr(unseen["verdict_agrees"])
+        assert unseen["success_final"] is True
+        assert unseen["verifiable"] is True
+
+        assert {"verified", "verified_success", "verdict_agrees",
+                "success_final"} <= set(ATTEMPT_COLUMNS)
+
+        # The CSV and the dashboard must not disagree about `success`, or the card says the human
+        # contradicted the predicate while `verdict_agrees` says they matched.
+        on_screen = {a["prompt_id"]: a for a in scan.scan_battery(battery, time.time()).as_dict()["attempts"]}
+        for name, row in rows.items():
+            assert row["success"] == on_screen[name]["success"], (name, row["success"])
+        assert on_screen["judged"]["verified_success"] != on_screen["judged"]["success"]
+        print("ok  attempts.csv reports the human verdict beside the predicate's, blank when unreviewed")
+
+
 def test_multipart_upload_round_trip() -> None:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from threading import Thread
@@ -483,6 +736,10 @@ def main() -> int:
     test_every_finish_notifies_once()
     test_finish_attaches_replay_mp4()
     test_replay_seed_suppresses_backfill()
+    test_only_voluntary_halts_are_reviewable()
+    test_verdict_round_trip_and_refusals()
+    test_verdict_and_replay_over_http()
+    test_report_carries_the_human_verdict()
     test_multipart_upload_round_trip()
     print("\nAll watch tests passed.")
     return 0

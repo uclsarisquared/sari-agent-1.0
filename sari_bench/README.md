@@ -139,8 +139,9 @@ frames overwrite each other, which misreports timesteps for both.
 ## Watching a battery
 
 `python -m sari_bench watch` serves a live dashboard. It reads the filesystem and nothing else: it
-never talks to a sandbox and never writes to a run dir (except the `killed_by` stamp), so it cannot
-perturb a battery that is hours in, and it can be restarted mid-run freely.
+never talks to a sandbox, and the only things it ever writes into a run dir are the `killed_by` stamp
+and a human verdict — neither of which an agent reads. So it cannot perturb a battery that is hours
+in, and it can be restarted mid-run freely.
 
 Run it **beside the runner**. Screenshots and step logs are written by the agent subprocesses the
 runner spawns, so they are on the runner's local disk; the coordinator is allowed to be a third
@@ -175,6 +176,35 @@ never has to talk to the coordinator about it.
 `--host` defaults to `127.0.0.1`. Binding `0.0.0.0` exposes the kill endpoint to the network; there
 is no auth.
 
+### Human-verified outcomes
+
+`success` is whatever `subtask_completion.py` decided, and several of its predicates grant on state
+they cannot ground — they say so themselves, in reasons like `goto granted [unverified]: checkpoint
+info unavailable`. `predicate_unknown` is a keyword guard. So the headline success rate is a number
+the harness cannot fully stand behind.
+
+A halted attempt's tile therefore carries **▶ replay · ✓ success · ✗ fail**. Press ▶ and the watcher
+renders that attempt's frames into the same ≤8 MB clip Discord gets, plays it in a modal, and you
+judge the run against what you just watched.
+
+* **Only where the agent stopped on its own** — `end_reason` of `halt_granted` (it said STOP and the
+  predicate granted) or `completed_no_stop` (the backstop fired). A run the harness cut off at its
+  step or time cap never claimed to be done, so there is nothing to confirm or deny. The server
+  re-checks this; the button is not the only gate.
+* **Stored beside `success`, never over it.** The stamp is `verified_success` / `verified_by` /
+  `verified_at` / `verified_note` in `attempt.json`. This is the same honest-scoring rule
+  `gates/gate_checkout.py` follows: measured and verified are logged separately and never promoted,
+  because *a measured pass with a verified fail is the discrepancy the whole exercise exists to
+  surface*. A card where the two disagree is outlined in amber and says so.
+* **Correctable.** Pressing the other button overwrites; `clear` removes the stamp entirely, so the
+  attempt reads as never reviewed rather than as a verdict of fail.
+* Clips are rendered **on demand**, on the same one-at-a-time worker Discord uses, and reused if that
+  path already made one. Nothing is encoded for attempts nobody opens.
+* The header tracks review progress: `N reviewed (M✓/K✗, J disagree) · P awaiting review`.
+
+None of this needs Discord — `--no-replay` is the only flag that turns clip rendering off, and
+without `ffmpeg` on PATH the verdict buttons still work, you just cannot watch the run first.
+
 ### Discord
 
 `--discord` with `SARI_BENCH_DISCORD_WEBHOOK` set in `api.env` posts: battery started, **collapse
@@ -200,8 +230,8 @@ something did. Notes:
   and eight simultaneous finishes would mean eight ffmpegs competing with the agents still running.
 * **Restarting the watcher mid-battery does not replay the run into the channel.** Finishes already on
   disk at startup are marked announced silently; `--replay-backfill` opts into posting them.
-* `--no-replay` turns clips off and posts finishes as text. Without `ffmpeg` on PATH you get the same
-  thing, plus a warning at startup.
+* `--no-replay` turns clips off — both the attachment here and the dashboard's replay — and posts
+  finishes as text. Without `ffmpeg` on PATH you get the same thing, plus a warning at startup.
 
 ## Stats and replays
 
@@ -216,6 +246,13 @@ folding a variable number of legs into an attempt row either truncates or explod
 runnable mid-battery, and it folds in attempts that started but never closed out (recording their
 collapse score, which is what makes "how many were in a death loop when I killed them" answerable
 afterwards).
+
+`attempts.csv` carries the human verdict beside the predicate's: `verified_success`, `verdict_agrees`
+and `success_final` (the human's call where there is one, the predicate's otherwise — group by this).
+`verified_success` is **blank, not `False`, where nobody has looked**, so an unreviewed attempt is
+never counted as one a human failed. The closing line reports how many verdicts agreed and how many
+did not, which is the number to watch: it is a direct measurement of how much the completion
+predicates can be trusted.
 
 `video` stitches `legNN/stepNN.png` into an mp4, captioning each frame with that step's mode,
 action and checkpoint. mp4 rather than gif: a 150-frame 1080p gif runs to hundreds of megabytes and

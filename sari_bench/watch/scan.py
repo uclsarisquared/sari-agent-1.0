@@ -29,6 +29,16 @@ from sari_bench.watch import health
 ATTEMPT_MANIFEST = "attempt.json"
 BATTERY_MANIFEST = "battery.json"
 
+# The two end reasons that mean the AGENT decided it was done, rather than the harness deciding for
+# it: `halt_granted` is a STOP the completion predicate granted, `completed_no_stop` is the backstop
+# firing after the predicate held for several steps running. Everything else (step_cap, time_cap,
+# halt_forced, errors) is the run being cut off, and there is no claim of completion to review.
+#
+# These are the only attempts the dashboard offers a human verdict on, because the predicates behind
+# them are the ones that grant on unverifiable state - see the `[unverified]` reasons in
+# overhaul/orchestrator/subtask_completion.py. A human watching the replay is the check on those.
+VERIFIABLE_END_REASONS = frozenset({"halt_granted", "completed_no_stop"})
+
 # Run dirs look like <prompt_id>/try01, plus <prompt_id>/try01.requeue00 for rotated-aside ones.
 _TRY_DIR = re.compile(r"^try\d+(\.requeue\d+)?$")
 _LEG_JSONL = re.compile(r"^leg(\d+)\.jsonl$")
@@ -56,6 +66,17 @@ class AttemptView:
     pid: int | None = None
     alive: bool = False
     killed_by: str = ""
+
+    # The human verdict, kept strictly beside `success` and never folded into it. `success` stays the
+    # predicate's answer; `verified_success` is a reviewer's. Where they disagree is the signal.
+    # `verified_success` is None - not False - until someone actually looks, so "not reviewed" is
+    # never read as "reviewed and failed".
+    verifiable: bool = False      # finished, and the agent halted of its own accord
+    verified: bool = False
+    verified_success: bool | None = None
+    verified_by: str = ""
+    verified_at: str = ""
+    verified_note: str = ""
 
     # Token cost so far (agent_core.token_meter's tokens.json, rewritten every few seconds), so a
     # live attempt's spend is visible while it runs and not only once it exits.
@@ -122,6 +143,15 @@ def _pid_alive(pid: int | None) -> bool:
     except PermissionError:
         return True  # exists, owned by someone else
     return True
+
+
+def is_verifiable(state: str, end_reason: str) -> bool:
+    """Whether an attempt is eligible for a human verdict.
+
+    One definition, shared by the API guard, the view the dashboard renders from, and the report - so
+    the button the reviewer sees and the check the POST handler makes can never drift apart.
+    """
+    return state == "finished" and end_reason in VERIFIABLE_END_REASONS
 
 
 def read_step_records(leg_path: Path) -> list[dict[str, Any]]:
@@ -194,6 +224,12 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
         commands_uri=str(manifest.get("commands_uri") or ""),
         pid=manifest.get("pid"),
         killed_by=str(manifest.get("killed_by") or ""),
+        verified="verified_success" in manifest,
+        verified_success=(bool(manifest["verified_success"])
+                          if "verified_success" in manifest else None),
+        verified_by=str(manifest.get("verified_by") or ""),
+        verified_at=str(manifest.get("verified_at") or ""),
+        verified_note=str(manifest.get("verified_note") or ""),
         started_at=str(manifest.get("started_at") or ""),
         max_steps=manifest.get("max_steps"),
     )
@@ -217,6 +253,9 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
             # The manifest says live but the process is gone: the runner died before it could close
             # the attempt out. Say so rather than showing a tile frozen forever at its last step.
             view.state = "orphaned"
+
+    # After the orphan downgrade, so a tile whose runner died can never be offered for review.
+    view.verifiable = is_verifiable(view.state, view.end_reason)
 
     legs = _leg_files(run_dir)
     steps: list[dict[str, Any]] = []
@@ -319,6 +358,14 @@ def scan_battery(battery: Path, now: float, *, discovered: list[Path] | None = N
         counts[bucket] = counts.get(bucket, 0) + 1
         if attempt.success:
             counts["success"] = counts.get("success", 0) + 1
+        if attempt.verified:
+            counts["verified"] = counts.get("verified", 0) + 1
+            key = "verified_success" if attempt.verified_success else "verified_fail"
+            counts[key] = counts.get(key, 0) + 1
+            if bool(attempt.verified_success) != attempt.success:
+                counts["disagree"] = counts.get("disagree", 0) + 1
+        elif attempt.verifiable:
+            counts["awaiting_verdict"] = counts.get("awaiting_verdict", 0) + 1
 
     return BatteryView(
         battery_id=battery.name,

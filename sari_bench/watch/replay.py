@@ -1,4 +1,4 @@
-"""Renders an attempt's replay clip when it halts, then posts it to Discord.
+"""Renders an attempt's replay clip, and optionally posts it to Discord.
 
 This is a worker thread rather than a call inside the watcher's diff, for two reasons.
 
@@ -11,6 +11,15 @@ This is a worker thread rather than a call inside the watcher's diff, for two re
 
 The queue is bounded and every failure is swallowed: a halt is always announced, with the clip if there
 is one and without it if the render did not work out.
+
+Two kinds of job share the one worker, because both reasons above apply to both:
+
+* **announce** - a halt was detected, render a clip and post it. Rendering is best-effort.
+* **render** - a reviewer asked to watch an attempt on the dashboard. Nothing is posted; the clip
+  lands in the run dir and `GET /api/attempt/<key>/replay.mp4` serves it on the next poll.
+
+Rendering is therefore enabled independently of Discord: the dashboard's verdict flow needs the
+encoder with no webhook configured at all.
 """
 
 from __future__ import annotations
@@ -30,13 +39,18 @@ QUEUE_MAXSIZE = 32
 
 _SHUTDOWN = object()
 
+# What `request()` tells the HTTP layer about a clip.
+READY = "ready"
+RENDERING = "rendering"
+UNAVAILABLE = "unavailable"
+
 
 def _log(message: str) -> None:
     print(f"[sari-bench replay] {message}", flush=True)
 
 
 class ReplayNotifier(threading.Thread):
-    """Serialises render-then-post for finished attempts, off the request path."""
+    """Serialises clip renders - and the Discord post that some of them carry - off the request path."""
 
     daemon = True
 
@@ -45,12 +59,17 @@ class ReplayNotifier(threading.Thread):
                  width: int = video.UPLOAD_WIDTH, fps: float = video.UPLOAD_FPS) -> None:
         super().__init__(name="replay-notifier")
         self.discord = discord
-        self.enabled = bool(enabled and discord.enabled)
+        # Two flags, not one. The dashboard renders clips for review whether or not a webhook is
+        # configured; only the posting half depends on Discord.
+        self.render_enabled = bool(enabled)
+        self.announce_enabled = bool(enabled and discord.enabled)
         self.max_bytes = max_bytes
         self.width = width
         self.fps = fps
         self._queue: queue.Queue[Any] = queue.Queue(maxsize=QUEUE_MAXSIZE)
         self._claimed: set[str] = set()
+        self._requested: set[str] = set()
+        self._failed: set[str] = set()
         self._claim_lock = threading.Lock()
         self._stop = threading.Event()
 
@@ -63,7 +82,7 @@ class ReplayNotifier(threading.Thread):
         worker is off, the queue is backed up, or the key was already claimed (in which case
         `Discord.attempt_finished` will no-op on its own dedupe and nothing is sent twice).
         """
-        if not self.enabled:
+        if not self.announce_enabled:
             return False
         key = attempt.get("key") or ""
         if not key:
@@ -74,12 +93,45 @@ class ReplayNotifier(threading.Thread):
             self._claimed.add(key)
         try:
             # Copy: the view dict is cached on WatchState and re-read by other handlers.
-            self._queue.put_nowait(dict(attempt))
+            self._queue.put_nowait({"attempt": dict(attempt), "announce": True})
         except queue.Full:
             # Keep the claim. Thirty-two deep is already minutes of backlog, and dropping one clip
             # beats growing the queue without bound while the fleet keeps finishing.
             _log(f"queue full, dropping replay for {key}")
         return True
+
+    def request(self, key: str, run_dir: Path) -> str:
+        """A reviewer asked to watch `key`. Returns READY, RENDERING or UNAVAILABLE. Never blocks.
+
+        READY means the clip is on disk and in budget right now - which is the common case once a
+        halt has already been announced to Discord, since that path leaves the same file behind.
+        """
+        if not key or not run_dir.is_dir():
+            return UNAVAILABLE
+        clip = run_dir / video.UPLOAD_NAME
+        try:
+            if clip.is_file() and 0 < clip.stat().st_size <= self.max_bytes:
+                return READY
+        except OSError:
+            pass
+        if not self.render_enabled:
+            return UNAVAILABLE
+        with self._claim_lock:
+            # A render that already failed for this attempt (no frames, no ffmpeg, over budget) is
+            # not retried on every 2s poll - it would pin a core for as long as the tab is open.
+            if key in self._failed:
+                return UNAVAILABLE
+            if key in self._requested:
+                return RENDERING
+            self._requested.add(key)
+        try:
+            self._queue.put_nowait({"attempt": {"key": key, "run_dir": str(run_dir)},
+                                    "announce": False})
+        except queue.Full:
+            with self._claim_lock:
+                self._requested.discard(key)
+            return RENDERING  # the reviewer's next poll re-queues it
+        return RENDERING
 
     def seed(self, attempts: list[dict[str, Any]]) -> None:
         """Marks the finishes already on disk as handled, without rendering or posting any of them.
@@ -114,14 +166,30 @@ class ReplayNotifier(threading.Thread):
             finally:
                 self._queue.task_done()
 
-    def _handle(self, attempt: dict[str, Any]) -> None:
+    def _handle(self, job: dict[str, Any]) -> None:
+        attempt = job.get("attempt") or {}
+        announce = bool(job.get("announce"))
+        key = str(attempt.get("key") or "")
         run_dir = Path(attempt.get("run_dir") or "")
+
         clip = None
         if run_dir.is_dir():
             clip = video.render_for_upload(run_dir, max_bytes=self.max_bytes,
                                            fps=self.fps, width=self.width)
-        else:
-            _log(f"no run dir for {attempt.get('key')}, posting without a clip")
+        elif announce:
+            _log(f"no run dir for {key}, posting without a clip")
+
+        if not announce:
+            # A review render. Remember a terminal failure so `request()` can answer UNAVAILABLE
+            # instead of re-queueing the same doomed encode every time the page polls.
+            with self._claim_lock:
+                self._requested.discard(key)
+                if clip is None:
+                    self._failed.add(key)
+            if clip is None:
+                _log(f"no clip could be rendered for {key}")
+            return
+
         # Unconditional: the notification is the point, the clip is the illustration.
         self.discord.attempt_finished(attempt, video=clip)
 

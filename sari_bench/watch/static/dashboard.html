@@ -50,6 +50,33 @@
   .badge.watch { color: #e8c48d; border-color: #58472a; }
   .badge.success { color: #a8dcbb; border-color: #2c4b38; }
   .badge.fail { color: #f0a596; border-color: #57302a; }
+  .badge.verified { color: #cbd6e6; border-color: #3a4a5e; background: rgba(79,143,208,.10); }
+
+  /* Human verdict. Deliberately a second row, below the log/kill row: it is a different kind of
+     action - a judgement about the run, not a thing done to it. */
+  .verdict { padding: 0 12px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .verdict .spacer { margin-left: auto; }
+  button.vote.on[data-success="true"] { background: #24402f; border-color: #2c4b38; color: #a8dcbb; }
+  button.vote.on[data-success="false"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
+  button.link { background: none; border: none; color: var(--dim); padding: 5px 2px; text-decoration: underline; }
+  button.link:hover { background: none; color: var(--ink); }
+  /* The disagreement is the whole point of collecting verdicts, so it is the loudest thing on the card. */
+  .card.disagree { border-left-color: var(--watch); box-shadow: 0 0 0 1px rgba(224,162,63,.45); opacity: 1; }
+  .mismatch { margin: 0 12px 8px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
+              background: rgba(224,162,63,.12); color: #e8c48d; }
+
+  /* One <video> for the whole page, parked outside #grid so the 2s innerHTML rebuild can never
+     reach it and restart playback mid-review. */
+  #modal { position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
+           background: rgba(8,9,11,.82); padding: 24px; }
+  #modal.open { display: grid; }
+  #modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+               max-width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  #modal-head { padding: 10px 14px; display: flex; gap: 12px; align-items: baseline;
+                border-bottom: 1px solid var(--line); }
+  #modal-video { width: 100%; max-height: 68vh; background: #000; display: block; }
+  #modal-note { padding: 24px; color: var(--dim); text-align: center; }
+  #modal-foot { padding: 10px 14px; display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -63,18 +90,51 @@
 </header>
 <main id="grid"><div class="empty">Loading…</div></main>
 
+<div id="modal">
+  <div id="modal-box">
+    <div id="modal-head">
+      <strong id="modal-title">replay</strong>
+      <span class="muted" id="modal-sub"></span>
+      <button data-act="modal-close" style="margin-left:auto">close</button>
+    </div>
+    <video id="modal-video" controls preload="metadata" style="display:none"></video>
+    <div id="modal-note">rendering the clip…</div>
+    <div id="modal-foot">
+      <span class="muted">verdict:</span>
+      <button class="vote" data-act="verdict" data-success="true" id="modal-yes">✓ success</button>
+      <button class="vote" data-act="verdict" data-success="false" id="modal-no">✗ fail</button>
+      <span class="muted" id="modal-verdict" style="margin-left:auto"></span>
+    </div>
+  </div>
+</div>
+
 <script>
 const openLogs = new Set();
+// The attempt whose replay is open, and the last /api/state payload — the modal reads the current
+// verdict out of it on every refresh without being rebuilt.
+let modalKey = null;
+let latest = [];
 let frameTick = 0;
 
 const fmtMin = s => (s === null || s === undefined) ? "—"
   : (s < 0 ? "-" : "") + Math.floor(Math.abs(s) / 60) + "m" + String(Math.floor(Math.abs(s) % 60)).padStart(2, "0") + "s";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// A human said one thing and the predicate said another. Worth seeing from across the room.
+const disagrees = a => a.verified && Boolean(a.verified_success) !== Boolean(a.success);
+
 function classOf(a) {
+  if (disagrees(a)) return "finished disagree";
   if (a.state === "finished" || a.state === "requeued") return "finished";
   if (a.state === "orphaned") return "alert";
   return (a.health && a.health.level) || "ok";
+}
+
+function verdictBadge(a) {
+  if (!a.verified) return "";
+  const who = [a.verified_by, a.verified_at].filter(Boolean).join(" · ");
+  const mark = a.verified_success ? "✓" : "✗";
+  return `<span class="badge verified" title="human verdict${who ? " — " + esc(who) : ""}${a.verified_note ? "\n" + esc(a.verified_note) : ""}">human ${mark}</span>`;
 }
 
 function statusBadge(a) {
@@ -97,13 +157,18 @@ function card(a) {
     ? `<img class="frame" alt="latest frame" src="/api/attempt/${encodeURI(a.key)}/frame.png?t=${frameTick}">`
     : `<div class="frame none">no frame yet</div>`;
 
+  const mismatch = disagrees(a)
+    ? `<div class="mismatch">predicate: ${a.success ? "success" : "fail"} · human: ${a.verified_success ? "success" : "fail"}</div>`
+    : "";
+
   return `<section class="card ${classOf(a)}" data-key="${esc(a.key)}">
     <div class="card-head">
       <span class="title">${esc(a.prompt_id)} · try ${a.attempt}</span>
-      ${statusBadge(a)}
+      <span>${verdictBadge(a)} ${statusBadge(a)}</span>
     </div>
     <div class="prompt">${esc(a.prompt)}</div>
     ${frame}
+    ${mismatch}
     ${showSig ? `<div class="sig ${lvl}">${esc(a.health.summary)}</div>` : ""}
     <dl class="rows">
       <dt>leg</dt><dd>${a.leg ?? "—"} ${esc(a.leg_type || "")}</dd>
@@ -119,8 +184,24 @@ function card(a) {
       <button data-act="log" data-key="${esc(a.key)}">${logOpen ? "hide log" : "log"}</button>
       ${live ? `<button class="danger" data-act="kill" data-key="${esc(a.key)}">kill</button>` : ""}
     </div>
+    ${a.verifiable ? verdictRow(a) : ""}
     ${logOpen ? `<pre class="log" id="log-${esc(a.key)}">loading…</pre>` : ""}
   </section>`;
+}
+
+// Only on attempts the agent ended by itself (halt_granted / completed_no_stop). A run the harness
+// cut off at its step or time cap made no claim to be done, so there is nothing for a human to judge
+// — the server refuses those too, this is not the only gate.
+function verdictRow(a) {
+  const k = esc(a.key);
+  const on = v => (a.verified && Boolean(a.verified_success) === v) ? " on" : "";
+  return `<div class="verdict">
+    <button data-act="replay" data-key="${k}">▶ replay</button>
+    <button class="vote${on(true)}" data-act="verdict" data-success="true" data-key="${k}">✓ success</button>
+    <button class="vote${on(false)}" data-act="verdict" data-success="false" data-key="${k}">✗ fail</button>
+    ${a.verified ? `<button class="link" data-act="verdict-clear" data-key="${k}">clear</button>` : ""}
+    ${a.verified ? "" : `<span class="muted spacer">unreviewed</span>`}
+  </div>`;
 }
 
 async function refresh() {
@@ -136,10 +217,17 @@ async function refresh() {
   document.getElementById("battery").textContent = state.battery_id || "no battery";
   document.getElementById("mode").textContent = state.mode === "pinned" ? "pinned" : "auto-discover";
   const b = state.battery || {}, atts = state.attempts || [];
+  latest = atts;
   const done = atts.filter(a => a.state === "finished").length;
   const live = atts.filter(a => a.state === "starting" || a.state === "running").length;
+  const c = state.counts || {};
+  const review = c.verified
+    ? ` · ${c.verified} reviewed (${c.verified_success || 0}✓/${c.verified_fail || 0}✗${c.disagree ? ", " + c.disagree + " disagree" : ""})`
+    : "";
+  const waiting = c.awaiting_verdict ? ` · ${c.awaiting_verdict} awaiting review` : "";
   document.getElementById("progress").textContent =
-    b.planned_attempts ? `${done}/${b.planned_attempts} done · ${live} live` : `${atts.length} attempt(s)`;
+    (b.planned_attempts ? `${done}/${b.planned_attempts} done · ${live} live` : `${atts.length} attempt(s)`)
+    + review + waiting;
   document.getElementById("pool").textContent = state.pool_error
     ? "pool: coordinator unreachable"
     : `pool: ${(state.pool || []).length} sandbox(es)`;
@@ -151,6 +239,91 @@ async function refresh() {
     : `<div class="empty">${esc(state.error || "No attempts yet — waiting for the runner.")}</div>`;
 
   openLogs.forEach(loadLog);
+  if (modalKey) syncModal();
+}
+
+// -- replay modal ------------------------------------------------------------------------
+// The grid is rebuilt from innerHTML every 2s, so a <video> living inside a card would be replaced
+// (and restart from 0:00) twice a second. This one element sits outside #grid and refresh() never
+// touches its src.
+
+function openModal(key) {
+  modalKey = key;
+  const video = document.getElementById("modal-video");
+  video.style.display = "none";
+  video.removeAttribute("src");
+  video.load();
+  document.getElementById("modal-note").style.display = "";
+  document.getElementById("modal-note").textContent = "asking for the clip…";
+  document.getElementById("modal").classList.add("open");
+  syncModal();
+  pollReplay(key);
+}
+
+function closeModal() {
+  modalKey = null;
+  const video = document.getElementById("modal-video");
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  document.getElementById("modal").classList.remove("open");
+}
+
+function syncModal() {
+  const a = latest.find(x => x.key === modalKey);
+  document.getElementById("modal-title").textContent = modalKey || "replay";
+  document.getElementById("modal-sub").textContent = a ? (a.end_reason || "") : "";
+  const label = !a ? "" : a.verified
+    ? `human: ${a.verified_success ? "success" : "fail"}${a.verified_by ? " · " + a.verified_by : ""}`
+    : "unreviewed";
+  document.getElementById("modal-verdict").textContent = label;
+  for (const [id, want] of [["modal-yes", true], ["modal-no", false]]) {
+    const el = document.getElementById(id);
+    el.dataset.key = modalKey || "";
+    el.classList.toggle("on", Boolean(a && a.verified && Boolean(a.verified_success) === want));
+  }
+}
+
+// 202 while the render is queued on the watcher's single ffmpeg worker, 200 once it lands, 409 if it
+// never can. Only the ready transition touches the <video> src.
+async function pollReplay(key) {
+  const note = document.getElementById("modal-note");
+  const video = document.getElementById("modal-video");
+  let res;
+  try {
+    // A one-byte range, not a HEAD: the stdlib handler only implements GET and POST, and this way
+    // the probe costs a byte instead of the whole clip.
+    res = await fetch(`/api/attempt/${encodeURI(key)}/replay.mp4`, { headers: { Range: "bytes=0-0" } });
+  } catch { if (modalKey === key) note.textContent = "(disconnected)"; return; }
+  if (modalKey !== key) return;
+
+  if (res.status === 206 || res.status === 200) {
+    if (!video.getAttribute("src")) {
+      video.src = `/api/attempt/${encodeURI(key)}/replay.mp4`;
+      video.style.display = "";
+      note.style.display = "none";
+    }
+    return;
+  }
+  if (res.status === 202) {
+    note.textContent = "rendering the clip… (one encode at a time, so this can take a minute)";
+    setTimeout(() => { if (modalKey === key) pollReplay(key); }, 2000);
+    return;
+  }
+  note.textContent = res.status === 409
+    ? "no clip available — the attempt saved no frames, ffmpeg is missing, or the encode busts the size budget"
+    : `replay unavailable (HTTP ${res.status})`;
+}
+
+async function sendVerdict(key, success) {
+  const res = await fetch(`/api/attempt/${encodeURI(key)}/verdict`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ success }),
+  });
+  const data = await res.json();
+  if (!data.ok) alert("Verdict not recorded: " + (data.error || "unknown"));
+  refresh();
 }
 
 async function loadLog(key) {
@@ -164,17 +337,36 @@ async function loadLog(key) {
 }
 
 document.addEventListener("click", async ev => {
+  if (ev.target.id === "modal") { closeModal(); return; }
   const button = ev.target.closest("button[data-act]");
   if (!button) return;
   const key = button.dataset.key;
+  const act = button.dataset.act;
 
-  if (button.dataset.act === "log") {
+  if (act === "log") {
     openLogs.has(key) ? openLogs.delete(key) : openLogs.add(key);
     refresh();
     return;
   }
 
-  if (button.dataset.act === "kill") {
+  if (act === "modal-close") { closeModal(); return; }
+
+  if (act === "replay") { openModal(key); return; }
+
+  // No confirm(): unlike a kill, a verdict is correctable — press the other button, or clear it.
+  if (act === "verdict") {
+    if (!key) return;
+    await sendVerdict(key, button.dataset.success === "true");
+    return;
+  }
+
+  if (act === "verdict-clear") {
+    await fetch(`/api/attempt/${encodeURI(key)}/verdict/clear`, { method: "POST" });
+    refresh();
+    return;
+  }
+
+  if (act === "kill") {
     if (!confirm(`Kill ${key}?\n\nThe agent is terminated; the runner records the attempt and the coordinator resets and re-pools its sandbox.`)) return;
     button.disabled = true;
     const res = await (await fetch(`/api/attempt/${encodeURI(key)}/kill`, { method: "POST" })).json();
@@ -182,6 +374,8 @@ document.addEventListener("click", async ev => {
     refresh();
   }
 });
+
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && modalKey) closeModal(); });
 
 refresh();
 setInterval(refresh, 2000);
