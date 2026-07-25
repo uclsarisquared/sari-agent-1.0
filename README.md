@@ -115,14 +115,16 @@ credits — different accounts. Don't switch silently.
 
 ## Running the agent
 
-There are two stacks in this repo. **Only the `overhaul/` one is live**; the `legacy/` stack
+There are two agent stacks in this repo. **Only the `overhaul/` one is live**; the `legacy/` stack
 (`run.py` / `server.py`, formerly at the repo root) is deprecated and receives no further
-development.
+development. `sari_bench/` is a third piece — a fleet harness that runs the current agent at scale,
+not an alternative agent.
 
 | | Entrypoint | Status |
 |---|---|---|
 | **Current agent** (map-based) | `cd overhaul && uv run python orchestrator/subtask_agents.py "<task>"` | Live — all development happens here |
 | **Legacy agent** (open-ended VLM) | `uv run python legacy/server.py inf_base` + `uv run python legacy/run.py "<task>"` | **Deprecated**, kept for reference only |
+| **Distributed Sari Bench** | `python -m sari_bench coordinator/run/watch ...` | Live — runs the current agent across a fleet |
 
 ### Current agent
 
@@ -144,6 +146,19 @@ Before a run, sanity-check that the map artifacts are present:
 
 ```bash
 ls overhaul/slamtest/output
+```
+
+### Distributed Sari Bench
+
+`sari_bench/` runs a prompt battery across a fleet of Sandbox instances — several attempts per
+prompt, a guaranteed-clean environment for every attempt, a live dashboard, and CSV/mp4 reporting.
+It drives the same `orchestrator/subtask_agents.py` entrypoint as a subprocess per attempt; it does
+not reimplement the agent. See **[`sari_bench/README.md`](sari_bench/README.md)** for the coordinator
+/ sandbox / runner setup, the watch dashboard, and failure-handling semantics.
+
+```bash
+python -m sari_bench coordinator --port 9000
+python -m sari_bench run --prompts sari_bench/prompts/example_battery.json --coordinator ws://localhost:9000
 ```
 
 ### Legacy stack (`legacy/`) — deprecated
@@ -205,6 +220,7 @@ Other standing constraints:
 |---|---|
 | `overhaul/` | Current agent stack. Start at `orchestrator/subtask_agents.py` → `agent_core/agent.py`. See `overhaul/README.md` for its internal layout (component packages `sim/`, `agent_core/`, `toolset/`, `vision/`, `manip/`, `nav/`, `orchestrator/`, `evals/`, plus `tests/`, `probes/`, `gates/`, `tools/`, `deprecated/`). |
 | `overhaul/slamtest/` | Mapping + annotation pipeline (LiDAR, occupancy grid, topology, capture, annotate). |
+| `sari_bench/` | Distributed Sari Bench — coordinator, sandbox fleet pool, runner, live watch dashboard, report/video tooling. See `sari_bench/README.md`. |
 | `overhaul/sim/env.py`, `overhaul/toolset/` | Unity WebSocket bridge and the action vocabulary. |
 | `overhaul/CLAUDE.md` | **Design rationale, measured findings, and open threads. Read before changing anything.** |
 | `legacy/` | **Deprecated** v1 stack (`run.py`, `server.py`, `openrouter.py`, its own `env.py`/`actions.py`) — open-ended VLM, no map. Not the current agent. |
