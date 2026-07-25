@@ -3,6 +3,9 @@
     coordinator   run the sandbox registry
     run           run a prompt battery across the fleet
     status        print the current sandbox pool
+    watch         live dashboard for a running battery (run it beside the runner)
+    report        flatten a battery into attempts.csv / legs.csv
+    video         render an attempt's screenshots into a replay video
 """
 
 from __future__ import annotations
@@ -64,6 +67,18 @@ def main(argv: list[str] | None = None) -> int:
         return runner_main(rest)
     if command == "status":
         return _status(rest)
+    if command == "watch":
+        from sari_bench.watch.server import main as watch_main
+
+        return watch_main(rest)
+    if command == "report":
+        from sari_bench.report import main as report_main
+
+        return report_main(rest)
+    if command == "video":
+        from sari_bench.video import main as video_main
+
+        return video_main(rest)
 
     print(f"Unknown command: {command}\n{USAGE}", file=sys.stderr)
     return 2

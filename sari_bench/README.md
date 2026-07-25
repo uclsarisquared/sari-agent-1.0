@@ -50,14 +50,31 @@ player you want to be a fleet member with no environment set.
 ```bash
 python -m sari_bench run \
     --prompts sari_bench/prompts/example_battery.json \
-    --tries 3 --time-limit 40 --concurrency 4 \
+    --tries 3 --time-limit 120 --per-leg-minutes 40 --concurrency 4 \
     --coordinator ws://coordinator-host:9000
 ```
 
-Results land in `bench_runs/<timestamp>/`: `summary.json` (per-prompt success rates and outcome
-counts), `attempts.jsonl` (written as attempts finish, so an interrupted battery is still usable),
-and `<prompt_id>/try<NN>/` holding the orchestrator's own `summary.json`, per-leg JSONL,
+Results land in `bench_runs/<timestamp>/`: `battery.json` (the plan), `summary.json` (per-prompt
+success rates and outcome counts), `attempts.jsonl` (written as attempts finish, so an interrupted
+battery is still usable), and `<prompt_id>/try<NN>/` holding `attempt.json` (that attempt's
+manifest — sandbox, pid, deadline, outcome), the orchestrator's own `summary.json`, per-leg JSONL,
 screenshots, and the agent's stdout in `agent.log`.
+
+**`--time-limit` and `--per-leg-minutes` are different clocks.** `--time-limit` bounds the whole
+attempt and is enforced by the harness (SIGTERM, then SIGKILL). `--per-leg-minutes` is the agent's
+own `--max-minutes`, which is **per leg**; it defaults to `--time-limit`, which is only sensible for
+single-leg tasks. Set it lower for a long attempt limit — otherwise a 5-leg task can never hit its
+own `time_cap`, so every overrun arrives as a SIGKILLed `harness_timeout` with no `summary.json` and
+no per-leg detail.
+
+**4. Watch it live** (on the runner's machine — screenshots are written to its local disk):
+
+```bash
+python -m sari_bench watch --discord            # newest battery under bench_runs/
+python -m sari_bench watch --run-dir bench_runs/20260725_170000   # or pin one
+```
+
+Then <http://127.0.0.1:8900>. See [Watching a battery](#watching-a-battery).
 
 The sim must be running with **`sariSandboxV1CompatibilityLayer` ON** — `overhaul/sim/env.py`
 parses the V1 text protocol.
@@ -98,8 +115,80 @@ retries the connection itself for a sandbox that is not listening yet.
 | Agent exited 0 | `completed` (success read from its summary.json) | reset, re-pooled |
 | Agent exited non-zero | `agent_error` | reset, re-pooled |
 | Attempt overran `--time-limit` | `harness_timeout` (SIGTERM then SIGKILL to the process group) | reset, re-pooled |
+| Killed from the dashboard | `operator_kill` | reset, re-pooled |
 | Sandbox stopped heartbeating | attempt **requeued** (up to 3x), then `sandbox_lost` | dropped from the pool |
 | Runner died holding a lease | — | lease reaped, reset, re-pooled |
+
+A requeued attempt reuses its `<prompt_id>/try<NN>` path, so the dead attempt's dir is **rotated
+aside** to `try<NN>.requeue<KK>` before the replacement starts. Without that the orchestrator's
+append-mode `legNN.jsonl` interleaves two attempts' steps into one file and their `stepNN.png`
+frames overwrite each other, which misreports timesteps for both.
+
+## Watching a battery
+
+`python -m sari_bench watch` serves a live dashboard. It reads the filesystem and nothing else: it
+never talks to a sandbox and never writes to a run dir (except the `killed_by` stamp), so it cannot
+perturb a battery that is hours in, and it can be restarted mid-run freely.
+
+Run it **beside the runner**. Screenshots and step logs are written by the agent subprocesses the
+runner spawns, so they are on the runner's local disk; the coordinator is allowed to be a third
+machine. The watcher opens one read-only `/bench` connection to show the sandbox pool — it only ever
+sends `bench.status`, never `bench.acquire`, so it cannot take a sandbox from a worker. `--no-pool`
+skips it entirely.
+
+By default it **auto-discovers** the newest battery under `bench_runs/` and follows the fleet from
+battery to battery without a restart; `--run-dir` pins one. Either way it logs which battery it
+picked, and the runner logs whether it created a fresh output dir or is reusing one that already
+holds results.
+
+Tiles are sorted **worst-first** by a collapse score, which is the actual feature — with eight
+concurrent attempts you want to look at one tile, not scan eight. Every signal comes from the `step`
+records `run_leg` already flushes, so there is no new agent-side instrumentation:
+
+| Signal | What it measures |
+|---|---|
+| `stalled` | no new step record in 5 minutes — a hung VLM call or a wedged sim |
+| `spatial_loop` | ≤2 distinct 0.5 m cells over the last 10 steps — pacing in front of one shelf |
+| `action_loop` | the same action fired 4+ times in the window |
+| `mode_thrash` | the mode router flip-flopping |
+| `blocked` | blocked on >50% of recent steps — bumping a wall |
+| `refusal_spiral` | halts requested and refused, with no `goal_met` |
+| `step_budget` / `time_budget` | >80% of the cap burned |
+
+**Kill** on a tile SIGTERMs the agent's process group and then gets out of the way: the runner's own
+`process.wait()` returns non-zero, it records `operator_kill`, and its `finally` releases the lease
+so the coordinator resets and re-pools the sandbox. There is no second code path, and the watcher
+never has to talk to the coordinator about it.
+
+`--host` defaults to `127.0.0.1`. Binding `0.0.0.0` exposes the kill endpoint to the network; there
+is no auth.
+
+### Discord
+
+`--discord` with `SARI_BENCH_DISCORD_WEBHOOK` set in `api.env` posts: battery started, **collapse
+alerts with the offending screenshot attached** (once per attempt, 15-minute cooldown), failed
+attempts, and battery complete. Successes are not posted — at 3 tries × 20 prompts they are noise.
+Notification lives in the watcher rather than the runner deliberately: the runner is a scheduler,
+and an outbound HTTP call has no business on the path that releases a lease. Every send is
+fail-soft — a webhook that 429s can never disturb the poll loop.
+
+## Stats and replays
+
+```bash
+python -m sari_bench report                       # newest battery -> attempts.csv + legs.csv
+python -m sari_bench video --battery bench_runs/20260725_170000   # replay.mp4 per attempt
+```
+
+`report` writes **two** CSVs, joined on `run_dir`: attempts and legs are different grains, and
+folding a variable number of legs into an attempt row either truncates or explodes. It reads
+`attempts.jsonl` plus each attempt's own `summary.json` — both written incrementally — so it is
+runnable mid-battery, and it folds in attempts that started but never closed out (recording their
+collapse score, which is what makes "how many were in a death loop when I killed them" answerable
+afterwards).
+
+`video` stitches `legNN/stepNN.png` into an mp4, captioning each frame with that step's mode,
+action and checkpoint. mp4 rather than gif: a 150-frame 1080p gif runs to hundreds of megabytes and
+cannot be scrubbed (`--gif` is there for pasting into chat). Needs `ffmpeg` on PATH.
 
 ## Tests
 
@@ -108,4 +197,5 @@ Offline, in-process, no sim and no model stack:
 ```bash
 python sari_bench/tests/test_coordinator.py   # pool, leases, reaping, reset gating
 python sari_bench/tests/test_runner.py        # lease -> spawn -> release against a stub agent
+python sari_bench/tests/test_watch.py         # scanning, collapse scoring, discovery, HTTP, report
 ```

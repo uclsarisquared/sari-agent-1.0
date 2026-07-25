@@ -9,6 +9,10 @@ Three pieces:
   subprocess per attempt against a leased sandbox.
 * ``protocol`` - the wire format both halves speak, mirrored on the Unity side by
   ``BenchCoordinatorClient.cs``.
+
+Plus, on the runner's machine, three read-only tools over the artefacts a battery leaves behind:
+``watch`` (live dashboard with collapse detection and Discord alerts), ``report`` (CSVs), and
+``video`` (screenshot replays).
 """
 
 from sari_bench.protocol import SCHEMA_VERSION

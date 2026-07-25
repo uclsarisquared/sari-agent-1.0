@@ -43,6 +43,43 @@ TERMINATE_GRACE_SECONDS = 20.0
 # against a permanently sick machine turning into an infinite requeue loop.
 MAX_SANDBOX_LOST_REQUEUES = 3
 
+# Per-attempt manifest, written INTO the run dir before the agent is spawned. attempts.jsonl only
+# gains a row when an attempt finishes, so this is the only record that an attempt is in flight -
+# it is what `sari_bench watch` discovers runs by, and it survives the runner dying.
+ATTEMPT_MANIFEST = "attempt.json"
+# Battery-level manifest at the output-dir root.
+BATTERY_MANIFEST = "battery.json"
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    """Writes JSON via a temp file + rename, so a reader polling this path never sees half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    os.replace(temp, path)
+
+
+def _patch_json(path: Path, fields: dict[str, Any]) -> None:
+    """Merges `fields` into an existing JSON object. Best-effort: manifest bookkeeping must never
+    take down an attempt that is otherwise fine."""
+    try:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        if not isinstance(current, dict):
+            current = {}
+        current.update(fields)
+        _write_json_atomic(path, current)
+    except (OSError, ValueError) as error:  # noqa: BLE001
+        _log(f"could not patch {path}: {error!r}")
+
+
+def _manifest_field(path: Path, key: str) -> Any:
+    """Reads one field back out of a manifest, or None if it is missing/unreadable."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload.get(key) if isinstance(payload, dict) else None
+
 
 @dataclass
 class Prompt:
@@ -122,6 +159,7 @@ class BenchmarkRunner:
         arm: str,
         map_dir: str | None,
         leg_retries: int,
+        per_leg_minutes: float | None = None,
         timeout_grace: float = DEFAULT_TIMEOUT_GRACE_SECONDS,
         python_executable: str | None = None,
         agent_entry: str = ORCHESTRATOR_ENTRY,
@@ -132,6 +170,12 @@ class BenchmarkRunner:
         self.output_dir = output_dir
         self.tries = tries
         self.time_limit_minutes = time_limit_minutes
+        # The agent's --max-minutes is a PER-LEG cap; time_limit_minutes bounds the whole attempt.
+        # Defaulting one to the other preserves the old single-knob behaviour, but they are not the
+        # same number: a 120-minute attempt limit handed to a 5-leg task as a per-leg cap means the
+        # agent's own time_cap can never fire, so every overrun lands as a SIGKILLed
+        # `harness_timeout` with no summary.json and no per-leg detail.
+        self.per_leg_minutes = time_limit_minutes if per_leg_minutes is None else per_leg_minutes
         self.concurrency = concurrency
         self.max_steps = max_steps
         self.arm = arm
@@ -154,10 +198,20 @@ class BenchmarkRunner:
             for attempt in range(1, self.tries + 1):
                 self._queue.put_nowait((prompt.id, attempt, 0))
 
+        # Say plainly whether this battery is starting clean or landing in a directory that already
+        # holds results - a reused dir mixes old attempts into attempts.jsonl and the watcher's view.
+        reused = self.output_dir.exists() and any(self.output_dir.iterdir())
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        if reused:
+            _log(f"REUSING existing output dir {self.output_dir} (it already holds results; new "
+                 f"attempts append to attempts.jsonl and prior run dirs are rotated aside)")
+        else:
+            _log(f"new output dir {self.output_dir}")
+
         self._started_at = time.monotonic()
         total = self._queue.qsize()
         _log(f"{len(self.prompts)} prompt(s) x {self.tries} attempt(s) = {total} run(s)")
+        self._write_battery_manifest(total)
 
         workers = [asyncio.create_task(self._worker(i)) for i in range(self.concurrency)]
         try:
@@ -168,6 +222,50 @@ class BenchmarkRunner:
             await asyncio.gather(*workers, return_exceptions=True)
 
         return self._write_summary()
+
+    def _write_battery_manifest(self, planned_attempts: int) -> None:
+        """Battery-level facts the watcher cannot infer from run dirs alone.
+
+        Without this the dashboard has no denominator: it can count the attempts that have started
+        but not the ones still queued, so it cannot show progress.
+        """
+        _write_json_atomic(
+            self.output_dir / "battery.json",
+            {
+                "battery_id": self.output_dir.name,
+                "output_dir": str(self.output_dir),
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "coordinator": self.coordinator_url,
+                "tries": self.tries,
+                "concurrency": self.concurrency,
+                "time_limit_minutes": self.time_limit_minutes,
+                "per_leg_minutes": self.per_leg_minutes,
+                "max_steps": self.max_steps,
+                "arm": self.arm,
+                "planned_attempts": planned_attempts,
+                "prompts": [asdict(prompt) for prompt in self.prompts.values()],
+            },
+        )
+
+    @staticmethod
+    def _rotate_run_dir(run_dir: Path) -> None:
+        """Moves a non-empty run dir aside so a fresh attempt never writes into it.
+
+        A requeued attempt (sandbox death) reuses the same ``<prompt_id>/try<NN>`` path, and the
+        orchestrator opens ``legNN.jsonl`` in APPEND mode - so without this the dead attempt's steps
+        and the new attempt's steps interleave in one file while ``stepNN.png`` frames overwrite
+        each other. The merged log then misreports timesteps for both.
+        """
+        if not run_dir.exists() or not any(run_dir.iterdir()):
+            return
+        index = 0
+        while (aside := run_dir.with_name(f"{run_dir.name}.requeue{index:02d}")).exists():
+            index += 1
+        run_dir.rename(aside)
+        # The manifest inside still says "running"; correct it so the watcher shows an abandoned
+        # attempt rather than a live one that will never advance.
+        _patch_json(aside / ATTEMPT_MANIFEST, {"state": "requeued", "outcome": "requeued"})
+        _log(f"rotated a previous run dir aside: {aside.name}")
 
     async def _worker(self, index: int) -> None:
         """One worker owns one coordinator connection, and therefore one lease at a time."""
@@ -230,6 +328,20 @@ class BenchmarkRunner:
             result.wall_seconds = round(time.monotonic() - started, 1)
             result.requeues = requeues
             result.run_dir = str(run_dir)
+            # Close out the manifest so the watcher stops showing this attempt as live. Every exit
+            # path lands here, including SandboxLost after its requeues are exhausted.
+            _patch_json(
+                run_dir / ATTEMPT_MANIFEST,
+                {
+                    "state": "finished",
+                    "outcome": result.outcome,
+                    "success": result.success,
+                    "end_reason": result.end_reason,
+                    "exit_code": result.exit_code,
+                    "wall_seconds": result.wall_seconds,
+                    "ended_at": datetime.now().isoformat(timespec="seconds"),
+                },
+            )
             await self._record(result)
             _log(
                 f"[w{index}] {prompt_id} try {attempt}: {result.outcome} "
@@ -244,12 +356,41 @@ class BenchmarkRunner:
         attempt: int,
         run_dir: Path,
     ) -> AttemptResult:
+        self._rotate_run_dir(run_dir)
         run_dir.mkdir(parents=True, exist_ok=True)
         command = self._agent_command(prompt, lease, run_dir)
 
         env = dict(os.environ)
         # How the agent finds its sandbox. sim/env.py reads this for every command's default URI.
         env["SARI_WS_URI"] = lease.commands_uri
+
+        timeout = self.time_limit_minutes * 60.0 + self.timeout_grace
+        manifest_path = run_dir / ATTEMPT_MANIFEST
+        started_wall = time.time()
+        _write_json_atomic(
+            manifest_path,
+            {
+                "prompt_id": prompt.id,
+                "prompt": prompt.prompt,
+                "family": prompt.family,
+                "looking_for": prompt.looking_for,
+                "attempt": attempt,
+                "arm": self.arm,
+                "sandbox_id": lease.sandbox_id,
+                "commands_uri": lease.commands_uri,
+                "lease_id": getattr(lease, "lease_id", ""),
+                "run_dir": str(run_dir),
+                "state": "starting",
+                "pid": None,
+                "started_at": datetime.fromtimestamp(started_wall).isoformat(timespec="seconds"),
+                "started_epoch": round(started_wall, 3),
+                "deadline_epoch": round(started_wall + timeout, 3),
+                "time_limit_minutes": self.time_limit_minutes,
+                "per_leg_minutes": self.per_leg_minutes,
+                "max_steps": self.max_steps,
+                "command": command,
+            },
+        )
 
         with (run_dir / "agent.log").open("wb") as log_file:
             process = await asyncio.create_subprocess_exec(
@@ -261,9 +402,12 @@ class BenchmarkRunner:
                 start_new_session=True,
             )
 
+            # The pid is what makes an attempt killable from the dashboard: the watcher signals the
+            # process group and the runner's ordinary non-zero-exit path releases the lease.
+            _patch_json(manifest_path, {"pid": process.pid, "state": "running"})
+
             wait_task = asyncio.create_task(process.wait())
             lost_task = asyncio.create_task(client.wait_for_sandbox_lost(lease))
-            timeout = self.time_limit_minutes * 60.0 + self.timeout_grace
 
             try:
                 done, pending = await asyncio.wait(
@@ -290,6 +434,10 @@ class BenchmarkRunner:
             exit_code = wait_task.result()
 
         outcome = "completed" if exit_code == 0 else "agent_error"
+        if outcome == "agent_error" and _manifest_field(run_dir / ATTEMPT_MANIFEST, "killed_by"):
+            # An operator killing a collapsed attempt from the dashboard reaches the agent as a
+            # signal, which looks exactly like a crash from here. Don't score it as one.
+            outcome = "operator_kill"
         return self._result_from_run_dir(prompt, attempt, run_dir, exit_code=exit_code, outcome=outcome)
 
     def _agent_command(self, prompt: Prompt, lease: Lease, run_dir: Path) -> list[str]:
@@ -305,7 +453,7 @@ class BenchmarkRunner:
             "--max-steps",
             str(self.max_steps),
             "--max-minutes",
-            str(self.time_limit_minutes),
+            str(self.per_leg_minutes),
             "--leg-retries",
             str(self.leg_retries),
             "--ws-uri",
@@ -452,7 +600,15 @@ async def async_main(argv: list[str] | None = None) -> int:
         "--time-limit",
         type=float,
         default=40.0,
-        help="Minutes per attempt; also passed to the agent as its per-leg cap.",
+        help="Minutes for the WHOLE attempt, after which the harness kills it (+grace).",
+    )
+    parser.add_argument(
+        "--per-leg-minutes",
+        type=float,
+        default=None,
+        help="The agent's own per-leg cap (--max-minutes). Defaults to --time-limit, which is only "
+             "sensible for single-leg tasks: set it lower for a long attempt limit so the agent "
+             "can hit its own time_cap and write a summary.json instead of being SIGKILLed.",
     )
     parser.add_argument(
         "--coordinator",
@@ -491,6 +647,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         output_dir=output_dir,
         tries=args.tries,
         time_limit_minutes=args.time_limit,
+        per_leg_minutes=args.per_leg_minutes,
         concurrency=args.concurrency,
         max_steps=args.max_steps,
         arm=args.arm,
