@@ -1,0 +1,28 @@
+{
+  "prompts": [
+    {
+      "id": "pickup_01",
+      "family": "pickup",
+      "prompt": "Pick up a bottle of soy sauce",
+      "looking_for": "soy sauce held in either hand"
+    },
+    {
+      "id": "pickup_02",
+      "family": "pickup",
+      "prompt": "Find the instant noodles and pick up one pack",
+      "looking_for": "a noodle pack held in either hand"
+    },
+    {
+      "id": "navigate_01",
+      "family": "navigate",
+      "prompt": "Go to the self-checkout counter",
+      "looking_for": "agent standing at the self-checkout"
+    },
+    {
+      "id": "checkout_01",
+      "family": "checkout",
+      "prompt": "Pick up a can of soda and check it out at the self-checkout",
+      "looking_for": "the soda scanned and bagged"
+    }
+  ]
+}

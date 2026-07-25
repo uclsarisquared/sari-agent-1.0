@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 import websockets
 import json
 import re
@@ -83,7 +84,19 @@ def downscale_pil_for_storage(img, max_w=MAX_SAVE_W, max_h=MAX_SAVE_H):
         return img
 
 
-async def SendCommand(command: Dict[str, Any], uri: str):
+# Which sandbox this process talks to. A plain local run needs no configuration; Distributed Sari
+# Bench sets SARI_WS_URI per attempt so one agent process per leased sandbox can run side by side on
+# different ports and different machines. Read at call time, not import time, so
+# `--ws-uri` can set it after this module is imported.
+FALLBACK_WS_URI = "ws://localhost:8080/commands"
+
+
+def default_uri() -> str:
+    return os.environ.get("SARI_WS_URI") or FALLBACK_WS_URI
+
+
+async def SendCommand(command: Dict[str, Any], uri: str = None):
+    uri = uri or default_uri()
     async with websockets.connect(uri, max_size=None) as websocket:
         await websocket.send(json.dumps(command))
         if command["command"] == "RequestScreenshot" or command["command"] == "RequestAnnotation":
@@ -134,7 +147,7 @@ def _v1_or_raise(result, cmd, n_tuples, n_lines):
 
 def TransformAgent(translation: Tuple[float],
                    rotation: Tuple[float],
-                   uri: str = "ws://localhost:8080/commands") -> Dict[str, Tuple[float]]:
+                   uri: str = None) -> Dict[str, Tuple[float]]:
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "TransformAgent",
         "translation": translation,
@@ -150,7 +163,7 @@ def TransformAgent(translation: Tuple[float],
     }
     return agent_state
 
-def SetCrouch(active: bool, uri: str = "ws://localhost:8080/commands") -> str:
+def SetCrouch(active: bool, uri: str = None) -> str:
     """Crouch (True) or stand (False). Crouching halves the agent's view height, so a level camera
     looks straight at the shelf's lower rows instead of down at them from standing height.
 
@@ -163,7 +176,7 @@ def SetCrouch(active: bool, uri: str = "ws://localhost:8080/commands") -> str:
     }, uri))
     return result
 
-def SetHandsActive(active: bool, side: str = None, uri: str = "ws://localhost:8080/commands") -> str:
+def SetHandsActive(active: bool, side: str = None, uri: str = None) -> str:
     """Enable/disable the hand prefab(s) so they can't clip shelf items while navigating.
 
     `side`: None/omitted disables both hands, or pass "Left"/"Right" for one hand only
@@ -180,7 +193,7 @@ def TransformHands(leftTranslation: Tuple[float],
                    leftRotation: Tuple[float],
                    rightTranslation: Tuple[float],
                    rightRotation: Tuple[float],
-                   uri: str = "ws://localhost:8080/commands"):
+                   uri: str = None):
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "TransformHands",
         "leftTranslation": leftTranslation,
@@ -206,7 +219,7 @@ def TransformHands(leftTranslation: Tuple[float],
     }
     return current_state
 
-def ToggleLeftGrip(uri: str="ws://localhost:8080/commands"):
+def ToggleLeftGrip(uri: str = None):
     # The single-agent /commands handler names this `ToggleLeftHandGrip`
     # (SariAgentCommandBehavior.cs). The bare `ToggleLeftGrip`/`ToggleRightGrip` names live only in
     # SariMultiplayerBehavior.cs (a different ws path); sending them here lands in the sim's
@@ -219,7 +232,7 @@ def ToggleLeftGrip(uri: str="ws://localhost:8080/commands"):
     if "True" in result:    return {"gripped": True}
     return {"gripped": False}
 
-def ToggleRightGrip(uri: str="ws://localhost:8080/commands"):
+def ToggleRightGrip(uri: str = None):
     # See ToggleLeftGrip: the /commands handler uses `ToggleRightHandGrip`, not `ToggleRightGrip`.
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "ToggleRightHandGrip"
@@ -228,7 +241,7 @@ def ToggleRightGrip(uri: str="ws://localhost:8080/commands"):
     if "True" in result:    return {"gripped": True}
     return {"gripped": False}
 
-def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screenshots", save_image=False, uri: str="ws://localhost:8080/commands"):
+def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screenshots", save_image=False, uri: str = None):
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "RequestScreenshot",
         "prefix": prefix,
@@ -238,26 +251,95 @@ def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screensh
     }, uri))
     return result
 
-def Reset(uri: str="ws://localhost:8080/commands"):
+def Reset(uri: str = None):
+    """Restore the store to its pristine state.
+
+    Against a current sim this only returns once the reset has actually SETTLED - items back on
+    shelves and at rest, agent back at spawn pose with hands and grip cleared. Older builds acked
+    immediately, before Unity had even processed the deferred destroys, so a caller that reset and
+    screenshotted saw the old store; if you are talking to one of those, keep your own sleep.
+    """
     asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "ResetEnvironment"
     }, uri))
 
-def RequestAnnotation(uri: str="ws://localhost:8080/commands"):
+
+def GetStatus(uri: str = None) -> Dict[str, Any]:
+    """The sandbox's readiness, answered whatever state it is in.
+
+    Returns {state, sandbox_id, port, benchmark_build, v1_compatibility}. `state` is one of
+    Booting / Resetting / Ready / Leased. A sim too old to know this command replies
+    "Unknown command: GetStatus", which is reported back as state "unknown".
+    """
+    result = asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "GetStatus"
+    }, uri))
+    text = result.decode(errors="replace") if isinstance(result, (bytes, bytearray)) else str(result)
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        return {"state": "unknown", "raw": text}
+
+
+def wait_for_ready(uri: str = None, timeout: float = 180.0, poll_seconds: float = 2.0) -> bool:
+    """Block until the sandbox is ready to take commands, or `timeout` elapses.
+
+    Two distinct waits, both of which a fleet run hits routinely:
+
+    * The sim's websocket server may not be listening yet (agent launched a beat before its
+      sandbox finished booting) - that surfaces as a refused connection, so we retry the CONNECT.
+    * The sim may be listening but mid-reset. `WaitUntilReady` is parked sim-side and answered the
+      moment it is ready, so this is one blocking call rather than a poll loop.
+
+    Returns True once ready. Returns False on timeout rather than raising, so callers can decide
+    whether a slow sandbox is fatal.
+    """
+    uri = uri or default_uri()
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        remaining = max(1.0, deadline - time.monotonic())
+        try:
+            result = asyncio.get_event_loop().run_until_complete(
+                asyncio.wait_for(SendCommand({"command": "WaitUntilReady"}, uri), timeout=remaining))
+        except (OSError, asyncio.TimeoutError, websockets.exceptions.WebSocketException) as e:
+            logger.info(f"Sandbox at {uri} not reachable yet ({type(e).__name__}); retrying.")
+            time.sleep(poll_seconds)
+            continue
+
+        text = result.decode(errors="replace") if isinstance(result, (bytes, bytearray)) else str(result)
+        if "Ready" in text:
+            return True
+
+        # An older sim answers "Unknown command: WaitUntilReady". It has no readiness gate at all,
+        # so being connected IS its readiness signal - do not stall the run waiting for a state it
+        # will never report.
+        if "Unknown command" in text:
+            logger.warning(
+                f"Sandbox at {uri} predates WaitUntilReady; proceeding without a readiness barrier.")
+            return True
+
+        logger.info(f"Sandbox at {uri} replied {text!r} while waiting for ready.")
+        time.sleep(poll_seconds)
+
+    logger.error(f"Sandbox at {uri} was not ready within {timeout}s.")
+    return False
+
+def RequestAnnotation(uri: str = None):
     result = asyncio.get_event_loop().run_until_complete(SendCommand(
         {
         "command": "RequestAnnotation"
     }, uri))
     return result
 
-def RequestJson(uri: str="ws://localhost:8080/commands"):
+def RequestJson(uri: str = None):
     result = asyncio.get_event_loop().run_until_complete(SendCommand(
         {
         "command": "RequestJson"
     }, uri))
     return result
 
-def RequestLidarCenter(uri: str="ws://localhost:8080/commands") -> Dict[str, Any]:
+def RequestLidarCenter(uri: str = None) -> Dict[str, Any]:
     """Depth (metres) along the agent's *actual pitched gaze* at the CENTRE pixel, plus the pose to
     decompose it. Phase D - the metric distance the manipulation router plans a reach from, replacing
     the removed monocular depth hint (see slamtest/plans/phaseD_reach_and_grab.md).

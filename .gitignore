@@ -18,3 +18,5 @@ overhaul/slamtest/plans/
 overhaul/subtask_run_outputs
 .DS_Store
 overhaul/depth_image.png
+# Distributed Sari Bench results (one dir per battery, screenshots + JSONL inside)
+bench_runs/

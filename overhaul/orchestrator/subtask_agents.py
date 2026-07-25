@@ -998,6 +998,18 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     on this in a batteried eval; it stays OFF by default."""
     client = _llm_client()
     init_logger(run_name=f"subtask-{datetime.now():%m%d_%H%M%S}")
+
+    # Barrier before ANY sim traffic. Under Distributed Sari Bench this process is launched the
+    # moment a sandbox is leased, which can be while that sandbox is still booting or still
+    # resetting from the previous attempt - so wait rather than fail the run on a refused
+    # connection or a reply from a half-built store. A local sim that is already up returns
+    # immediately, so this costs a plain run nothing.
+    from sim.env import default_uri, wait_for_ready
+    if not wait_for_ready():
+        raise RuntimeError(
+            f"Sandbox at {default_uri()} never reported ready; refusing to start the task against "
+            "an environment that may still be mid-reset.")
+
     agent = EmbodiedAgent(vlm_config=VLM_CONFIG, associative_config=ASSOCIATIVE_CONFIG,
                           mode='lean', nav_mode=arm, resolver_backend=resolver_backend,
                           map_output_dir=output_dir)
@@ -1172,7 +1184,17 @@ def main():
                          "spawn). OFF by default - use it so a fresh task doesn't inherit the last "
                          "run's grabbed/checked-out items. (Unlike --reset-start, which only moves "
                          "the agent.)")
+    ap.add_argument("--ws-uri", default=None,
+                    help="sandbox command endpoint, e.g. ws://host:51923/commands. Sets SARI_WS_URI "
+                         "for this process. Default: $SARI_WS_URI, else ws://localhost:8080/commands. "
+                         "Distributed Sari Bench passes the URI of the sandbox it leased for this "
+                         "attempt, which is how several agents run against one machine at once.")
     args = ap.parse_args()
+
+    # Must be set before anything reads it. sim.env resolves the default per call, not at import,
+    # so setting it here still takes effect in the already-imported module.
+    if args.ws_uri:
+        os.environ["SARI_WS_URI"] = args.ws_uri
 
     task = args.task_opt or args.task or input("Task: ")
     orchestrate(task, arm=args.arm, caps=(args.max_steps, args.max_minutes), out=args.out,
