@@ -38,6 +38,21 @@ uv run python orchestrator/subtask_agents.py "your task"
 Note that the entrypoint is `overhaul/orchestrator/subtask_agents.py`, **not** the legacy `run.py` — see
 [Running the agent](#running-the-agent).
 
+### Task runner (poe)
+
+[poethepoet](https://poethepoet.natn.io/) is a dev dependency (`uv sync` installs it) and wraps the
+`sari_bench` fleet commands as short tasks defined in `[tool.poe.tasks]` in `pyproject.toml`. Run
+them with `uv run poe <task>`:
+
+| Task | Runs | What |
+|---|---|---|
+| `uv run poe coordinator` | `python -m sari_bench coordinator --port 9000` | Sandbox registry the runner and sim instances register with |
+| `uv run poe watch` | `python -m sari_bench watch` | Live dashboard web server for a running battery |
+| `uv run poe dbench` | `python -m sari_bench run ...` | Runs the `sari_bench_v2_prompts.json` battery against the coordinator (see `pyproject.toml` for the full flag set) |
+
+These are convenience wrappers around the same `python -m sari_bench` commands documented in
+[Distributed Sari Bench](#distributed-sari-bench) — use whichever form you prefer.
+
 Optional extra — PaddleOCR is lazy-imported inside `perception._get_ocr()`, so the agent runs
 without it. Paddle wheels are large and unreliable on Apple Silicon, hence opt-in:
 
