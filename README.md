@@ -116,7 +116,7 @@ raises `UCL_BASE_URL/UCL_API not found` on startup.
 credits exhausted, agent calls moved to the UCL server) and which have no reader in the codebase
 at all (`REPLICATE_API_TOKEN`).
 
-### A split worth not crossing
+### Annotator Setup
 
 | | Backend | Why |
 |---|---|---|
