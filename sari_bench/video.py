@@ -10,6 +10,10 @@ is mostly an ffmpeg invocation. Two choices worth stating:
   makes a death loop legible - you see the same action fire against the same shelf.
 
 Frames are captioned with Pillow (already a dependency) into a temp dir; ffmpeg must be on PATH.
+
+``render_for_upload`` is the same pipeline aimed at a chat attachment: it writes a separate, smaller
+``replay.discord.mp4`` at a bitrate computed from the clip's duration, so the watcher can post a replay
+with every finish without ever touching the uncapped ``replay.mp4`` this CLI writes.
 """
 
 from __future__ import annotations
@@ -26,6 +30,23 @@ from typing import Any
 from sari_bench.watch import scan
 
 _STEP_PNG = re.compile(r"^step(\d+)\.png$")
+
+# Chat-attachment budget. Discord's real webhook cap is 10 MB; 8 leaves room for the embed and for
+# libx264 overshooting its target on the last GOP.
+DISCORD_BUDGET_BYTES = 8_000_000
+BITRATE_HEADROOM = 0.95
+MIN_VIDEO_BITRATE = 120_000  # bps floor; below this h264 is unwatchable, so blow the budget instead
+RENDER_TIMEOUT_SECONDS = 600.0
+
+# Upload defaults, deliberately different from the CLI's 4 fps / 1280 px. fps is the stronger
+# compression lever than bitrate: duration is frames/fps, so a faster clip is a shorter clip and buys
+# back bitrate for the same footage.
+UPLOAD_FPS = 6.0
+UPLOAD_WIDTH = 960
+
+# Name the upload copy separately from `replay.mp4`. The CLI owns that one and renders it uncapped for
+# archive viewing; auto-render must never quietly re-encode over it at attachment quality.
+UPLOAD_NAME = "replay.discord.mp4"
 
 
 def _steps_by_index(leg_jsonl: Path) -> dict[int, dict[str, Any]]:
@@ -77,8 +98,21 @@ def collect_frames(run_dir: Path) -> list[tuple[Path, str]]:
     return frames
 
 
+def target_bitrate(frame_count: int, fps: float, budget_bytes: int = DISCORD_BUDGET_BYTES,
+                   *, headroom: float = BITRATE_HEADROOM) -> int:
+    """Video bitrate in bps that lands `frame_count` frames at `fps` inside `budget_bytes`.
+
+    There is no audio track to subtract. Short clips come out with an absurd ceiling - eight frames at
+    6 fps asks for 30 Mbps - and that is correct rather than a bug to cap: 1.3 seconds at 30 Mbps is
+    still inside the budget by construction, and capping it would only make short replays uglier.
+    """
+    duration = max(frame_count / max(fps, 0.1), 1.0)
+    return max(MIN_VIDEO_BITRATE, int(budget_bytes * 8 * headroom / duration))
+
+
 def render(run_dir: Path, out_path: Path, *, fps: float = 4.0, width: int = 1280,
-           gif: bool = False, caption: bool = True) -> Path | None:
+           gif: bool = False, caption: bool = True,
+           max_bytes: int | None = None, preset: str = "veryfast") -> Path | None:
     frames = collect_frames(run_dir)
     if not frames:
         print(f"[sari-bench video] no frames under {run_dir}")
@@ -101,23 +135,65 @@ def render(run_dir: Path, out_path: Path, *, fps: float = 4.0, width: int = 1280
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         scale = f"scale={width}:-2:flags=lanczos"
-        if gif:
-            palette = staging / "palette.png"
-            _run(["ffmpeg", "-y", "-framerate", str(fps), "-i", str(staging / "f%05d.png"),
-                  "-vf", f"{scale},palettegen", str(palette)])
-            _run(["ffmpeg", "-y", "-framerate", str(fps), "-i", str(staging / "f%05d.png"),
-                  "-i", str(palette), "-lavfi", f"{scale} [x]; [x][1:v] paletteuse", str(out_path)])
-        else:
-            _run(["ffmpeg", "-y", "-framerate", str(fps), "-i", str(staging / "f%05d.png"),
-                  "-vf", scale, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out_path)])
+        try:
+            if gif:
+                palette = staging / "palette.png"
+                _run(["ffmpeg", "-y", "-framerate", str(fps), "-i", str(staging / "f%05d.png"),
+                      "-vf", f"{scale},palettegen", str(palette)])
+                _run(["ffmpeg", "-y", "-framerate", str(fps), "-i", str(staging / "f%05d.png"),
+                      "-i", str(palette), "-lavfi", f"{scale} [x]; [x][1:v] paletteuse",
+                      str(out_path)])
+            elif max_bytes is None:
+                _run(["ffmpeg", "-y", "-framerate", str(fps), "-i", str(staging / "f%05d.png"),
+                      "-vf", scale, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out_path)])
+            else:
+                # Single-pass ABR with a hard ceiling and a 2 s VBV buffer: deterministic for a given
+                # frame set, and +faststart lets a chat client start playing before the whole download.
+                bitrate = target_bitrate(len(frames), fps, max_bytes)
+                _run(["ffmpeg", "-y", "-framerate", str(fps), "-i", str(staging / "f%05d.png"),
+                      "-vf", scale, "-c:v", "libx264", "-preset", preset, "-pix_fmt", "yuv420p",
+                      "-an", "-b:v", str(bitrate), "-maxrate", str(bitrate),
+                      "-bufsize", str(bitrate * 2), "-movflags", "+faststart", str(out_path)],
+                     timeout=RENDER_TIMEOUT_SECONDS)
+        except subprocess.SubprocessError as error:
+            print(f"[sari-bench video] ffmpeg failed on {run_dir}: {error!r}")
+            return None
 
     size_mb = out_path.stat().st_size / 1e6 if out_path.exists() else 0
     print(f"[sari-bench video] {len(frames)} frame(s) -> {out_path} ({size_mb:.1f} MB)")
     return out_path
 
 
-def _run(command: list[str]) -> None:
-    subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def render_for_upload(run_dir: Path, *, max_bytes: int = DISCORD_BUDGET_BYTES,
+                      fps: float = UPLOAD_FPS, width: int = UPLOAD_WIDTH,
+                      reuse: bool = True) -> Path | None:
+    """`<run_dir>/replay.discord.mp4`, sized for a chat attachment, or None if it cannot be made.
+
+    Never raises. A missing ffmpeg, a dead encode, or a file that still busts the budget all come back
+    as None so the caller posts its message without a clip - an attachment is never worth losing the
+    notification it was meant to illustrate.
+    """
+    out_path = run_dir / UPLOAD_NAME
+    try:
+        if reuse and out_path.is_file():
+            size = out_path.stat().st_size
+            if 0 < size <= max_bytes:
+                return out_path
+        if render(run_dir, out_path, fps=fps, width=width, max_bytes=max_bytes) is None:
+            return None
+        size = out_path.stat().st_size
+        if size > max_bytes:
+            print(f"[sari-bench video] {out_path} is {size / 1e6:.1f} MB, over budget; skipping upload")
+            return None
+        return out_path
+    except Exception as error:  # noqa: BLE001 - a replay is never worth disturbing the caller
+        print(f"[sari-bench video] upload render failed for {run_dir}: {error!r}")
+        return None
+
+
+def _run(command: list[str], *, timeout: float | None = None) -> None:
+    subprocess.run(command, check=True, timeout=timeout,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def main(argv: list[str] | None = None) -> int:

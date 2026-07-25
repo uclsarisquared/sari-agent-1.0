@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import signal
 import threading
 import time
@@ -27,8 +28,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from sari_bench import video
 from sari_bench.protocol import DEFAULT_COORDINATOR_PORT
-from sari_bench.watch import health, notify, scan
+from sari_bench.watch import health, notify, replay as replay_mod, scan
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_BENCH_ROOT = REPO_ROOT / "bench_runs"
@@ -51,13 +53,19 @@ class WatchState:
         bench_root: Path,
         fixed_battery: Path | None,
         discord: notify.Discord,
+        replay: replay_mod.ReplayNotifier | None = None,
+        backfill: bool = False,
         min_interval: float = 1.0,
     ) -> None:
         self.bench_root = bench_root
         self.fixed_battery = fixed_battery
         self.discord = discord
+        self.replay = replay
+        self.backfill = backfill
         self.min_interval = min_interval
         self._lock = threading.Lock()
+        self._notify_lock = threading.Lock()
+        self._seeded = False
         self._cached: dict[str, Any] = {}
         self._cached_at = 0.0
         self._pool: list[dict[str, Any]] = []
@@ -103,6 +111,7 @@ class WatchState:
                 self.battery = battery
                 self._announced_start = False
                 self._announced_done = False
+                self._seeded = False
 
             discovered = [] if self.fixed_battery else scan.find_batteries(self.bench_root)
             view = scan.scan_battery(battery, now, discovered=discovered).as_dict()
@@ -122,25 +131,42 @@ class WatchState:
         slow webhook must not block the HTTP handlers."""
         if not self.discord.enabled:
             return
-        attempts = view.get("attempts") or []
-        if not self._announced_start and attempts:
-            self._announced_start = True
-            self.discord.battery_started(view, len(self._pool))
+        # One notifier at a time. Two concurrent /api/state polls could otherwise both clear the
+        # already-announced checks and double-post; harmless when a post was a line of text, wasteful
+        # now that it is an upload. Non-blocking, because a skipped pass costs nothing - this is a pure
+        # diff and the next poll re-derives it.
+        if not self._notify_lock.acquire(blocking=False):
+            return
+        try:
+            attempts = view.get("attempts") or []
+            if not self._announced_start and attempts:
+                self._announced_start = True
+                self.discord.battery_started(view, len(self._pool))
 
-        for attempt in attempts:
-            if attempt.get("state") == "finished":
-                self.discord.attempt_finished(attempt)
-            elif (attempt.get("health") or {}).get("level") == health.LEVEL_ALERT:
-                frame = attempt.get("frame")
-                path = (self.battery / frame) if (self.battery and frame) else None
-                self.discord.collapse(attempt, path)
+            if not self._seeded:
+                self._seeded = True
+                if self.replay is not None and not self.backfill:
+                    self.replay.seed(attempts)
 
-        planned = (view.get("battery") or {}).get("planned_attempts")
-        finished = sum(1 for a in attempts if a.get("state") in {"finished", "requeued"})
-        live = sum(1 for a in attempts if a.get("state") in {"starting", "running"})
-        if planned and finished >= planned and not live and not self._announced_done:
-            self._announced_done = True
-            self.discord.battery_finished(view)
+            for attempt in attempts:
+                if attempt.get("state") == "finished":
+                    # The worker renders the replay and posts; it only declines when it is off or
+                    # backed up, in which case announce the halt here without a clip.
+                    if self.replay is None or not self.replay.submit(attempt):
+                        self.discord.attempt_finished(attempt)
+                elif (attempt.get("health") or {}).get("level") == health.LEVEL_ALERT:
+                    frame = attempt.get("frame")
+                    path = (self.battery / frame) if (self.battery and frame) else None
+                    self.discord.collapse(attempt, path)
+
+            planned = (view.get("battery") or {}).get("planned_attempts")
+            finished = sum(1 for a in attempts if a.get("state") in {"finished", "requeued"})
+            live = sum(1 for a in attempts if a.get("state") in {"starting", "running"})
+            if planned and finished >= planned and not live and not self._announced_done:
+                self._announced_done = True
+                self.discord.battery_finished(view)
+        finally:
+            self._notify_lock.release()
 
     def set_pool(self, pool: list[dict[str, Any]], error: str = "") -> None:
         with self._lock:
@@ -343,6 +369,17 @@ def serve(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-pool", action="store_true", help="Do not connect to the coordinator.")
     parser.add_argument("--discord", action="store_true",
                         help=f"Send Discord notifications (needs {notify.WEBHOOK_ENV}).")
+    parser.add_argument("--no-replay", action="store_true",
+                        help="Announce halts without rendering and attaching a replay clip.")
+    parser.add_argument("--replay-fps", type=float, default=video.UPLOAD_FPS)
+    parser.add_argument("--replay-width", type=int, default=video.UPLOAD_WIDTH)
+    parser.add_argument("--replay-max-mb", type=float,
+                        default=video.DISCORD_BUDGET_BYTES / 1e6,
+                        help="Size budget for an attached clip.")
+    parser.add_argument("--replay-backfill", action="store_true",
+                        help="Also announce attempts that had already finished when the watcher "
+                             "started. Off by default: a restart mid-battery would otherwise replay "
+                             "the whole run into the channel.")
     args = parser.parse_args(argv)
 
     _load_api_env()
@@ -351,10 +388,24 @@ def serve(argv: list[str] | None = None) -> int:
     if args.discord and not discord.enabled:
         _log(f"--discord given but {notify.WEBHOOK_ENV} is unset; notifications are OFF")
 
+    replay = replay_mod.ReplayNotifier(
+        discord,
+        enabled=not args.no_replay,
+        max_bytes=int(args.replay_max_mb * 1e6),
+        width=args.replay_width,
+        fps=args.replay_fps,
+    )
+    if replay.enabled:
+        if shutil.which("ffmpeg") is None:
+            _log("replay clips are ON but ffmpeg is not on PATH; halts will post without one")
+        replay.start()
+
     state = WatchState(
         bench_root=args.bench_root.resolve(),
         fixed_battery=args.run_dir.resolve() if args.run_dir else None,
         discord=discord,
+        replay=replay,
+        backfill=args.replay_backfill,
     )
 
     battery = state.resolve_battery()
@@ -383,6 +434,7 @@ def serve(argv: list[str] | None = None) -> int:
     finally:
         if poller is not None:
             poller.stop()
+        replay.stop()
         server.server_close()
     return 0
 

@@ -9,7 +9,13 @@ exercised against the real shapes rather than a mock. What is being pinned down:
   2. discovery picks the newest battery, and --run-dir pins one;
   3. an attempt whose runner died shows as orphaned rather than as a live tile frozen forever;
   4. the HTTP API serves state/frames/logs, and path traversal in an attempt key is refused;
-  5. a rotated-aside requeue dir does not merge with the attempt that replaced it.
+  5. a rotated-aside requeue dir does not merge with the attempt that replaced it;
+  6. every halt is announced exactly once whatever its outcome, and carries a replay clip inside the
+     upload budget - written beside, never over, the CLI's uncapped replay.mp4;
+  7. a watcher restart does not replay finishes that predate it into the channel.
+
+The Discord tests stub `_post` rather than the socket, except for one that stands up a throwaway HTTP
+sink to pin the multipart body: that encoding is the part a wrong guess would break silently.
 
     python sari_bench/tests/test_watch.py
 """
@@ -22,6 +28,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
@@ -42,9 +49,21 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _real_png(path: Path, size: tuple[int, int], index: int) -> None:
+    """A frame ffmpeg can actually encode, with enough variation to cost real bits."""
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", size, (18 + index * 3 % 200, 40, 90))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([(index * 4 % size[0], 10), (index * 4 % size[0] + 40, size[1] - 10)],
+                   fill=(220, 200, 40))
+    image.save(path)
+
+
 def make_attempt(battery: Path, prompt_id: str, attempt: int, *, steps: list[dict],
                  state: str = "running", pid: int | None = None, started_ago: float = 60.0,
-                 max_steps: int = 150, outcome: str = "", frames: bool = True) -> Path:
+                 max_steps: int = 150, outcome: str = "", frames: bool = True,
+                 success: bool = False, frame_size: tuple[int, int] = (1, 1)) -> Path:
     run_dir = battery / prompt_id / f"try{attempt:02d}"
     run_dir.mkdir(parents=True, exist_ok=True)
     now = time.time()
@@ -59,6 +78,7 @@ def make_attempt(battery: Path, prompt_id: str, attempt: int, *, steps: list[dic
     if outcome:
         manifest["outcome"] = outcome
         manifest["wall_seconds"] = started_ago
+        manifest["success"] = success
     _write(run_dir / "attempt.json", json.dumps(manifest))
 
     lines = [json.dumps({"event": "leg_start", "leg": 0, "type": "pickup", "text": "go get it"})]
@@ -69,7 +89,10 @@ def make_attempt(battery: Path, prompt_id: str, attempt: int, *, steps: list[dic
         for index in range(1, len(steps) + 1):
             frame = run_dir / "leg00" / f"step{index:02d}.png"
             frame.parent.mkdir(parents=True, exist_ok=True)
-            frame.write_bytes(_PNG)
+            if frame_size == (1, 1):
+                frame.write_bytes(_PNG)
+            else:
+                _real_png(frame, frame_size, index)
 
     (run_dir / "agent.log").write_text("\n".join(f"log line {i}" for i in range(50)), encoding="utf-8")
     return run_dir
@@ -250,6 +273,204 @@ def test_report_and_kill_stamp() -> None:
         print("ok  report flattens attempts/legs; kill refuses finished and traversal keys")
 
 
+def _finish(run_dir: Path, *, outcome: str, success: bool = False) -> None:
+    """Stamps an attempt closed the way the runner does when its agent exits."""
+    manifest = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    manifest.update({"state": "finished", "outcome": outcome, "success": success,
+                     "wall_seconds": 61.0, "pid": None})
+    _write(run_dir / "attempt.json", json.dumps(manifest))
+
+
+def _recording_discord() -> tuple[Discord, list[tuple[dict, Path | None]]]:
+    """A Discord that is 'enabled' but records instead of sending."""
+    posts: list[tuple[dict, Path | None]] = []
+    discord = Discord(webhook_url="http://127.0.0.1:1/never-called")
+    discord._post = lambda payload, attachment=None: posts.append((payload, attachment))  # type: ignore[method-assign]
+    return discord, posts
+
+
+def _finish_titles(posts: list[tuple[dict, Path | None]]) -> list[str]:
+    titles = [p[0]["embeds"][0].get("title", "") for p in posts]
+    return [t for t in titles if t.startswith("Attempt")]
+
+
+def test_target_bitrate_math() -> None:
+    from sari_bench import video
+
+    # 150 frames at 6 fps is 25s; 8 MB of payload over 25s with 5% held back.
+    assert video.target_bitrate(150, 6.0, 8_000_000) == 2_432_000, video.target_bitrate(150, 6.0)
+    assert video.target_bitrate(150, 4.0, 8_000_000) == 1_621_333
+
+    # A very long attempt hits the floor rather than asking for an unwatchable bitrate.
+    assert video.target_bitrate(10_000, 6.0, 8_000_000) == video.MIN_VIDEO_BITRATE
+
+    # A one-frame clip must not divide by a sub-second duration and blow up.
+    assert video.target_bitrate(1, 6.0, 8_000_000) == int(8_000_000 * 8 * 0.95)
+    print("ok  upload bitrate is derived from clip duration and clamped at both ends")
+
+
+def test_every_finish_notifies_once() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        _write(battery / "battery.json", json.dumps({"planned_attempts": 9, "arm": "graph"}))
+        make_attempt(battery, "won", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True)
+        make_attempt(battery, "missed", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=False)
+        make_attempt(battery, "broke", 1, steps=healthy_steps(3), state="finished",
+                     outcome="agent_error")
+        make_attempt(battery, "killed", 1, steps=healthy_steps(3), state="finished",
+                     outcome="operator_kill")
+
+        discord, posts = _recording_discord()
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery, discord=discord,
+                           replay=None, min_interval=0.0)
+        state.snapshot(force=True)
+
+        titles = _finish_titles(posts)
+        assert len(titles) == 4, titles
+        assert any("succeeded" in t and "won" in t for t in titles), titles
+        assert any("goal not met" in t and "missed" in t for t in titles), titles
+        assert any("failed" in t and "broke" in t for t in titles), titles
+        assert any("killed" in t and "killed" in t for t in titles), titles
+
+        colors = {p[0]["embeds"][0]["title"].split(":")[0]: p[0]["embeds"][0]["color"]
+                  for p in posts if p[0]["embeds"][0].get("title", "").startswith("Attempt")}
+        assert colors["Attempt succeeded"] == 0x4FA96B, colors
+        assert colors["Attempt failed"] == 0xE0553F, colors
+
+        state.snapshot(force=True)
+        assert len(_finish_titles(posts)) == 4, "a second pass re-announced finishes"
+        print("ok  every halt is announced exactly once, successes included")
+
+
+def test_finish_attaches_replay_mp4() -> None:
+    import shutil as _shutil
+
+    from sari_bench import video
+    from sari_bench.watch.replay import ReplayNotifier
+
+    if _shutil.which("ffmpeg") is None:
+        print("--  skipped replay render test: ffmpeg not on PATH")
+        return
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        # Start it live, so the watcher sees the halt happen rather than finding it already done -
+        # a finish that predates the watcher is deliberately seeded silently.
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(12), pid=os.getpid(),
+                               frame_size=(320, 240))
+
+        discord, posts = _recording_discord()
+        worker = ReplayNotifier(discord, max_bytes=8_000_000, width=320, fps=6.0)
+        assert worker.enabled
+        worker.start()
+        try:
+            state = WatchState(bench_root=Path(temp), fixed_battery=battery, discord=discord,
+                               replay=worker, min_interval=0.0)
+            state.snapshot(force=True)
+            assert _finish_titles(posts) == []
+
+            _finish(run_dir, outcome="completed", success=True)
+            state.snapshot(force=True)
+            worker._queue.join()
+
+            attached = [p[1] for p in posts if p[0]["embeds"][0].get("title", "").startswith("Attempt")]
+            assert len(attached) == 1, attached
+            clip = attached[0]
+            assert clip == run_dir / video.UPLOAD_NAME, clip
+            size = clip.stat().st_size
+            assert 0 < size <= 8_000_000, size
+            # The CLI's uncapped artefact must be left for the CLI to write.
+            assert not (run_dir / "replay.mp4").exists(), "auto-render clobbered replay.mp4"
+
+            stamp = clip.stat().st_mtime_ns
+            assert video.render_for_upload(run_dir, max_bytes=8_000_000, width=320) == clip
+            assert clip.stat().st_mtime_ns == stamp, "an existing in-budget clip was re-rendered"
+
+            state.snapshot(force=True)
+            worker._queue.join()
+            assert len(_finish_titles(posts)) == 1, "the halt was announced twice"
+        finally:
+            worker.stop()
+        print(f"ok  a halt posts a {size / 1e6:.2f} MB replay clip, rendered once and reused")
+
+
+def test_replay_seed_suppresses_backfill() -> None:
+    from sari_bench.watch.replay import ReplayNotifier
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        for name in ("a", "b", "c"):
+            make_attempt(battery, name, 1, steps=healthy_steps(2), state="finished",
+                         outcome="completed", success=True)
+
+        discord, posts = _recording_discord()
+        worker = ReplayNotifier(discord)
+        worker.start()
+        try:
+            state = WatchState(bench_root=Path(temp), fixed_battery=battery, discord=discord,
+                               replay=worker, min_interval=0.0)
+            state.snapshot(force=True)
+            worker._queue.join()
+            assert _finish_titles(posts) == [], "a restart replayed finishes that predate it"
+
+            make_attempt(battery, "d", 1, steps=healthy_steps(2), state="finished",
+                         outcome="agent_error")
+            state.snapshot(force=True)
+            worker._queue.join()
+            titles = _finish_titles(posts)
+            assert len(titles) == 1 and "d" in titles[0], titles
+        finally:
+            worker.stop()
+        print("ok  a watcher restart seeds old finishes silently and still catches new ones")
+
+
+def test_multipart_upload_round_trip() -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    from sari_bench.watch import notify as notify_mod
+
+    bodies: list[bytes] = []
+    types: list[str] = []
+
+    class Sink(BaseHTTPRequestHandler):
+        def log_message(self, *_args: Any) -> None:
+            pass
+
+        def do_POST(self) -> None:
+            types.append(self.headers["Content-Type"])
+            bodies.append(self.rfile.read(int(self.headers["Content-Length"])))
+            self.send_response(204)
+            self.end_headers()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Sink)
+    Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with tempfile.TemporaryDirectory() as temp:
+            clip = Path(temp) / "replay.discord.mp4"
+            clip.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"payload" * 100)
+            discord = Discord(webhook_url=f"http://127.0.0.1:{server.server_port}/hook")
+            discord._post({"embeds": [{"title": "Attempt succeeded: p try 1"}]}, attachment=clip)
+
+            assert types[0].startswith("multipart/form-data; boundary="), types
+            body = bodies[0]
+            assert b'name="payload_json"' in body
+            assert b'name="files[0]"; filename="replay.discord.mp4"' in body
+            assert b"Content-Type: video/mp4" in body, body[:400]
+
+            # Over the cap, the message still goes out - just as text.
+            fat = Path(temp) / "fat.mp4"
+            fat.write_bytes(b"\x00" * (notify_mod.MAX_ATTACHMENT_BYTES + 1))
+            discord._post({"embeds": [{"title": "Attempt failed: p try 2"}]}, attachment=fat)
+            assert types[1] == "application/json", types
+    finally:
+        server.shutdown()
+        server.server_close()
+    print("ok  an mp4 uploads as video/mp4; an oversize clip degrades to a text post")
+
+
 def main() -> int:
     test_health_separates_healthy_from_collapsed()
     test_scan_ranks_worst_first_and_reads_step_state()
@@ -258,6 +479,11 @@ def main() -> int:
     test_rotated_requeue_dir_stays_separate()
     test_http_surface_and_traversal_refusal()
     test_report_and_kill_stamp()
+    test_target_bitrate_math()
+    test_every_finish_notifies_once()
+    test_finish_attaches_replay_mp4()
+    test_replay_seed_suppresses_backfill()
+    test_multipart_upload_round_trip()
     print("\nAll watch tests passed.")
     return 0
 

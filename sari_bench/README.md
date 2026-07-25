@@ -166,11 +166,30 @@ is no auth.
 ### Discord
 
 `--discord` with `SARI_BENCH_DISCORD_WEBHOOK` set in `api.env` posts: battery started, **collapse
-alerts with the offending screenshot attached** (once per attempt, 15-minute cooldown), failed
-attempts, and battery complete. Successes are not posted — at 3 tries × 20 prompts they are noise.
-Notification lives in the watcher rather than the runner deliberately: the runner is a scheduler,
-and an outbound HTTP call has no business on the path that releases a lease. Every send is
-fail-soft — a webhook that 429s can never disturb the poll loop.
+alerts with the offending screenshot attached** (once per attempt, 15-minute cooldown), **every halt
+with a replay clip attached**, and battery complete. Notification lives in the watcher rather than
+the runner deliberately: the runner is a scheduler, and an outbound HTTP call has no business on the
+path that releases a lease. Every send is fail-soft — a webhook that 429s can never disturb the poll
+loop (it gets one `Retry-After` retry, then is dropped).
+
+When an agent halts, the watcher renders that attempt's screenshots into a `replay.discord.mp4` and
+attaches it to the finish message, so the channel tells you *what happened* and not just that
+something did. Notes:
+
+* **All outcomes, not just failures.** An earlier version posted failures only, because a success was
+  a bare line of metrics and that really was noise at 3 tries × 20 prompts. A clip of a win is worth
+  watching, so every finish is announced now.
+* **A separate file from `replay.mp4`.** The clip is capped at 8 MB (960 px, bitrate computed from its
+  duration) because that is what a webhook will carry; the `video` CLI below writes an uncapped
+  `replay.mp4` for archive viewing. On 300 frames of worst-case footage those are 7.5 MB and 178 MB
+  respectively, which is why auto-render never writes over the CLI's copy.
+* **Rendered on a worker thread**, one encode at a time. The notify diff runs on the thread serving
+  `/api/state`, so an inline ffmpeg pass would hang the dashboard for as long as the encode takes,
+  and eight simultaneous finishes would mean eight ffmpegs competing with the agents still running.
+* **Restarting the watcher mid-battery does not replay the run into the channel.** Finishes already on
+  disk at startup are marked announced silently; `--replay-backfill` opts into posting them.
+* `--no-replay` turns clips off and posts finishes as text. Without `ffmpeg` on PATH you get the same
+  thing, plus a warning at startup.
 
 ## Stats and replays
 
@@ -188,7 +207,9 @@ afterwards).
 
 `video` stitches `legNN/stepNN.png` into an mp4, captioning each frame with that step's mode,
 action and checkpoint. mp4 rather than gif: a 150-frame 1080p gif runs to hundreds of megabytes and
-cannot be scrubbed (`--gif` is there for pasting into chat). Needs `ffmpeg` on PATH.
+cannot be scrubbed (`--gif` is there for pasting into chat). Needs `ffmpeg` on PATH. This writes
+`replay.mp4` uncapped, for watching; the watcher's 8 MB `replay.discord.mp4` is a separate file and
+neither overwrites the other.
 
 ## Tests
 
