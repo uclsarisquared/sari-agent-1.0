@@ -57,4 +57,22 @@ package = false
 # how the confusion started. Never add `dotenv` here.
 
 [dependency-groups]
-dev = []
+dev = [
+    "poethepoet>=0.37.0",
+]
+
+[tool.poe.tasks]
+watch = "python -m sari_bench watch"
+coordinator = "python -m sari_bench coordinator --port 9000"
+dbench = { cmd = """
+    python -m sari_bench run
+        --prompts sari_bench/prompts/sari_bench_v2_prompts.json
+        --tries 5
+        --time-limit 120
+        --per-leg-minutes 40
+        --concurrency 20
+        --coordinator ws://127.0.0.1:9000
+        --arm graph
+        --map-dir overhaul/slamtest/output_runs/run_0724_164652
+""" }
+
