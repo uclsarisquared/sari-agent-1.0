@@ -251,17 +251,19 @@ def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screensh
     }, uri))
     return result
 
-def Reset(uri: str = None):
-    """Restore the store to its pristine state.
+def Reset(degrees: float | None = None, uri: str = None):
+    """Restore the store to its pristine state. `degrees` optionally sets the agent's y rotation
+    after the reset; leaving it None keeps the default zero heading.
 
     Against a current sim this only returns once the reset has actually SETTLED - items back on
     shelves and at rest, agent back at spawn pose with hands and grip cleared. Older builds acked
     immediately, before Unity had even processed the deferred destroys, so a caller that reset and
     screenshotted saw the old store; if you are talking to one of those, keep your own sleep.
     """
-    asyncio.get_event_loop().run_until_complete(SendCommand({
-        "command": "ResetEnvironment"
-    }, uri))
+    payload = {"command": "ResetEnvironment"}
+    if degrees is not None:
+        payload["degrees"] = float(degrees)
+    asyncio.get_event_loop().run_until_complete(SendCommand(payload, uri))
 
 
 def GetStatus(uri: str = None) -> Dict[str, Any]:

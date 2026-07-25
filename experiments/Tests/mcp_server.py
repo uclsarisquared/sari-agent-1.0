@@ -563,13 +563,20 @@ async def get_hand_state() -> dict:
 
 
 @mcp.tool()
-async def reset_environment() -> bool:
+async def reset_environment(degrees: float | None = None) -> bool:
     """Reset the sandbox environment to its initial state.
+
+    Args:
+        degrees: Optional y rotation (in degrees) for the agent after the reset.
+            Omit it to keep the default zero heading.
 
     Returns:
         True if the reset command was sent successfully.
     """
-    await _send({"command": "ResetEnvironment"})
+    payload: dict = {"command": "ResetEnvironment"}
+    if degrees is not None:
+        payload["degrees"] = float(degrees)
+    await _send(payload)
     return True
 
 
