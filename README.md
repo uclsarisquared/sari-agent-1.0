@@ -38,7 +38,7 @@ uv run python orchestrator/subtask_agents.py "your task"
 Note that the entrypoint is `overhaul/orchestrator/subtask_agents.py`, **not** the legacy `run.py` — see
 [Running the agent](#running-the-agent).
 
-### Task runner (poe)
+### ⚒️ Task runner (poe)
 
 [poethepoet](https://poethepoet.natn.io/) is a dev dependency (`uv sync` installs it) and wraps the
 `sari_bench` fleet commands as short tasks defined in `[tool.poe.tasks]` in `pyproject.toml`. Run
