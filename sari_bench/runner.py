@@ -106,6 +106,12 @@ class AttemptResult:
     requeues: int = 0
     error: str = ""
     legs: dict[str, Any] = field(default_factory=dict)
+    # Token cost of the attempt: prompt tokens in, completion tokens out, across every reasoner the
+    # agent ran (agent_core.token_meter). Zero means "the agent recorded none", which for a crashed
+    # attempt can also mean it died before its first tokens.json write.
+    tokens_in: int = 0
+    tokens_out: int = 0
+    llm_calls: int = 0
 
 
 def load_prompts(path: Path) -> list[Prompt]:
@@ -339,13 +345,16 @@ class BenchmarkRunner:
                     "end_reason": result.end_reason,
                     "exit_code": result.exit_code,
                     "wall_seconds": result.wall_seconds,
+                    "tokens_in": result.tokens_in,
+                    "tokens_out": result.tokens_out,
                     "ended_at": datetime.now().isoformat(timespec="seconds"),
                 },
             )
             await self._record(result)
             _log(
                 f"[w{index}] {prompt_id} try {attempt}: {result.outcome} "
-                f"(success={result.success}, {result.wall_seconds}s)"
+                f"(success={result.success}, {result.wall_seconds}s, "
+                f"tokens {result.tokens_in}in/{result.tokens_out}out)"
             )
 
     async def _spawn_agent(
@@ -509,15 +518,21 @@ class BenchmarkRunner:
 
         summary_path = run_dir / "summary.json"
         if not summary_path.exists():
+            # No summary means a killed or crashed attempt - but it still spent tokens, and the
+            # agent's periodic tokens.json is the only place they survive.
+            self._apply_tokens(result, run_dir, summary=None)
             return result
 
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             result.error = f"unreadable summary.json: {error}"
+            self._apply_tokens(result, run_dir, summary=None)
             return result
 
         result.success = bool(summary.get("success"))
+        result.llm_calls = int(summary.get("llm_calls") or 0)
+        self._apply_tokens(result, run_dir, summary=summary)
         legs = summary.get("legs") or []
         result.legs = {
             "planned": summary.get("legs_planned"),
@@ -528,6 +543,34 @@ class BenchmarkRunner:
         if result.legs["end_reasons"]:
             result.end_reason = str(result.legs["end_reasons"][-1] or "")
         return result
+
+    @staticmethod
+    def _apply_tokens(result: AttemptResult, run_dir: Path, summary: dict[str, Any] | None) -> None:
+        """Fills in the attempt's token cost from whichever record the agent got as far as writing.
+
+        summary.json is authoritative but only exists for an attempt that exited cleanly; tokens.json
+        is rewritten every few seconds while the agent runs, so a timed-out or operator-killed attempt
+        - exactly the expensive ones worth accounting for - still reports what it burned.
+        """
+        source: dict[str, Any] | None = None
+        if isinstance(summary, dict) and isinstance(summary.get("tokens"), dict):
+            source = summary["tokens"]
+        elif isinstance(summary, dict) and "tokens_in" in summary:
+            source = summary
+
+        if source is None:
+            try:
+                payload = json.loads((run_dir / "tokens.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return
+            if not isinstance(payload, dict):
+                return
+            source = payload
+
+        result.tokens_in = int(source.get("tokens_in") or 0)
+        result.tokens_out = int(source.get("tokens_out") or 0)
+        if not result.llm_calls:
+            result.llm_calls = int(source.get("calls") or 0)
 
     async def _record(self, result: AttemptResult) -> None:
         async with self._results_lock:
@@ -551,10 +594,14 @@ class BenchmarkRunner:
                     "outcomes": {},
                     "end_reasons": {},
                     "sandboxes": [],
+                    "tokens_in": 0,
+                    "tokens_out": 0,
                 },
             )
             row["attempts"] += 1
             row["successes"] += int(result.success)
+            row["tokens_in"] += result.tokens_in
+            row["tokens_out"] += result.tokens_out
             row["outcomes"][result.outcome] = row["outcomes"].get(result.outcome, 0) + 1
             if result.end_reason:
                 row["end_reasons"][result.end_reason] = row["end_reasons"].get(result.end_reason, 0) + 1
@@ -563,7 +610,13 @@ class BenchmarkRunner:
 
         for row in by_prompt.values():
             row["success_rate"] = round(row["successes"] / row["attempts"], 3) if row["attempts"] else 0.0
+            # Per-attempt averages, because prompts run a different number of attempts once
+            # sandbox-lost requeues and --only are in play - the totals alone don't compare.
+            row["tokens_in_avg"] = round(row["tokens_in"] / row["attempts"]) if row["attempts"] else 0
+            row["tokens_out_avg"] = round(row["tokens_out"] / row["attempts"]) if row["attempts"] else 0
 
+        total_in = sum(result.tokens_in for result in self._results)
+        total_out = sum(result.tokens_out for result in self._results)
         summary = {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "wall_seconds": round(time.monotonic() - self._started_at, 1),
@@ -575,6 +628,10 @@ class BenchmarkRunner:
             "arm": self.arm,
             "total_attempts": len(self._results),
             "total_successes": sum(1 for r in self._results if r.success),
+            "tokens_in": total_in,
+            "tokens_out": total_out,
+            "tokens_total": total_in + total_out,
+            "llm_calls": sum(result.llm_calls for result in self._results),
             "prompts": sorted(by_prompt.values(), key=lambda row: row["prompt_id"]),
             "attempts": [asdict(result) for result in self._results],
         }
@@ -583,7 +640,7 @@ class BenchmarkRunner:
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         _log(
             f"{summary['total_successes']}/{summary['total_attempts']} attempt(s) succeeded "
-            f"in {summary['wall_seconds']}s -> {summary_path}"
+            f"in {summary['wall_seconds']}s, tokens in/out {total_in}/{total_out} -> {summary_path}"
         )
         return summary
 

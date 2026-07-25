@@ -60,6 +60,18 @@ battery is still usable), and `<prompt_id>/try<NN>/` holding `attempt.json` (tha
 manifest — sandbox, pid, deadline, outcome), the orchestrator's own `summary.json`, per-leg JSONL,
 screenshots, and the agent's stdout in `agent.log`.
 
+**Token usage** is recorded per attempt: `tokens_in` (prompt) / `tokens_out` (completion) on every
+row of `attempts.jsonl`, in each attempt's `attempt.json`, summed per prompt and battery-wide in the
+battery `summary.json`, and per leg in the orchestrator's own `summary.json`. The counts come from
+`agent_core/token_meter.py`, which patches the OpenAI SDK once so **every** reasoner is counted —
+actor, semantic/episodic learner, advisor, decomposer, resolver, perception, plus the SDK's internal
+retries — not just the calls someone remembered to instrument. Moondream (grab-time pointing) reports
+no usage and is therefore not counted; its qwen fallback is.
+
+The agent rewrites `<prompt_id>/try<NN>/tokens.json` every few seconds, so an attempt that is
+SIGKILLed on the harness timeout — usually the most expensive kind — still accounts for what it
+burned, even though it never wrote a `summary.json`.
+
 **`--time-limit` and `--per-leg-minutes` are different clocks.** `--time-limit` bounds the whole
 attempt and is enforced by the harness (SIGTERM, then SIGKILL). `--per-leg-minutes` is the agent's
 own `--max-minutes`, which is **per leg**; it defaults to `--time-limit`, which is only sensible for
@@ -219,4 +231,5 @@ Offline, in-process, no sim and no model stack:
 python sari_bench/tests/test_coordinator.py   # pool, leases, reaping, reset gating
 python sari_bench/tests/test_runner.py        # lease -> spawn -> release against a stub agent
 python sari_bench/tests/test_watch.py         # scanning, collapse scoring, discovery, HTTP, report
+python overhaul/tests/test_token_meter.py     # token counting, against the real SDK on loopback
 ```

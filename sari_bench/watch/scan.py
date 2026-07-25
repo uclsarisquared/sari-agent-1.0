@@ -57,6 +57,11 @@ class AttemptView:
     alive: bool = False
     killed_by: str = ""
 
+    # Token cost so far (agent_core.token_meter's tokens.json, rewritten every few seconds), so a
+    # live attempt's spend is visible while it runs and not only once it exits.
+    tokens_in: int = 0
+    tokens_out: int = 0
+
     started_at: str = ""
     elapsed_seconds: float = 0.0
     remaining_seconds: float | None = None
@@ -192,6 +197,10 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
         started_at=str(manifest.get("started_at") or ""),
         max_steps=manifest.get("max_steps"),
     )
+
+    tokens = _read_json(run_dir / "tokens.json")
+    view.tokens_in = int(tokens.get("tokens_in") or manifest.get("tokens_in") or 0)
+    view.tokens_out = int(tokens.get("tokens_out") or manifest.get("tokens_out") or 0)
 
     started = manifest.get("started_epoch")
     deadline = manifest.get("deadline_epoch")

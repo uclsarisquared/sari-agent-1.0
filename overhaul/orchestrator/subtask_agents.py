@@ -93,6 +93,9 @@ from toolset.actions import (
     MANIPULATION_ACTIONS_REF,
 )
 from agent_core.agent import EmbodiedAgent, ucl_qwen_config
+# Token accounting. Patches the OpenAI SDK once (see token_meter's docstring for why it is done
+# there and not per call site), so every reasoner's tokens land in summary.json / tokens.json.
+from agent_core import token_meter
 # Phase 6.3: the typed-subtask contract + deterministic completion predicates live in a lightweight,
 # sim-free module (importing THIS module pulls the whole model stack) so they stay offline-unit-testable.
 from orchestrator.subtask_completion import (
@@ -996,6 +999,8 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     ResetEnvironment now calls ItemPoolingManager.ClearPool() + ShelfBuilder.DeleteAllPriceTags()
     before reloading (DataHandler.cs:617). Verify the duplication is gone on your build before relying
     on this in a batteried eval; it stays OFF by default."""
+    # Before ANY reasoner runs, so the decomposer's and resolver's tokens are counted too.
+    token_meter.install()
     client = _llm_client()
     init_logger(run_name=f"subtask-{datetime.now():%m%d_%H%M%S}")
 
@@ -1019,6 +1024,9 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     run_dir = run_dir or os.path.join(_OVERHAUL_DIR, "subtask_run_outputs",
                                       f"{datetime.now():%m%d_%H%M%S}_{arm}")
     os.makedirs(run_dir, exist_ok=True)
+    # From here the meter also writes run_dir/tokens.json as it goes: summary.json is only written at
+    # exit, so an attempt the harness SIGKILLs would otherwise report no token cost at all.
+    token_meter.dump(run_dir)
     t0 = time.time()
     print(f"[ORCHESTRATOR] task: {task!r}")
     print(f"[ORCHESTRATOR] arm={arm}  caps={caps[0]} steps / {caps[1]} min per leg  run dir: {run_dir}")
@@ -1095,14 +1103,21 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                     print(f"[ORCHESTRATOR] retrying leg {i + 1} "
                           f"(attempt {attempt}/{1 + leg_retries}): {fail_reason}")
                 suffix = "" if attempt == 1 else f"_retry{attempt - 1}"
+                tokens_before = token_meter.snapshot()
                 m = run_leg(agent, leg, sm, caps,
                             log_path=os.path.join(run_dir, f"leg{i:02d}{suffix}.jsonl"),
                             context=leg_context, future_legs=future,
                             visited=visited, leg_idx=i + 1)
                 task_llm += m["llm_calls"]
+                # Per-leg token cost, so a leg that spun to its cap is visibly the expensive one.
+                # A retried leg's rows are separate, exactly like its llm_calls.
+                leg_tokens = token_meter.delta(tokens_before)
                 leg_rows.append({**{k: v for k, v in m.items()
                                     if k not in ("final_state", "new_semantic_entries")},
-                                 "attempt": attempt})
+                                 "attempt": attempt,
+                                 "tokens_in": leg_tokens["tokens_in"],
+                                 "tokens_out": leg_tokens["tokens_out"]})
+                token_meter.dump()
                 print(f"### leg {i+1} attempt {attempt} {m['end_reason']}: success={m['success']} "
                       f"t_grip={m['t_grip']} t_checkout={m['t_checkout']} steps={m['timesteps']} "
                       f"halts_refused={m['halts_refused']} wall={m['wall_s']}s")
@@ -1124,10 +1139,18 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                 print(f"[FINDINGS SUMMARY]\n{findings}\n")
                 cumulative_context += f"\n\n--- LEG {i + 1} FINDINGS ---\n{findings}"
     finally:
+        # Whole-run token cost: prompt (in) / completion (out) across EVERY reasoner, incl. the
+        # decomposer, the resolver, per-step perception and the findings summaries - not just the
+        # legs' own deltas, which miss the between-leg work. by_model splits actor from advisor when
+        # they ever stop being the same model.
+        token_totals = token_meter.totals()
         summary = {"task": task, "arm": arm, "success": task_success,
                    "legs_planned": len(legs),
                    "legs_completed": sum(1 for r in leg_rows if r.get("success")),
                    "resolver_calls": n_resolves, "llm_calls": task_llm,
+                   "tokens_in": token_totals["tokens_in"],
+                   "tokens_out": token_totals["tokens_out"],
+                   "tokens": token_totals,
                    "wall_s": round(time.time() - t0, 1), "legs": leg_rows}
         if arm == "graph-advised":
             # Whole-task advisor attribution (per-hop detail rides the agent's logger lines):
@@ -1141,10 +1164,12 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
         out_path = out or os.path.join(run_dir, "summary.json")
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
+        token_meter.dump()
         print("-" * 40)
         print(f"[ORCHESTRATOR] task success={task_success}  "
               f"legs {summary['legs_completed']}/{summary['legs_planned']}  "
-              f"llm={task_llm}  wall={summary['wall_s']}s  -> {out_path}")
+              f"llm={task_llm}  tokens in/out={token_totals['tokens_in']}/{token_totals['tokens_out']}  "
+              f"wall={summary['wall_s']}s  -> {out_path}")
         print("-" * 40)
         try:
             if agent._graph_nav:

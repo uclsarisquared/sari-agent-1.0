@@ -22,13 +22,15 @@ from sari_bench.watch import scan
 ATTEMPT_COLUMNS = [
     "battery_id", "prompt_id", "attempt", "family", "prompt", "looking_for",
     "outcome", "success", "end_reason", "exit_code", "wall_seconds", "wall_minutes",
+    "tokens_in", "tokens_out", "tokens_total", "llm_calls",
     "legs_planned", "legs_completed", "requeues", "sandbox_id", "commands_uri",
     "arm", "killed_by", "collapse_score", "collapse_signals", "run_dir", "error",
 ]
 
 LEG_COLUMNS = [
     "battery_id", "prompt_id", "attempt", "leg_index", "type", "text", "success",
-    "end_reason", "timesteps", "llm_calls", "errors", "halts_refused", "halt_forced",
+    "end_reason", "timesteps", "llm_calls", "tokens_in", "tokens_out", "errors",
+    "halts_refused", "halt_forced",
     "corrective_release", "t_manip", "t_grip", "t_checkout", "wall_s", "run_dir",
 ]
 
@@ -49,6 +51,19 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
             if isinstance(payload, dict):
                 rows.append(payload)
     return rows
+
+
+def _tokens_of(run_dir: Path, recorded: dict[str, Any], summary: dict[str, Any]) -> tuple[int, int]:
+    """The attempt's (tokens_in, tokens_out), from the most authoritative record available.
+
+    attempts.jsonl for a finished attempt, then the agent's summary.json, then the tokens.json the
+    agent rewrites as it goes - which is what makes a still-running or SIGKILLed attempt account for
+    its tokens at all.
+    """
+    for source in (recorded, summary, scan._read_json(run_dir / "tokens.json")):
+        if isinstance(source, dict) and ("tokens_in" in source or "tokens_out" in source):
+            return int(source.get("tokens_in") or 0), int(source.get("tokens_out") or 0)
+    return 0, 0
 
 
 def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -82,6 +97,7 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         # "how many attempts were in a death loop when I killed them" answerable after the fact.
         view = scan.scan_attempt(run_dir, battery, now=0.0)
         legs = recorded.get("legs") or {}
+        tokens_in, tokens_out = _tokens_of(run_dir, recorded, summary)
 
         attempt_rows.append({
             "battery_id": battery_id,
@@ -96,6 +112,10 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             "exit_code": recorded.get("exit_code", manifest.get("exit_code")),
             "wall_seconds": wall,
             "wall_minutes": round(float(wall) / 60.0, 2) if wall else 0.0,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "tokens_total": tokens_in + tokens_out,
+            "llm_calls": recorded.get("llm_calls") or summary.get("llm_calls") or 0,
             "legs_planned": legs.get("planned", summary.get("legs_planned")),
             "legs_completed": legs.get("completed", summary.get("legs_completed")),
             "requeues": recorded.get("requeues", 0),
@@ -123,6 +143,8 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
                 "end_reason": leg.get("end_reason", ""),
                 "timesteps": leg.get("timesteps"),
                 "llm_calls": leg.get("llm_calls"),
+                "tokens_in": leg.get("tokens_in"),
+                "tokens_out": leg.get("tokens_out"),
                 "errors": leg.get("errors"),
                 "halts_refused": leg.get("halts_refused"),
                 "halt_forced": leg.get("halt_forced"),

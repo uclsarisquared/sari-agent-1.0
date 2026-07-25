@@ -42,6 +42,11 @@ os.makedirs(run_dir, exist_ok=True)
 with open(os.path.join(run_dir, "liveness.json"), "w") as f:
     json.dump({"start": time.time(), "uri": os.environ.get("SARI_WS_URI", "")}, f)
 
+# The real agent's token_meter rewrites this every few seconds, so it exists even for an attempt
+# that never reaches summary.json.
+with open(os.path.join(run_dir, "tokens.json"), "w") as f:
+    json.dump({"tokens_in": 1200, "tokens_out": 300, "calls": 4}, f)
+
 mode = os.environ.get("STUB_MODE", "ok")
 if mode == "crash":
     sys.exit(3)
@@ -51,7 +56,11 @@ if mode == "hang":
 time.sleep(float(os.environ.get("STUB_SLEEP", "0.3")))
 with open(os.path.join(run_dir, "summary.json"), "w") as f:
     json.dump({"task": task, "success": True, "legs_planned": 1, "legs_completed": 1,
-               "legs": [{"end_reason": "halt_granted", "success": True}]}, f)
+               "llm_calls": 6,
+               "tokens_in": 2000, "tokens_out": 500,
+               "tokens": {"tokens_in": 2000, "tokens_out": 500, "calls": 6},
+               "legs": [{"end_reason": "halt_granted", "success": True,
+                         "tokens_in": 2000, "tokens_out": 500}]}, f)
 with open(os.path.join(run_dir, "liveness.json"), "r+") as f:
     data = json.load(f); data["end"] = time.time()
     f.seek(0); json.dump(data, f); f.truncate()
@@ -246,6 +255,66 @@ async def test_crashed_agent_still_releases_its_sandbox() -> None:
     print("ok  a crashed agent still releases, so the battery finishes")
 
 
+async def test_token_usage_is_recorded_per_attempt() -> None:
+    """Tokens in/out are the point of this test twice over: from the agent's summary.json when it
+    exits cleanly, and from its periodic tokens.json when the harness kills it first."""
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            await sandbox.connect(url)
+            summary = await asyncio.wait_for(
+                _runner(url, [Prompt(id="p1", prompt="task one")], workspace).run(), timeout=60
+            )
+
+            attempt = summary["attempts"][0]
+            # summary.json wins over tokens.json: it is the agent's final word.
+            assert (attempt["tokens_in"], attempt["tokens_out"]) == (2000, 500), attempt
+            assert attempt["llm_calls"] == 6, attempt
+            assert summary["tokens_in"] == 2000 and summary["tokens_out"] == 500, summary
+            assert summary["tokens_total"] == 2500, summary
+            row = summary["prompts"][0]
+            assert (row["tokens_in"], row["tokens_out"]) == (2000, 500), row
+            assert (row["tokens_in_avg"], row["tokens_out_avg"]) == (2000, 500), row
+
+            # The finished manifest carries them too, which is what the watcher reads.
+            manifest = json.loads(
+                (workspace / "runs" / "p1" / "try01" / "attempt.json").read_text(encoding="utf-8"))
+            assert (manifest["tokens_in"], manifest["tokens_out"]) == (2000, 500), manifest
+        finally:
+            await sandbox.close()
+            await coordinator.stop()
+
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-b", 51002)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            await sandbox.connect(url)
+            os.environ["STUB_MODE"] = "hang"
+            try:
+                runner = _runner(
+                    url,
+                    [Prompt(id="p1", prompt="never finishes")],
+                    workspace,
+                    time_limit_minutes=1.0 / 60.0,
+                    timeout_grace=0.5,
+                )
+                summary = await asyncio.wait_for(runner.run(), timeout=60)
+            finally:
+                os.environ.pop("STUB_MODE", None)
+
+            attempt = summary["attempts"][0]
+            assert attempt["outcome"] == "harness_timeout", attempt
+            # No summary.json was ever written; the tokens still have to be accounted for.
+            assert (attempt["tokens_in"], attempt["tokens_out"]) == (1200, 300), attempt
+        finally:
+            await sandbox.close()
+            await coordinator.stop()
+    print("ok  token usage is recorded per attempt, killed attempts included")
+
+
 async def main() -> int:
     test_load_prompts_accepts_the_battery_schema()
     for test in (
@@ -253,6 +322,7 @@ async def main() -> int:
         test_pool_size_bounds_concurrency,
         test_overrunning_attempt_is_killed_and_recorded,
         test_crashed_agent_still_releases_its_sandbox,
+        test_token_usage_is_recorded_per_attempt,
     ):
         await test()
     print("\nAll runner tests passed.")
