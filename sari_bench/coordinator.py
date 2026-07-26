@@ -14,6 +14,9 @@ Two invariants drive the design:
 * **A lease outlives neither its worker nor its sandbox.** A worker that disconnects has its lease
   reaped; a sandbox that stops heartbeating has its lease holder told ``bench.sandbox_lost`` so the
   attempt can be requeued instead of hanging on a machine that is never coming back.
+* **Dropping a sandbox always hangs up on it.** Eviction is a decision the sim has to hear about:
+  it re-registers on connect, so a drop that leaves its socket open removes it from the pool for
+  good. Closing the connection is what makes an eviction recoverable rather than terminal.
 
 All state is in memory. A coordinator restart is recoverable without operator action: sims
 reconnect on their own backoff, and workers reconnect per attempt.
@@ -34,7 +37,9 @@ from sari_bench.protocol import (
     DEFAULT_COORDINATOR_PORT,
     HEARTBEAT_TIMEOUT_SECONDS,
     SANDBOX_ROUTE,
+    STATE_LEASED,
     STATE_READY,
+    STATE_RESETTING,
     commands_uri,
     decode,
     encode,
@@ -43,6 +48,11 @@ from sari_bench.protocol import (
 
 # How often the reaper sweeps for dead sandboxes and expired leases.
 REAP_INTERVAL_SECONDS = 2.0
+
+# Resetting several Unity players on one machine at once can stall all their main threads in asset
+# teardown/rebuild. Keep one reset in flight; queued sandboxes remain out of the leasable pool.
+DEFAULT_MAX_CONCURRENT_RESETS = 1
+DEFAULT_RESET_TIMEOUT_SECONDS = 180.0
 
 # Backstop for a worker whose TCP connection is half-open, so its lease is never held forever.
 # Generous by default: a legitimate attempt can legitimately run for tens of minutes.
@@ -62,6 +72,8 @@ class Sandbox:
     store_name: str = ""
     last_heartbeat: float = field(default_factory=time.monotonic)
     lease_id: str | None = None
+    reset_started_at: float | None = None
+    reset_reason: str = ""
 
     @property
     def leasable(self) -> bool:
@@ -79,6 +91,12 @@ class Sandbox:
             "unity_version": self.unity_version,
             "store_name": self.store_name,
             "lease_id": self.lease_id,
+            "reset_seconds": (
+                round(time.monotonic() - self.reset_started_at, 1)
+                if self.reset_started_at is not None
+                else None
+            ),
+            "reset_reason": self.reset_reason,
             "commands_uri": commands_uri(self.host, self.port),
         }
 
@@ -101,20 +119,28 @@ class Coordinator:
         port: int = DEFAULT_COORDINATOR_PORT,
         heartbeat_timeout: float = HEARTBEAT_TIMEOUT_SECONDS,
         lease_ttl: float = DEFAULT_LEASE_TTL_SECONDS,
+        max_concurrent_resets: int = DEFAULT_MAX_CONCURRENT_RESETS,
+        reset_timeout: float = DEFAULT_RESET_TIMEOUT_SECONDS,
         log: Any = None,
     ) -> None:
         self.host = host
         self.port = port
         self.heartbeat_timeout = heartbeat_timeout
         self.lease_ttl = lease_ttl
+        self.max_concurrent_resets = max(1, max_concurrent_resets)
+        self.reset_timeout = reset_timeout
         self.log = log or _print_log
 
         self._sandboxes: dict[str, Sandbox] = {}
         self._leases: dict[str, Lease] = {}
         # Workers waiting for a free sandbox, oldest first, so leases are handed out fairly.
         self._waiters: list[asyncio.Future[Lease]] = []
+        self._pending_resets: list[tuple[str, str, str]] = []
+        self._active_resets: set[str] = set()
         self._server: Any = None
         self._reaper: asyncio.Task[None] | None = None
+        # Strong refs to in-flight socket closes, so they are not garbage-collected mid-handshake.
+        self._closers: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -132,15 +158,21 @@ class Coordinator:
                 await self._reaper
             self._reaper = None
 
+        # A bench handler can be parked awaiting one of these futures. Wake it before waiting for
+        # the websocket server's handlers to close, or shutdown itself deadlocks on an empty pool.
+        for waiter in self._waiters:
+            if not waiter.done():
+                waiter.cancel()
+        self._waiters.clear()
+
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
 
-        for waiter in self._waiters:
-            if not waiter.done():
-                waiter.cancel()
-        self._waiters.clear()
+        for closer in list(self._closers):
+            closer.cancel()
+        self._closers.clear()
 
     @property
     def bound_port(self) -> int:
@@ -188,7 +220,8 @@ class Coordinator:
             self.log(f"Sandbox connection error ({sandbox_id}): {error!r}")
         finally:
             if sandbox_id is not None:
-                await self._drop_sandbox(sandbox_id, reason="disconnected")
+                # The socket is already gone; closing it again would only stall this teardown.
+                await self._drop_sandbox(sandbox_id, reason="disconnected", close_socket=False)
 
     async def _register(self, websocket: Any, message: dict[str, Any]) -> str | None:
         sandbox_id = message.get("sandbox_id")
@@ -204,9 +237,14 @@ class Coordinator:
         host = advertised or _peer_host(websocket) or "127.0.0.1"
 
         # A sim that restarted re-registers under the same id; retire the stale entry (and any
-        # lease pointing at it) rather than ending up with two rows for one machine.
-        if sandbox_id in self._sandboxes:
-            await self._drop_sandbox(sandbox_id, reason="re-registered")
+        # lease pointing at it) rather than ending up with two rows for one machine. Only hang up on
+        # the stale entry's socket if it is a different one - a sim that says hello twice on a single
+        # connection must not have that connection closed underneath it.
+        stale = self._sandboxes.get(sandbox_id)
+        if stale is not None:
+            await self._drop_sandbox(
+                sandbox_id, reason="re-registered", close_socket=stale.websocket is not websocket
+            )
 
         sandbox = Sandbox(
             sandbox_id=sandbox_id,
@@ -230,6 +268,18 @@ class Coordinator:
             self.log(f"Sandbox {sandbox_id} registered at {sandbox.host}:{sandbox.port} ({sandbox.state})")
 
         await _send(websocket, encode("coord.welcome", sandbox_id=sandbox_id))
+
+        # The coordinator keeps leases only in memory. After it restarts, a Unity process may
+        # reconnect still reporting Leased from the old coordinator, but no matching lease can
+        # possibly exist here. Reset that orphaned attempt so the sim reports Ready and rejoins the
+        # pool; otherwise it remains visibly "Leased" yet can never be acquired again.
+        if sandbox.state == STATE_LEASED and sandbox.lease_id is None:
+            await self._queue_reset(
+                sandbox_id,
+                lease_id="coordinator-recovery",
+                reason="orphaned_lease",
+            )
+
         self._fulfil_waiters()
         return sandbox_id
 
@@ -245,14 +295,36 @@ class Coordinator:
         # A sandbox reporting Ready after a release is what actually returns it to the pool: the
         # reset it was told to run has finished.
         if sandbox.state == STATE_READY and sandbox.lease_id is None:
+            self._active_resets.discard(sandbox_id)
+            self._pending_resets = [
+                pending for pending in self._pending_resets if pending[0] != sandbox_id
+            ]
+            sandbox.reset_started_at = None
+            sandbox.reset_reason = ""
+            await self._pump_resets()
             self._fulfil_waiters()
 
-    async def _drop_sandbox(self, sandbox_id: str, *, reason: str) -> None:
+    async def _drop_sandbox(self, sandbox_id: str, *, reason: str, close_socket: bool = True) -> None:
         sandbox = self._sandboxes.pop(sandbox_id, None)
         if sandbox is None:
             return
 
         self.log(f"Sandbox {sandbox_id} removed ({reason})")
+        self._active_resets.discard(sandbox_id)
+        self._pending_resets = [
+            pending for pending in self._pending_resets if pending[0] != sandbox_id
+        ]
+        await self._pump_resets()
+
+        # Dropping a sandbox whose socket is still open MUST hang up on it. The sim only re-registers
+        # from its socket's on-open, and only reconnects once it sees a close, so an eviction that
+        # leaves the connection up takes that sandbox out of the pool permanently: it keeps
+        # heartbeating happily into a registry that no longer has a row for it. That is not
+        # hypothetical - it is how a fleet-wide reset hitch turned into every sim silently
+        # disappearing and never coming back.
+        if close_socket:
+            self._close_socket_soon(sandbox.websocket, reason)
+
         if sandbox.lease_id is None:
             return
 
@@ -308,10 +380,27 @@ class Coordinator:
             future: asyncio.Future[Lease] = asyncio.get_running_loop().create_future()
             setattr(future, "_bench_holder", websocket)
             self._waiters.append(future)
+            closed_task: asyncio.Task[Any] | None = None
             try:
-                lease = await future
+                wait_closed = getattr(websocket, "wait_closed", None)
+                if callable(wait_closed):
+                    closed_task = asyncio.create_task(wait_closed())
+                    done, _pending = await asyncio.wait(
+                        {future, closed_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if future not in done:
+                        future.cancel()
+                        self._waiters = [waiter for waiter in self._waiters if waiter is not future]
+                        return
+                lease = future.result()
             except asyncio.CancelledError:
                 return
+            finally:
+                if closed_task is not None and not closed_task.done():
+                    closed_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await closed_task
             sandbox = self._sandboxes.get(lease.sandbox_id)
             if sandbox is None:
                 # The sandbox died between being handed to us and us resuming; _drop_sandbox has
@@ -342,10 +431,10 @@ class Coordinator:
             return
 
         outcome = message.get("outcome") or "unknown"
-        await self._reset_and_repool(lease.sandbox_id, lease.lease_id, outcome)
+        await self._queue_reset(lease.sandbox_id, lease.lease_id, outcome)
         await _send(websocket, encode("bench.released", lease_id=lease.lease_id, known=True))
 
-    async def _reset_and_repool(self, sandbox_id: str, lease_id: str, outcome: str) -> None:
+    async def _queue_reset(self, sandbox_id: str, lease_id: str, reason: str) -> None:
         sandbox = self._sandboxes.get(sandbox_id)
         if sandbox is None:
             return
@@ -354,9 +443,41 @@ class Coordinator:
         # Deliberately NOT marked ready here. The sandbox re-enters the pool only when it sends
         # sandbox.state{Ready}, i.e. once its reset has actually settled. Marking it ready now
         # would hand a mid-reset environment to the next attempt.
-        sandbox.state = "Resetting"
-        self.log(f"Released {sandbox_id} (lease {lease_id}, outcome={outcome}); resetting")
-        await _send(sandbox.websocket, encode("coord.reset", lease_id=lease_id))
+        sandbox.state = STATE_RESETTING
+        sandbox.reset_reason = reason
+        if sandbox_id not in self._active_resets and not any(
+            pending[0] == sandbox_id for pending in self._pending_resets
+        ):
+            self._pending_resets.append((sandbox_id, lease_id, reason))
+        await self._pump_resets()
+
+    async def _pump_resets(self) -> None:
+        """Starts queued resets up to the fleet-wide concurrency limit."""
+        while self._pending_resets and len(self._active_resets) < self.max_concurrent_resets:
+            sandbox_id, lease_id, reason = self._pending_resets.pop(0)
+            sandbox = self._sandboxes.get(sandbox_id)
+            if sandbox is None:
+                continue
+            self._active_resets.add(sandbox_id)
+            sandbox.reset_started_at = time.monotonic()
+            self.log(f"Resetting {sandbox_id} (lease {lease_id}, reason={reason})")
+            await _send(
+                sandbox.websocket,
+                encode("coord.reset", lease_id=lease_id, reason=reason),
+            )
+
+    def _close_socket_soon(self, websocket: Any, reason: str) -> None:
+        """Hangs up in the background. The close handshake waits on a peer that may be wedged, and
+        the reaper is the one calling this - it must not stall a sweep behind one bad connection."""
+
+        async def close() -> None:
+            with contextlib.suppress(Exception):
+                # 1013 "try again later": the sim's reconnect backoff is the intended response.
+                await websocket.close(code=1013, reason=reason[:120])
+
+        task = asyncio.create_task(close())
+        self._closers.add(task)
+        task.add_done_callback(self._closers.discard)
 
     # ------------------------------------------------------------------ pool helpers
 
@@ -402,7 +523,7 @@ class Coordinator:
         for lease in [lease for lease in self._leases.values() if lease.holder is websocket]:
             self._leases.pop(lease.lease_id, None)
             self.log(f"Reaping lease {lease.lease_id} ({reason})")
-            await self._reset_and_repool(lease.sandbox_id, lease.lease_id, reason)
+            await self._queue_reset(lease.sandbox_id, lease.lease_id, reason)
 
     def pool_snapshot(self) -> list[dict[str, Any]]:
         return [sandbox.describe() for sandbox in self._sandboxes.values()]
@@ -424,13 +545,25 @@ class Coordinator:
             if now - sandbox.last_heartbeat > self.heartbeat_timeout:
                 await self._drop_sandbox(sandbox_id, reason="heartbeat_timeout")
 
+        for sandbox_id in list(self._active_resets):
+            sandbox = self._sandboxes.get(sandbox_id)
+            if (
+                sandbox is not None
+                and sandbox.reset_started_at is not None
+                and now - sandbox.reset_started_at > self.reset_timeout
+            ):
+                self.log(
+                    f"Sandbox {sandbox_id} reset exceeded {self.reset_timeout:g}s; quarantining"
+                )
+                await self._drop_sandbox(sandbox_id, reason="reset_timeout")
+
         # TTL only catches half-open worker connections; a clean disconnect is reaped immediately
         # in _handle_bench's finally block.
         for lease in list(self._leases.values()):
             if now - lease.created_at > self.lease_ttl:
                 self._leases.pop(lease.lease_id, None)
                 self.log(f"Lease {lease.lease_id} exceeded its TTL; reclaiming its sandbox")
-                await self._reset_and_repool(lease.sandbox_id, lease.lease_id, "lease_ttl")
+                await self._queue_reset(lease.sandbox_id, lease.lease_id, "lease_ttl")
 
         self._fulfil_waiters()
 

@@ -62,6 +62,7 @@ class CoordinatorClient:
     async def connect(self) -> None:
         import websockets
 
+        self._closed.clear()
         self._socket = await websockets.connect(self.url)
         self._reader = asyncio.create_task(self._read_forever())
 
@@ -94,7 +95,26 @@ class CoordinatorClient:
     async def _request(self, message: str, expect: str) -> dict[str, Any]:
         await self._socket.send(message)
         while True:
-            reply = await self._replies.get()
+            reply_task = asyncio.create_task(self._replies.get())
+            closed_task = asyncio.create_task(self._closed.wait())
+            try:
+                done, _pending = await asyncio.wait(
+                    {reply_task, closed_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                # Prefer a reply if it raced with the close notification: the peer may close
+                # immediately after sending a complete response.
+                if reply_task not in done:
+                    raise ConnectionError(
+                        f"Coordinator connection closed while waiting for {expect} ({self.url})"
+                    )
+                reply = reply_task.result()
+            finally:
+                for task in (reply_task, closed_task):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(reply_task, closed_task, return_exceptions=True)
+
             if reply.get("type") == expect:
                 return reply
             if reply.get("type") == "bench.error":

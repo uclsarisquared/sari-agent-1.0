@@ -38,10 +38,10 @@ BITRATE_HEADROOM = 0.95
 MIN_VIDEO_BITRATE = 120_000  # bps floor; below this h264 is unwatchable, so blow the budget instead
 RENDER_TIMEOUT_SECONDS = 600.0
 
-# Upload defaults, deliberately different from the CLI's 4 fps / 1280 px. fps is the stronger
-# compression lever than bitrate: duration is frames/fps, so a faster clip is a shorter clip and buys
-# back bitrate for the same footage.
-UPLOAD_FPS = 6.0
+# Hold each captured step for about a second. Replay frames are observations rather than animation
+# frames, so a conventional video frame rate makes the run too quick to review.
+DEFAULT_FPS = 1.0
+UPLOAD_FPS = DEFAULT_FPS
 UPLOAD_WIDTH = 960
 
 # Name the upload copy separately from `replay.mp4`. The CLI owns that one and renders it uncapped for
@@ -110,7 +110,7 @@ def target_bitrate(frame_count: int, fps: float, budget_bytes: int = DISCORD_BUD
     return max(MIN_VIDEO_BITRATE, int(budget_bytes * 8 * headroom / duration))
 
 
-def render(run_dir: Path, out_path: Path, *, fps: float = 4.0, width: int = 1280,
+def render(run_dir: Path, out_path: Path, *, fps: float = DEFAULT_FPS, width: int = 1280,
            gif: bool = False, caption: bool = True,
            max_bytes: int | None = None, preset: str = "veryfast") -> Path | None:
     frames = collect_frames(run_dir)
@@ -203,7 +203,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="One attempt's run dir (…/<prompt_id>/tryNN).")
     parser.add_argument("--battery", type=Path, default=None,
                         help="Render EVERY attempt in this battery dir instead.")
-    parser.add_argument("--fps", type=float, default=4.0)
+    parser.add_argument("--fps", type=float, default=DEFAULT_FPS,
+                        help="Images per second (default: 1, so each image lasts about one second).")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--gif", action="store_true", help="Write a gif instead of an mp4.")
     parser.add_argument("--no-caption", action="store_true")

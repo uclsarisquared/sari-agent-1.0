@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from sari_bench import video
 from sari_bench.protocol import DEFAULT_COORDINATOR_PORT
@@ -38,6 +38,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 POOL_REFRESH_SECONDS = 5.0
 LOG_TAIL_LINES = 25
+LOG_MAX_LINES = 2000
+LOG_BOOTSTRAP_BYTES = 16_384
 
 
 def _log(message: str) -> None:
@@ -288,25 +290,63 @@ class WatchState:
         clip = run_dir / video.UPLOAD_NAME
         return status, (clip if status == replay_mod.READY and clip.is_file() else None)
 
-    def log_tail(self, key: str, lines: int = LOG_TAIL_LINES) -> dict[str, Any]:
+    def log_tail(
+        self, key: str, lines: int = LOG_TAIL_LINES, since: int | None = None
+    ) -> dict[str, Any]:
+        """Reads agent.log, either as a tail or as the delta since a byte offset.
+
+        The dashboard keeps one terminal per attempt open at all times, so re-sending the same tail
+        every two seconds would be both wasteful and impossible to append to without duplicating
+        lines. With `since` it gets exactly the bytes written after its cursor, which lets it append
+        and so keep the reader's scroll position untouched.
+
+        A trailing line the writer has not terminated yet comes back as `partial` rather than in
+        `lines`, and does not advance the cursor: the reader sees it immediately, and it arrives once
+        more - whole this time - when its newline lands.
+        """
+        empty = {"lines": [], "offset": 0, "size": 0, "partial": "", "reset": False}
         battery = self.resolve_battery()
         if battery is None:
-            return {"lines": []}
+            return empty
         run_dir = _safe_run_dir(battery, key)
         if run_dir is None:
-            return {"lines": []}
+            return empty
         path = run_dir / "agent.log"
         if not path.exists():
-            return {"lines": []}
+            return empty
         try:
             with path.open("rb") as handle:
                 handle.seek(0, os.SEEK_END)
                 size = handle.tell()
-                handle.seek(max(0, size - 16_384))
-                text = handle.read().decode("utf-8", errors="replace")
+                # A cursor past the end means the file was truncated or rotated under us; the only
+                # honest answer is to start over and tell the client to drop what it has.
+                reset = since is not None and since > size
+                bootstrap = since is None or reset
+                start = max(0, size - LOG_BOOTSTRAP_BYTES) if bootstrap else since
+                handle.seek(start)
+                raw = handle.read()
         except OSError as error:
-            return {"lines": [f"<unreadable: {error!r}>"]}
-        return {"lines": text.splitlines()[-lines:]}
+            return {**empty, "lines": [f"<unreadable: {error!r}>"]}
+
+        if bootstrap and start > 0:
+            # The bootstrap window lands mid-line; drop that fragment rather than show half of it.
+            head = raw.find(b"\n")
+            start += len(raw) if head < 0 else head + 1
+            raw = b"" if head < 0 else raw[head + 1:]
+
+        partial = b""
+        if raw and not raw.endswith(b"\n"):
+            tail = raw.rfind(b"\n")
+            partial, raw = (raw, b"") if tail < 0 else (raw[tail + 1:], raw[:tail + 1])
+
+        text = raw.decode("utf-8", errors="replace")
+        return {
+            "lines": text.splitlines()[-lines:],
+            "offset": start + len(raw),
+            "size": size,
+            "partial": partial.decode("utf-8", errors="replace"),
+            "reset": reset,
+        }
 
     def frame_path(self, key: str) -> Path | None:
         battery = self.resolve_battery()
@@ -332,6 +372,21 @@ def _stamp(path: Path, fields: dict[str, Any]) -> None:
     payload = scan._read_json(path)
     payload.update(fields)
     _write_json(path, payload)
+
+
+def _int_param(
+    query: dict[str, list[str]], name: str, default: int | None, low: int, high: int | None
+) -> int | None:
+    """Reads one clamped integer out of a query string, falling back on anything unparseable."""
+    values = query.get(name)
+    if not values:
+        return default
+    try:
+        value = int(values[0])
+    except ValueError:
+        return default
+    value = max(low, value)
+    return value if high is None else min(high, value)
 
 
 def _safe_run_dir(battery: Path, key: str) -> Path | None:
@@ -486,7 +541,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, frame.read_bytes(), "image/png")
                 return
             if action == "log":
-                self._json(self.state.log_tail(key))
+                query = parse_qs(parsed.query)
+                self._json(self.state.log_tail(
+                    key,
+                    lines=_int_param(query, "lines", LOG_TAIL_LINES, 1, LOG_MAX_LINES),
+                    since=_int_param(query, "since", None, 0, None),
+                ))
                 return
             if action == "replay.mp4":
                 status, clip = self.state.replay_status(key)

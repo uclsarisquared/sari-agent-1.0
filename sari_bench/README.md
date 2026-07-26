@@ -54,6 +54,10 @@ python -m sari_bench run \
     --coordinator ws://coordinator-host:9000
 ```
 
+The `uv run poe dbench` shortcut waits up to 30 seconds for at least one usable sandbox to
+register, then exits with launch instructions instead of leaving every prompt at
+`waiting for a sandbox`. Use the `status` command above to inspect the pool.
+
 Results land in `bench_runs/<timestamp>/`: `battery.json` (the plan), `summary.json` (per-prompt
 success rates and outcome counts), `attempts.jsonl` (written as attempts finish, so an interrupted
 battery is still usable), and `<prompt_id>/try<NN>/` holding `attempt.json` (that attempt's
@@ -114,6 +118,8 @@ once the sandbox itself reports ready. Three things follow:
 - `ResetEnvironment` in a current sim only acks once items are back on shelves *and at rest*, with
   the agent returned to its spawn pose, hands and grip cleared, and the basket lowered. Older sims
   acked in the same frame, before Unity had even run the deferred destroys.
+- resets are issued one at a time across the fleet, avoiding a same-host teardown/rebuild stampede;
+  a reset that does not report `Ready` within three minutes is disconnected and quarantined.
 
 An agent that connects while its sandbox is still booting or resetting has its commands **parked**
 sim-side and answered when the sandbox is ready — it waits rather than seeing a garbled reply.
@@ -128,7 +134,7 @@ retries the connection itself for a sandbox that is not listening yet.
 | Agent exited non-zero | `agent_error` | reset, re-pooled |
 | Attempt overran `--time-limit` | `harness_timeout` (SIGTERM then SIGKILL to the process group) | reset, re-pooled |
 | Killed from the dashboard | `operator_kill` | reset, re-pooled |
-| Sandbox stopped heartbeating | attempt **requeued** (up to 3x), then `sandbox_lost` | dropped from the pool |
+| Sandbox stopped heartbeating | attempt **requeued** (up to 3x), then `sandbox_lost` | hung up on, rejoins when the sim reconnects |
 | Runner died holding a lease | — | lease reaped, reset, re-pooled |
 
 A requeued attempt reuses its `<prompt_id>/try<NN>` path, so the dead attempt's dir is **rotated

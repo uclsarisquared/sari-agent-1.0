@@ -197,6 +197,31 @@ async def test_pool_size_bounds_concurrency() -> None:
     print("ok  a one-sandbox pool serialises attempts even at concurrency 3")
 
 
+async def test_startup_timeout_explains_an_empty_pool() -> None:
+    coordinator, url = await _start_coordinator()
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            runner = _runner(
+                url,
+                [Prompt(id="p1", prompt="cannot start")],
+                workspace,
+                sandbox_startup_timeout=0.2,
+            )
+            try:
+                await runner.run()
+            except RuntimeError as error:
+                message = str(error)
+                assert "No usable sandbox registered" in message, message
+                assert "SARI_BENCH_COORDINATOR" in message, message
+            else:
+                raise AssertionError("an empty pool left the runner waiting forever")
+            assert not (workspace / "runs" / "battery.json").exists()
+        finally:
+            await coordinator.stop()
+    print("ok  an empty pool fails with sandbox startup instructions")
+
+
 async def test_overrunning_attempt_is_killed_and_recorded() -> None:
     coordinator, url = await _start_coordinator()
     sandbox = FakeSandbox("sandbox-a", 51001)
@@ -320,6 +345,7 @@ async def main() -> int:
     for test in (
         test_battery_runs_every_prompt_and_attempt,
         test_pool_size_bounds_concurrency,
+        test_startup_timeout_explains_an_empty_pool,
         test_overrunning_attempt_is_killed_and_recorded,
         test_crashed_agent_still_releases_its_sandbox,
         test_token_usage_is_recorded_per_attempt,

@@ -31,9 +31,12 @@ STATE_RESETTING = "Resetting"
 STATE_READY = "Ready"
 STATE_LEASED = "Leased"
 
-# How long a sandbox may go without a heartbeat before the coordinator drops it. The sim
-# heartbeats every 5s, so this tolerates two missed beats.
-HEARTBEAT_TIMEOUT_SECONDS = 15.0
+# How long a sandbox may go without a heartbeat before the coordinator drops it. The sim heartbeats
+# every 5s from a Unity coroutine, so beats stop whenever the main thread stalls - and a fleet of
+# sims all resetting at once on one machine can stall for tens of seconds without anything being
+# wrong. Hence the generous margin: this is a liveness check for a sim that is never coming back,
+# and a genuinely dead connection is caught much sooner by the websocket keepalive.
+HEARTBEAT_TIMEOUT_SECONDS = 45.0
 
 DEFAULT_COORDINATOR_PORT = 9000
 

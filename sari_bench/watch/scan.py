@@ -105,6 +105,7 @@ class AttemptView:
     goal_met: Any = None
     halts_refused: int = 0
 
+    log_bytes: int = 0            # agent.log size; lets the dashboard poll only when it changed
     frame: str = ""               # battery-relative path of the newest screenshot
     health: dict[str, Any] = field(default_factory=dict)
 
@@ -253,6 +254,11 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
             # The manifest says live but the process is gone: the runner died before it could close
             # the attempt out. Say so rather than showing a tile frozen forever at its last step.
             view.state = "orphaned"
+
+    try:
+        view.log_bytes = (run_dir / "agent.log").stat().st_size
+    except OSError:
+        view.log_bytes = 0
 
     # After the orphan downgrade, so a tile whose runner died can never be offered for review.
     view.verifiable = is_verifiable(view.state, view.end_reason)

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from sari_bench.client import CoordinatorClient, Lease, SandboxLost
-from sari_bench.protocol import DEFAULT_COORDINATOR_PORT
+from sari_bench.protocol import DEFAULT_COORDINATOR_PORT, STATE_READY
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OVERHAUL_DIR = REPO_ROOT / "overhaul"
@@ -42,6 +42,10 @@ TERMINATE_GRACE_SECONDS = 20.0
 # An attempt whose sandbox died is retried this many times before being recorded as failed. Guards
 # against a permanently sick machine turning into an infinite requeue loop.
 MAX_SANDBOX_LOST_REQUEUES = 3
+
+
+class SandboxStartupError(RuntimeError):
+    """The configured coordinator has no usable fleet at runner startup."""
 
 # Per-attempt manifest, written INTO the run dir before the agent is spawned. attempts.jsonl only
 # gains a row when an attempt finishes, so this is the only record that an attempt is in flight -
@@ -167,13 +171,16 @@ class BenchmarkRunner:
         leg_retries: int,
         per_leg_minutes: float | None = None,
         timeout_grace: float = DEFAULT_TIMEOUT_GRACE_SECONDS,
+        sandbox_startup_timeout: float = 0.0,
         python_executable: str | None = None,
         agent_entry: str = ORCHESTRATOR_ENTRY,
         agent_cwd: Path = OVERHAUL_DIR,
     ) -> None:
         self.prompts = {prompt.id: prompt for prompt in prompts}
         self.coordinator_url = coordinator_url
-        self.output_dir = output_dir
+        # The agent subprocess runs with cwd=overhaul/, not the runner's cwd. Keep the attempt path
+        # absolute so --run-dir and the harness manifests always name the same directory.
+        self.output_dir = output_dir.resolve()
         self.tries = tries
         self.time_limit_minutes = time_limit_minutes
         # The agent's --max-minutes is a PER-LEG cap; time_limit_minutes bounds the whole attempt.
@@ -188,6 +195,7 @@ class BenchmarkRunner:
         self.map_dir = map_dir
         self.leg_retries = leg_retries
         self.timeout_grace = timeout_grace
+        self.sandbox_startup_timeout = sandbox_startup_timeout
         self.python_executable = python_executable or sys.executable
         # Overridable so tests can drive the whole lease/spawn/release cycle against a stub agent
         # instead of the real orchestrator (which pulls the entire model stack on import).
@@ -200,6 +208,8 @@ class BenchmarkRunner:
         self._started_at = 0.0
 
     async def run(self) -> dict[str, Any]:
+        await self._wait_for_registered_sandbox()
+
         for prompt in self.prompts.values():
             for attempt in range(1, self.tries + 1):
                 self._queue.put_nowait((prompt.id, attempt, 0))
@@ -228,6 +238,75 @@ class BenchmarkRunner:
             await asyncio.gather(*workers, return_exceptions=True)
 
         return self._write_summary()
+
+    async def _wait_for_registered_sandbox(self) -> None:
+        """Fail clearly at startup instead of parking every worker against an empty pool."""
+        if self.sandbox_startup_timeout <= 0:
+            return
+
+        deadline = time.monotonic() + self.sandbox_startup_timeout
+        last_pool: list[dict[str, Any]] = []
+        reached_coordinator = False
+
+        async def fetch_pool() -> list[dict[str, Any]]:
+            async with CoordinatorClient(self.coordinator_url) as client:
+                return await client.pool()
+
+        def pool_problem() -> str:
+            if not last_pool:
+                return "none registered"
+            if not any(bool(sandbox.get("store_loaded", True)) for sandbox in last_pool):
+                return "registered sandbox(es) have no store loaded"
+            states: dict[str, int] = {}
+            for sandbox in last_pool:
+                state = str(sandbox.get("state") or "unknown")
+                states[state] = states.get(state, 0) + 1
+            state_summary = ", ".join(f"{state}={count}" for state, count in sorted(states.items()))
+            return f"none ready or coordinator-leased; sim states: {state_summary}"
+
+        while True:
+            remaining = deadline - time.monotonic()
+            try:
+                # websockets' own opening-handshake timeout is normally 10 seconds. Keep the
+                # operator-facing timeout honest even when it is configured lower than that.
+                last_pool = await asyncio.wait_for(fetch_pool(), timeout=max(0.001, remaining))
+            except Exception as error:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    if reached_coordinator:
+                        raise SandboxStartupError(
+                            f"No usable sandbox registered with {self.coordinator_url} after "
+                            f"{self.sandbox_startup_timeout:g}s ({pool_problem()}). Start the Distributed "
+                            "Sari Bench Unity player with SARI_BENCH_COORDINATOR pointing to "
+                            f"{self.coordinator_url.rstrip('/')}/sandbox, then rerun dbench."
+                        ) from error
+                    reason = str(error) or type(error).__name__
+                    raise SandboxStartupError(
+                        f"Coordinator {self.coordinator_url} was not reachable within "
+                        f"{self.sandbox_startup_timeout:g}s: {reason}. Start it with "
+                        "`uv run poe coordinator`, then start the Unity sandbox fleet."
+                    ) from error
+            else:
+                reached_coordinator = True
+                # A leased member is healthy but busy; a Ready member can be acquired immediately.
+                # Booting/Resetting members get the full startup window to become Ready.
+                if any(
+                    bool(sandbox.get("store_loaded", True))
+                    and (bool(sandbox.get("lease_id")) or sandbox.get("state") == STATE_READY)
+                    for sandbox in last_pool
+                ):
+                    _log(f"sandbox preflight: {len(last_pool)} registered")
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SandboxStartupError(
+                        f"No usable sandbox registered with {self.coordinator_url} after "
+                        f"{self.sandbox_startup_timeout:g}s ({pool_problem()}). Start the Distributed "
+                        "Sari Bench Unity player with SARI_BENCH_COORDINATOR pointing to "
+                        f"{self.coordinator_url.rstrip('/')}/sandbox, then rerun dbench."
+                    )
+
+            await asyncio.sleep(min(1.0, max(0.0, remaining)))
 
     def _write_battery_manifest(self, planned_attempts: int) -> None:
         """Battery-level facts the watcher cannot infer from run dirs alone.
@@ -370,8 +449,20 @@ class BenchmarkRunner:
         command = self._agent_command(prompt, lease, run_dir)
 
         env = dict(os.environ)
+        # agent.log is read live by the watch dashboard mid-attempt. Without this, stdout
+        # redirected to a file (not a tty) is fully block-buffered, so the watcher's "log" tab
+        # shows nothing for minutes at a time even while the agent is actively working.
+        env["PYTHONUNBUFFERED"] = "1"
         # How the agent finds its sandbox. sim/env.py reads this for every command's default URI.
         env["SARI_WS_URI"] = lease.commands_uri
+        if self.map_dir:
+            # Belt to --output-dir's braces. The flag only reaches the call sites the orchestrator
+            # explicitly threads it through; this reaches every StoreMap() in the attempt's process
+            # (nav/store_map.default_output_dir reads it), so no helper can silently fall back to
+            # the frozen slamtest/output - which in this checkout has no topology_final_shelf.json
+            # and used to take every attempt down in ~2s as a bare `agent_error`.
+            # Absolute because the agent runs with cwd=overhaul/.
+            env["SARI_MAP_DIR"] = str(Path(self.map_dir).resolve())
 
         timeout = self.time_limit_minutes * 60.0 + self.timeout_grace
         manifest_path = run_dir / ATTEMPT_MANIFEST
@@ -469,7 +560,10 @@ class BenchmarkRunner:
             lease.commands_uri,
         ]
         if self.map_dir:
-            command += ["--output-dir", self.map_dir]
+            # Resolved, for the same reason SARI_MAP_DIR is (see _spawn_agent): --map-dir is given
+            # relative to the repo root, but the agent runs with cwd=overhaul/, so handing the flag
+            # over verbatim points it at overhaul/<map-dir> and StoreMap dies on its first load.
+            command += ["--output-dir", str(Path(self.map_dir).resolve())]
         return command
 
     @staticmethod
@@ -672,6 +766,12 @@ async def async_main(argv: list[str] | None = None) -> int:
         default=f"ws://localhost:{DEFAULT_COORDINATOR_PORT}",
         help="Coordinator URL. /bench is appended if missing.",
     )
+    parser.add_argument(
+        "--sandbox-startup-timeout",
+        type=float,
+        default=0.0,
+        help="Seconds to wait for a usable registered sandbox before failing (0 waits indefinitely).",
+    )
     parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to bench_runs/<timestamp>.")
     parser.add_argument("--concurrency", type=int, default=2, help="Attempts to run in parallel.")
     parser.add_argument("--only", default=None, help="Comma-separated prompt ids to run.")
@@ -693,6 +793,18 @@ async def async_main(argv: list[str] | None = None) -> int:
         parser.error("--tries must be at least 1")
     if args.concurrency < 1:
         parser.error("--concurrency must be at least 1")
+    if args.sandbox_startup_timeout < 0:
+        parser.error("--sandbox-startup-timeout cannot be negative")
+    if args.map_dir:
+        # Check the map BEFORE leasing anything. A map dir missing its topology kills the agent on
+        # its first StoreMap load, which the harness can only see as a generic agent_error - a
+        # whole battery of them, one sandbox lease each, before anyone thinks to read a log.
+        missing = [
+            name for name in ("topology_final_shelf.json", "annotations_final_shelf.json")
+            if not (Path(args.map_dir) / name).is_file()
+        ]
+        if missing:
+            parser.error(f"--map-dir {args.map_dir} is not a usable map: missing {', '.join(missing)}")
 
     output_dir = args.output_dir or (
         REPO_ROOT / "bench_runs" / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -710,6 +822,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         arm=args.arm,
         map_dir=args.map_dir,
         leg_retries=max(0, args.leg_retries),
+        sandbox_startup_timeout=args.sandbox_startup_timeout,
     )
     await runner.run()
     return 0
@@ -718,6 +831,9 @@ async def async_main(argv: list[str] | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         return asyncio.run(async_main(argv))
+    except SandboxStartupError as error:
+        _log(f"error: {error}")
+        return 1
     except KeyboardInterrupt:
         return 130
 

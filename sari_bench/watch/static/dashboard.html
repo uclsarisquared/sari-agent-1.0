@@ -8,6 +8,7 @@
   :root {
     --bg: #14161a; --panel: #1c1f25; --line: #2c313a; --ink: #e6e8ec; --dim: #9aa3b0;
     --ok: #4fa96b; --watch: #e0a23f; --alert: #e0553f; --idle: #5a6472; --accent: #4f8fd0;
+    --term-bg: #0d0f12;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -18,21 +19,25 @@
   .pill { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--dim); }
   main { padding: 16px; display: grid; gap: 14px;
          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  /* One thin outline all the way round; the health colour rides on it. Nothing thicker on one side,
+     and no glow - the badge and the signal banner already say the loud part. */
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
-          display: flex; flex-direction: column; border-left: 4px solid var(--idle); }
-  .card.ok { border-left-color: var(--ok); }
-  .card.watch { border-left-color: var(--watch); }
-  .card.alert { border-left-color: var(--alert); box-shadow: 0 0 0 1px rgba(224,85,63,.35); }
+          display: flex; flex-direction: column; }
+  .card.ok { border-color: var(--ok); }
+  .card.watch { border-color: var(--watch); }
+  .card.alert { border-color: var(--alert); }
   .card.finished { opacity: .68; }
   .card-head { padding: 10px 12px; display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
   .title { font-weight: 620; font-size: 13.5px; }
   .prompt { padding: 0 12px 8px; color: var(--dim); font-size: 12.5px;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .frame { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #0d0f12; display: block; }
+  .frame { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: var(--term-bg); display: block; }
   .frame.none { display: grid; place-items: center; color: var(--dim); font-size: 12px; }
+  .frame.none[hidden], .frame[hidden] { display: none; }
   .rows { padding: 8px 12px; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12.5px; }
   .rows dt { color: var(--dim); }
   .rows dd { margin: 0; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rows [hidden] { display: none; }
   .sig { margin: 0 12px 8px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
          background: rgba(224,85,63,.12); color: #f0a596; }
   .sig.watch { background: rgba(224,162,63,.12); color: #e8c48d; }
@@ -42,8 +47,6 @@
   button:hover { background: #2f3540; }
   button.danger { color: #ffbdb1; border-color: #57302a; }
   button.danger:hover { background: #3a221e; }
-  pre.log { margin: 0 12px 12px; padding: 8px; background: #0d0f12; border: 1px solid var(--line);
-            border-radius: 6px; font-size: 11.5px; max-height: 190px; overflow: auto; white-space: pre-wrap; }
   .empty { padding: 48px 18px; color: var(--dim); text-align: center; grid-column: 1 / -1; }
   .badge { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
   .badge.alert { color: #f0a596; border-color: #57302a; }
@@ -51,6 +54,24 @@
   .badge.success { color: #a8dcbb; border-color: #2c4b38; }
   .badge.fail { color: #f0a596; border-color: #57302a; }
   .badge.verified { color: #cbd6e6; border-color: #3a4a5e; background: rgba(79,143,208,.10); }
+
+  /* The terminal. A fixed height, not a max-height: a card must not resize as its log fills, or the
+     whole grid reflows under the reader every two seconds. overflow-anchor is off because the
+     autoscroll rule below is the only thing allowed to move this element. */
+  pre.term { margin: 0; padding: 6px 8px; background: var(--term-bg); border: 0;
+             border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+             font-size: 11.5px; line-height: 16px; color: #c3cbd6;
+             white-space: pre-wrap; word-break: break-word; overflow-anchor: none;
+             scrollbar-color: #4a5260 var(--term-bg); scrollbar-width: thin; }
+  pre.term::-webkit-scrollbar { width: 10px; height: 10px; background: var(--term-bg); }
+  pre.term::-webkit-scrollbar-track,
+  pre.term::-webkit-scrollbar-corner { background: var(--term-bg); }
+  pre.term::-webkit-scrollbar-thumb { background: #4a5260; border: 2px solid var(--term-bg);
+                                      border-radius: 999px; }
+  pre.term::-webkit-scrollbar-thumb:hover { background: #657080; }
+  /* 6 rows of 16px plus the 6px padding top and bottom: pinned to the tail it shows six whole lines
+     rather than five and a sliver. */
+  .card pre.term { height: 108px; overflow-y: auto; }
 
   /* Human verdict. Deliberately a second row, below the log/kill row: it is a different kind of
      action - a judgement about the run, not a thing done to it. */
@@ -60,23 +81,27 @@
   button.vote.on[data-success="false"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
   button.link { background: none; border: none; color: var(--dim); padding: 5px 2px; text-decoration: underline; }
   button.link:hover { background: none; color: var(--ink); }
-  /* The disagreement is the whole point of collecting verdicts, so it is the loudest thing on the card. */
-  .card.disagree { border-left-color: var(--watch); box-shadow: 0 0 0 1px rgba(224,162,63,.45); opacity: 1; }
+  /* The disagreement is the whole point of collecting verdicts, so it stays at full opacity. */
+  .card.disagree { border-color: var(--watch); opacity: 1; }
   .mismatch { margin: 0 12px 8px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
               background: rgba(224,162,63,.12); color: #e8c48d; }
 
-  /* One <video> for the whole page, parked outside #grid so the 2s innerHTML rebuild can never
-     reach it and restart playback mid-review. */
-  #modal { position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
-           background: rgba(8,9,11,.82); padding: 24px; }
-  #modal.open { display: grid; }
-  #modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-               max-width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-  #modal-head { padding: 10px 14px; display: flex; gap: 12px; align-items: baseline;
-                border-bottom: 1px solid var(--line); }
+  /* Both overlays live outside #grid. The cards are patched in place now rather than rebuilt, but a
+     <video> mid-playback and a log the reader has scrolled back through are still the two things
+     most worth keeping away from the render loop entirely. */
+  .overlay { position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
+             background: rgba(8,9,11,.82); padding: 24px; }
+  .overlay.open { display: grid; }
+  .overlay-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+                 max-width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  .overlay-head { padding: 10px 14px; display: flex; gap: 12px; align-items: baseline;
+                  border-bottom: 1px solid var(--line); }
   #modal-video { width: 100%; max-height: 68vh; background: #000; display: block; }
   #modal-note { padding: 24px; color: var(--dim); text-align: center; }
   #modal-foot { padding: 10px 14px; display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--line); }
+  #log-modal .overlay-box { width: min(1100px, 100%); height: min(880px, 100%); }
+  #log-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px;
+                    font-size: 12.5px; line-height: 1.5; border: 0; }
 </style>
 </head>
 <body>
@@ -88,11 +113,11 @@
   <span class="muted" id="pool"></span>
   <span class="muted" id="updated" style="margin-left:auto"></span>
 </header>
-<main id="grid"><div class="empty">Loading…</div></main>
+<main id="grid"><div class="empty" id="empty">Loading…</div></main>
 
-<div id="modal">
-  <div id="modal-box">
-    <div id="modal-head">
+<div id="modal" class="overlay">
+  <div class="overlay-box">
+    <div class="overlay-head">
       <strong id="modal-title">replay</strong>
       <span class="muted" id="modal-sub"></span>
       <button data-act="modal-close" style="margin-left:auto">close</button>
@@ -108,26 +133,53 @@
   </div>
 </div>
 
+<div id="log-modal" class="overlay">
+  <div class="overlay-box">
+    <div class="overlay-head">
+      <strong id="log-modal-title">log</strong>
+      <span class="muted" id="log-modal-sub"></span>
+      <button data-act="log-modal-close" style="margin-left:auto">close</button>
+    </div>
+    <pre class="term" id="log-modal-body"></pre>
+  </div>
+</div>
+
 <script>
-const openLogs = new Set();
+const POLL_MS = 2000;
+const INLINE_LOG_LINES = 40;     // bootstrap depth for a card terminal - a little scrollback above the 6 visible
+const MODAL_LOG_LINES = 800;     // the fullscreen view is for reading, so it starts much deeper
+const TERM_BUFFER_LINES = 1000;  // client-side cap; trimmed only while the reader sits at the bottom
+const AT_BOTTOM_SLOP = 8;        // px of rounding error still counted as "at the bottom"
+
+// One entry per attempt key, built once and patched thereafter. Nothing in here is recreated on a
+// refresh, which is what lets the <img> keep its decoded frame and the terminal keep its scroll.
+const cards = new Map();
+let lastOrder = "";
+
 // The attempt whose replay is open, and the last /api/state payload — the modal reads the current
 // verdict out of it on every refresh without being rebuilt.
 let modalKey = null;
+let logModalKey = null;
 let latest = [];
-let frameTick = 0;
 
 const fmtMin = s => (s === null || s === undefined) ? "—"
   : (s < 0 ? "-" : "") + Math.floor(Math.abs(s) / 60) + "m" + String(Math.floor(Math.abs(s) % 60)).padStart(2, "0") + "s";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const isLive = a => a.state === "starting" || a.state === "running";
+const api = (key, path) => `/api/attempt/${encodeURI(key)}/${path}`;
+
+// Writing an unchanged string still dirties layout in some engines, and a card is patched every 2s.
+const setText = (el, value) => { const s = String(value); if (el.textContent !== s) el.textContent = s; };
+const setHTML = (el, value) => { if (el.innerHTML !== value) el.innerHTML = value; };
 
 // A human said one thing and the predicate said another. Worth seeing from across the room.
 const disagrees = a => a.verified && Boolean(a.verified_success) !== Boolean(a.success);
 
 function classOf(a) {
-  if (disagrees(a)) return "finished disagree";
-  if (a.state === "finished" || a.state === "requeued") return "finished";
-  if (a.state === "orphaned") return "alert";
-  return (a.health && a.health.level) || "ok";
+  if (disagrees(a)) return "card finished disagree";
+  if (a.state === "finished" || a.state === "requeued") return "card finished";
+  if (a.state === "orphaned") return "card alert";
+  return "card " + ((a.health && a.health.level) || "ok");
 }
 
 function verdictBadge(a) {
@@ -148,60 +200,230 @@ function statusBadge(a) {
   return `<span class="badge ${lvl}">${lvl === "ok" ? "running" : lvl}</span>`;
 }
 
-function card(a) {
-  const live = a.state === "starting" || a.state === "running";
-  const lvl = (a.health && a.health.level) || "ok";
-  const showSig = live && lvl !== "ok" && a.health.summary;
-  const logOpen = openLogs.has(a.key);
-  const frame = a.frame
-    ? `<img class="frame" alt="latest frame" src="/api/attempt/${encodeURI(a.key)}/frame.png?t=${frameTick}">`
-    : `<div class="frame none">no frame yet</div>`;
+// -- terminals ---------------------------------------------------------------------------
+// A terminal is append-only: the server hands back the bytes written since our cursor, we add them
+// to the end, and we touch scrollTop only when the reader was already parked at the bottom. Because
+// nothing above the insertion point ever moves, someone reading scrollback stays exactly on their
+// line for as long as they want.
+//
+// The one node that is ever rewritten is `partial`, kept last: the line the writer has not finished.
+// It becomes a normal committed line as soon as its newline arrives.
 
-  const mismatch = disagrees(a)
-    ? `<div class="mismatch">predicate: ${a.success ? "success" : "fail"} · human: ${a.verified_success ? "success" : "fail"}</div>`
-    : "";
-
-  return `<section class="card ${classOf(a)}" data-key="${esc(a.key)}">
-    <div class="card-head">
-      <span class="title">${esc(a.prompt_id)} · try ${a.attempt}</span>
-      <span>${verdictBadge(a)} ${statusBadge(a)}</span>
-    </div>
-    <div class="prompt">${esc(a.prompt)}</div>
-    ${frame}
-    ${mismatch}
-    ${showSig ? `<div class="sig ${lvl}">${esc(a.health.summary)}</div>` : ""}
-    <dl class="rows">
-      <dt>leg</dt><dd>${a.leg ?? "—"} ${esc(a.leg_type || "")}</dd>
-      <dt>step</dt><dd>${a.step || 0}${a.max_steps ? " / " + a.max_steps : ""} ${a.mode ? "· " + esc(a.mode) : ""}</dd>
-      <dt>action</dt><dd>${esc(JSON.stringify(a.actions ?? "—"))}</dd>
-      <dt>at</dt><dd>${esc(a.near_cp ?? "—")}${a.blocked ? " · BLOCKED" : ""}</dd>
-      <dt>held</dt><dd>${esc(a.gripped_name ?? a.gripped ?? "—")}</dd>
-      <dt>elapsed</dt><dd>${fmtMin(a.elapsed_seconds)}${live && a.remaining_seconds !== null ? " · " + fmtMin(a.remaining_seconds) + " left" : ""}</dd>
-      <dt>sandbox</dt><dd>${esc(a.sandbox_id || "—")}</dd>
-      ${a.end_reason ? `<dt>end</dt><dd>${esc(a.end_reason)}</dd>` : ""}
-    </dl>
-    <div class="actions">
-      <button data-act="log" data-key="${esc(a.key)}">${logOpen ? "hide log" : "log"}</button>
-      ${live ? `<button class="danger" data-act="kill" data-key="${esc(a.key)}">kill</button>` : ""}
-    </div>
-    ${a.verifiable ? verdictRow(a) : ""}
-    ${logOpen ? `<pre class="log" id="log-${esc(a.key)}">loading…</pre>` : ""}
-  </section>`;
+function newTerm(el) {
+  const partial = document.createTextNode("");
+  el.appendChild(partial);
+  return { el, partial, cursor: null, size: null, count: 0, busy: false, done: false };
 }
 
-// Only on attempts the agent ended by itself (halt_granted / completed_no_stop). A run the harness
-// cut off at its step or time cap made no claim to be done, so there is nothing for a human to judge
-// — the server refuses those too, this is not the only gate.
-function verdictRow(a) {
-  const k = esc(a.key);
-  const on = v => (a.verified && Boolean(a.verified_success) === v) ? " on" : "";
-  return `<div class="verdict">
-    <button data-act="replay" data-key="${k}">▶ replay</button>
-    <button class="vote${on(true)}" data-act="verdict" data-success="true" data-key="${k}">✓ success</button>
-    <button class="vote${on(false)}" data-act="verdict" data-success="false" data-key="${k}">✗ fail</button>
-    ${a.verified ? `<button class="link" data-act="verdict-clear" data-key="${k}">clear</button>` : ""}
-    ${a.verified ? "" : `<span class="muted spacer">unreviewed</span>`}
+function termClear(term) {
+  term.el.textContent = "";
+  term.partial = document.createTextNode("");
+  term.el.appendChild(term.partial);
+  term.count = 0;
+}
+
+function termWrite(term, lines, partial) {
+  const el = term.el;
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLOP;
+
+  if (lines.length) {
+    el.insertBefore(document.createTextNode(lines.join("\n") + "\n"), term.partial);
+    term.count += lines.length;
+  }
+  // Trimming rewrites the whole node and so loses the scroll position; only ever do it for a reader
+  // who is following the tail anyway, and let the buffer overrun for one who is reading scrollback.
+  if (atBottom && term.count > TERM_BUFFER_LINES) {
+    const text = el.textContent;
+    const committed = text.slice(0, text.length - term.partial.nodeValue.length);
+    // Committed text always ends in a newline, so the last split element is the empty string after it.
+    const kept = committed.split("\n").slice(-TERM_BUFFER_LINES - 1);
+    termClear(term);
+    el.insertBefore(document.createTextNode(kept.join("\n")), term.partial);
+    term.count = kept.length - 1;
+  }
+
+  if (term.partial.nodeValue !== partial) term.partial.nodeValue = partial;
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+async function termPump(term, key, bootLines, expectedSize = null) {
+  if (term.busy || term.done || !key) return;
+  // /api/state already stats each log. Once bootstrapped, only ask for a delta when that stat
+  // changes. This keeps finished cards cheap without ever permanently disabling their terminal:
+  // orphan detection and runner finalization can race, and late traceback/cleanup output is valid.
+  if (term.cursor !== null && expectedSize !== null && term.size === expectedSize) return;
+  term.busy = true;
+  try {
+    const query = term.cursor === null ? `?lines=${bootLines}` : `?since=${term.cursor}`;
+    const data = await (await fetch(api(key, "log") + query)).json();
+    if (data.reset) termClear(term);
+    const lines = data.lines || [];
+    const partial = data.partial || "";
+    term.cursor = data.offset || 0;
+    term.size = Number.isFinite(data.size) ? data.size : null;
+    termWrite(term, lines, partial);
+  } catch {
+    // Left for the next tick; a dropped poll costs nothing because the cursor did not move.
+  } finally {
+    term.busy = false;
+  }
+}
+
+// -- cards -------------------------------------------------------------------------------
+
+const CARD_HTML = `
+  <div class="card-head">
+    <span class="title"></span>
+    <span data-ref="badges"></span>
+  </div>
+  <div class="prompt"></div>
+  <img class="frame" alt="latest frame" hidden>
+  <div class="frame none">no frame yet</div>
+  <pre class="term"></pre>
+  <div class="mismatch" hidden></div>
+  <div class="sig" hidden></div>
+  <dl class="rows">
+    <dt>leg</dt><dd data-ref="leg"></dd>
+    <dt>step</dt><dd data-ref="step"></dd>
+    <dt>action</dt><dd data-ref="action"></dd>
+    <dt>at</dt><dd data-ref="at"></dd>
+    <dt>held</dt><dd data-ref="held"></dd>
+    <dt>elapsed</dt><dd data-ref="elapsed"></dd>
+    <dt>sandbox</dt><dd data-ref="sandbox"></dd>
+    <dt data-ref="endLabel" hidden>end</dt><dd data-ref="end" hidden></dd>
+  </dl>
+  <div class="actions">
+    <button data-act="log">fullscreen log</button>
+    <button class="danger" data-act="kill" hidden>kill</button>
+  </div>
+  <div class="verdict" hidden>
+    <button data-act="replay">▶ replay</button>
+    <button class="vote" data-act="verdict" data-success="true">✓ success</button>
+    <button class="vote" data-act="verdict" data-success="false">✗ fail</button>
+    <button class="link" data-act="verdict-clear" hidden>clear</button>
+    <span class="muted spacer" data-ref="unreviewed">unreviewed</span>
   </div>`;
+
+function buildCard(a) {
+  const root = document.createElement("section");
+  root.className = "card";
+  root.dataset.key = a.key;
+  root.innerHTML = CARD_HTML;
+
+  const refs = {};
+  root.querySelectorAll("[data-ref]").forEach(el => { refs[el.dataset.ref] = el; });
+  refs.title = root.querySelector(".title");
+  refs.prompt = root.querySelector(".prompt");
+  refs.img = root.querySelector("img.frame");
+  refs.noFrame = root.querySelector(".frame.none");
+  refs.mismatch = root.querySelector(".mismatch");
+  refs.sig = root.querySelector(".sig");
+  refs.kill = root.querySelector('button[data-act="kill"]');
+  refs.verdict = root.querySelector(".verdict");
+  refs.clear = root.querySelector('button[data-act="verdict-clear"]');
+  refs.votes = root.querySelectorAll("button.vote");
+
+  // The delegated click handler reads the key off the button, and a key contains a "/" - which is
+  // exactly why none of this uses element ids.
+  root.querySelectorAll("button[data-act]").forEach(b => { b.dataset.key = a.key; });
+
+  return { key: a.key, root, refs, frame: null, blobUrl: null, term: newTerm(root.querySelector("pre.term")) };
+}
+
+function patchCard(entry, a) {
+  const { refs } = entry;
+  const live = isLive(a);
+  const lvl = (a.health && a.health.level) || "ok";
+
+  const cls = classOf(a);
+  if (entry.root.className !== cls) entry.root.className = cls;
+
+  setText(refs.title, `${a.prompt_id} · try ${a.attempt}`);
+  setHTML(refs.badges, `${verdictBadge(a)} ${statusBadge(a)}`);
+  setText(refs.prompt, a.prompt);
+
+  if (disagrees(a)) {
+    setText(refs.mismatch, `predicate: ${a.success ? "success" : "fail"} · human: ${a.verified_success ? "success" : "fail"}`);
+    refs.mismatch.hidden = false;
+  } else {
+    refs.mismatch.hidden = true;
+  }
+
+  const showSig = live && lvl !== "ok" && a.health.summary;
+  refs.sig.hidden = !showSig;
+  if (showSig) {
+    setText(refs.sig, a.health.summary);
+    refs.sig.className = "sig " + lvl;
+  }
+
+  setText(refs.leg, `${a.leg ?? "—"} ${a.leg_type || ""}`);
+  setText(refs.step, `${a.step || 0}${a.max_steps ? " / " + a.max_steps : ""} ${a.mode ? "· " + a.mode : ""}`);
+  setText(refs.action, JSON.stringify(a.actions ?? "—"));
+  setText(refs.at, `${a.near_cp ?? "—"}${a.blocked ? " · BLOCKED" : ""}`);
+  setText(refs.held, a.gripped_name ?? a.gripped ?? "—");
+  setText(refs.elapsed, fmtMin(a.elapsed_seconds)
+    + (live && a.remaining_seconds !== null ? " · " + fmtMin(a.remaining_seconds) + " left" : ""));
+  setText(refs.sandbox, a.sandbox_id || "—");
+  refs.endLabel.hidden = refs.end.hidden = !a.end_reason;
+  if (a.end_reason) setText(refs.end, a.end_reason);
+
+  refs.kill.hidden = !live;
+
+  // Only on attempts the agent ended by itself (halt_granted / completed_no_stop). A run the harness
+  // cut off at its step or time cap made no claim to be done, so there is nothing for a human to judge
+  // — the server refuses those too, this is not the only gate.
+  refs.verdict.hidden = !a.verifiable;
+  refs.clear.hidden = !a.verified;
+  refs.unreviewed.hidden = Boolean(a.verified);
+  refs.votes.forEach(b => {
+    b.classList.toggle("on", Boolean(a.verified && Boolean(a.verified_success) === (b.dataset.success === "true")));
+  });
+}
+
+// The frame path in /api/state changes only when a new stepNN.png lands, so it doubles as the cache
+// key: no request at all while the frame is unchanged, and when it does change the new PNG is fetched
+// and decoded off-screen before it is swapped in. The <img> element itself is never replaced, so
+// there is no moment where the browser has nothing to paint - which is what used to flash black.
+async function updateFrame(entry, a) {
+  if (!a.frame) {
+    entry.refs.img.hidden = true;
+    entry.refs.noFrame.hidden = false;
+    entry.frame = null;
+    return;
+  }
+  if (a.frame === entry.frame) return;
+  entry.frame = a.frame;
+  const want = a.frame;
+
+  let url;
+  try {
+    const res = await fetch(api(entry.key, "frame.png"));
+    if (!res.ok) throw new Error(res.status);
+    url = URL.createObjectURL(await res.blob());
+  } catch {
+    if (entry.frame === want) entry.frame = null;  // retry on the next tick
+    return;
+  }
+  // A slow fetch may land after a newer frame already won, or after the card was removed.
+  if (entry.frame !== want || !entry.root.isConnected) { URL.revokeObjectURL(url); return; }
+
+  const probe = new Image();
+  probe.src = url;
+  try { await probe.decode(); } catch { /* swap anyway; the <img> will do its own decode */ }
+  if (entry.frame !== want || !entry.root.isConnected) { URL.revokeObjectURL(url); return; }
+
+  const previous = entry.blobUrl;
+  entry.blobUrl = url;
+  entry.refs.img.src = url;
+  entry.refs.img.hidden = false;
+  entry.refs.noFrame.hidden = true;
+  if (previous) URL.revokeObjectURL(previous);
+}
+
+function dropCard(entry) {
+  if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
+  entry.root.remove();
+  cards.delete(entry.key);
 }
 
 async function refresh() {
@@ -212,14 +434,13 @@ async function refresh() {
     document.getElementById("updated").textContent = "disconnected";
     return;
   }
-  frameTick++;
 
   document.getElementById("battery").textContent = state.battery_id || "no battery";
   document.getElementById("mode").textContent = state.mode === "pinned" ? "pinned" : "auto-discover";
   const b = state.battery || {}, atts = state.attempts || [];
   latest = atts;
   const done = atts.filter(a => a.state === "finished").length;
-  const live = atts.filter(a => a.state === "starting" || a.state === "running").length;
+  const live = atts.filter(isLive).length;
   const c = state.counts || {};
   const review = c.verified
     ? ` · ${c.verified} reviewed (${c.verified_success || 0}✓/${c.verified_fail || 0}✗${c.disagree ? ", " + c.disagree + " disagree" : ""})`
@@ -234,18 +455,76 @@ async function refresh() {
   document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
 
   const grid = document.getElementById("grid");
-  grid.innerHTML = atts.length
-    ? atts.map(card).join("")
-    : `<div class="empty">${esc(state.error || "No attempts yet — waiting for the runner.")}</div>`;
+  const empty = document.getElementById("empty");
+  empty.hidden = atts.length > 0;
+  if (!atts.length) empty.textContent = state.error || "No attempts yet — waiting for the runner.";
 
-  openLogs.forEach(loadLog);
+  const seen = new Set();
+  for (const a of atts) {
+    seen.add(a.key);
+    let entry = cards.get(a.key);
+    if (!entry) {
+      entry = buildCard(a);
+      cards.set(a.key, entry);
+      grid.appendChild(entry.root);
+      lastOrder = "";  // force the reorder pass below to place the newcomer
+    }
+    patchCard(entry, a);
+    updateFrame(entry, a);
+    termPump(entry.term, a.key, INLINE_LOG_LINES, a.log_bytes ?? null);
+  }
+  for (const entry of [...cards.values()]) if (!seen.has(entry.key)) dropCard(entry);
+
+  reorder(grid, atts);
+  if (logModalKey) termPump(logModal, logModalKey, MODAL_LOG_LINES);
   if (modalKey) syncModal();
 }
 
+// The server ranks worst-first and that ranking moves, so cards have to move with it. Re-appending a
+// node can reset a scrollable descendant's scrollTop, so only the cards actually out of position are
+// touched and each one's terminal scroll is carried across its move.
+function reorder(grid, atts) {
+  const order = atts.map(a => a.key).join(" ");
+  if (order === lastOrder) return;
+  lastOrder = order;
+
+  let cursor = grid.firstChild;
+  for (const a of atts) {
+    const entry = cards.get(a.key);
+    if (!entry) continue;
+    if (entry.root === cursor) { cursor = cursor.nextSibling; continue; }
+    const top = entry.term.el.scrollTop;
+    grid.insertBefore(entry.root, cursor);
+    if (entry.term.el.scrollTop !== top) entry.term.el.scrollTop = top;
+  }
+}
+
+// -- fullscreen log ----------------------------------------------------------------------
+
+const logModal = newTerm(document.getElementById("log-modal-body"));
+
+function openLogModal(key) {
+  logModalKey = key;
+  termClear(logModal);
+  logModal.cursor = null;
+  logModal.size = null;
+  logModal.done = false;
+  const a = latest.find(x => x.key === key);
+  document.getElementById("log-modal-title").textContent = key;
+  document.getElementById("log-modal-sub").textContent = a ? (a.end_reason || a.state || "") : "";
+  document.getElementById("log-modal").classList.add("open");
+  termPump(logModal, key, MODAL_LOG_LINES);
+}
+
+function closeLogModal() {
+  logModalKey = null;
+  logModal.done = true;  // stop any pump already in flight from appending after the close
+  document.getElementById("log-modal").classList.remove("open");
+}
+
 // -- replay modal ------------------------------------------------------------------------
-// The grid is rebuilt from innerHTML every 2s, so a <video> living inside a card would be replaced
-// (and restart from 0:00) twice a second. This one element sits outside #grid and refresh() never
-// touches its src.
+// This <video> sits outside #grid so nothing in the render loop can reach it and restart playback
+// mid-review; refresh() never touches its src.
 
 function openModal(key) {
   modalKey = key;
@@ -293,13 +572,13 @@ async function pollReplay(key) {
   try {
     // A one-byte range, not a HEAD: the stdlib handler only implements GET and POST, and this way
     // the probe costs a byte instead of the whole clip.
-    res = await fetch(`/api/attempt/${encodeURI(key)}/replay.mp4`, { headers: { Range: "bytes=0-0" } });
+    res = await fetch(api(key, "replay.mp4"), { headers: { Range: "bytes=0-0" } });
   } catch { if (modalKey === key) note.textContent = "(disconnected)"; return; }
   if (modalKey !== key) return;
 
   if (res.status === 206 || res.status === 200) {
     if (!video.getAttribute("src")) {
-      video.src = `/api/attempt/${encodeURI(key)}/replay.mp4`;
+      video.src = api(key, "replay.mp4");
       video.style.display = "";
       note.style.display = "none";
     }
@@ -316,7 +595,7 @@ async function pollReplay(key) {
 }
 
 async function sendVerdict(key, success) {
-  const res = await fetch(`/api/attempt/${encodeURI(key)}/verdict`, {
+  const res = await fetch(api(key, "verdict"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ success }),
@@ -326,31 +605,17 @@ async function sendVerdict(key, success) {
   refresh();
 }
 
-async function loadLog(key) {
-  const el = document.getElementById("log-" + key);
-  if (!el) return;
-  try {
-    const data = await (await fetch(`/api/attempt/${encodeURI(key)}/log`)).json();
-    el.textContent = (data.lines || []).join("\n") || "(empty)";
-    el.scrollTop = el.scrollHeight;
-  } catch { el.textContent = "(unreadable)"; }
-}
-
 document.addEventListener("click", async ev => {
   if (ev.target.id === "modal") { closeModal(); return; }
+  if (ev.target.id === "log-modal") { closeLogModal(); return; }
   const button = ev.target.closest("button[data-act]");
   if (!button) return;
   const key = button.dataset.key;
   const act = button.dataset.act;
 
-  if (act === "log") {
-    openLogs.has(key) ? openLogs.delete(key) : openLogs.add(key);
-    refresh();
-    return;
-  }
-
+  if (act === "log") { openLogModal(key); return; }
+  if (act === "log-modal-close") { closeLogModal(); return; }
   if (act === "modal-close") { closeModal(); return; }
-
   if (act === "replay") { openModal(key); return; }
 
   // No confirm(): unlike a kill, a verdict is correctable — press the other button, or clear it.
@@ -361,7 +626,7 @@ document.addEventListener("click", async ev => {
   }
 
   if (act === "verdict-clear") {
-    await fetch(`/api/attempt/${encodeURI(key)}/verdict/clear`, { method: "POST" });
+    await fetch(api(key, "verdict/clear"), { method: "POST" });
     refresh();
     return;
   }
@@ -369,16 +634,20 @@ document.addEventListener("click", async ev => {
   if (act === "kill") {
     if (!confirm(`Kill ${key}?\n\nThe agent is terminated; the runner records the attempt and the coordinator resets and re-pools its sandbox.`)) return;
     button.disabled = true;
-    const res = await (await fetch(`/api/attempt/${encodeURI(key)}/kill`, { method: "POST" })).json();
+    const res = await (await fetch(api(key, "kill"), { method: "POST" })).json();
     if (!res.ok) alert("Kill failed: " + (res.error || "unknown"));
     refresh();
   }
 });
 
-document.addEventListener("keydown", ev => { if (ev.key === "Escape" && modalKey) closeModal(); });
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "Escape") return;
+  if (logModalKey) closeLogModal();
+  else if (modalKey) closeModal();
+});
 
 refresh();
-setInterval(refresh, 2000);
+setInterval(refresh, POLL_MS);
 </script>
 </body>
 </html>

@@ -99,7 +99,9 @@ def make_attempt(battery: Path, prompt_id: str, attempt: int, *, steps: list[dic
             else:
                 _real_png(frame, frame_size, index)
 
-    (run_dir / "agent.log").write_text("\n".join(f"log line {i}" for i in range(50)), encoding="utf-8")
+    # Newline-terminated, the way logging.FileHandler writes: the log endpoint treats an unterminated
+    # trailing line as one still being written.
+    (run_dir / "agent.log").write_text("".join(f"log line {i}\n" for i in range(50)), encoding="utf-8")
     return run_dir
 
 
@@ -244,6 +246,79 @@ def test_http_surface_and_traversal_refusal() -> None:
             server.shutdown()
             server.server_close()
         print("ok  HTTP serves state, frames and logs; traversal keys are refused")
+
+
+def test_log_cursor_appends_only_what_is_new() -> None:
+    """The dashboard terminal appends, so the endpoint must hand back deltas, not the tail again."""
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(2), pid=os.getpid())
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+        log = run_dir / "agent.log"
+
+        first = state.log_tail("p/try01", lines=5)
+        assert first["lines"] == [f"log line {i}" for i in range(45, 50)], first["lines"]
+        assert first["offset"] == log.stat().st_size
+        assert first["size"] == log.stat().st_size
+        assert first["partial"] == "" and first["reset"] is False
+
+        # Nothing written since: an empty delta, and the cursor stays put.
+        quiet = state.log_tail("p/try01", since=first["offset"])
+        assert quiet["lines"] == [] and quiet["offset"] == first["offset"]
+        assert quiet["size"] == first["size"]
+
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write("fresh line\n")
+        delta = state.log_tail("p/try01", since=first["offset"])
+        assert delta["lines"] == ["fresh line"], delta["lines"]
+        assert delta["size"] > first["size"]
+
+        # A half-written line is previewed but does not advance the cursor, so it is delivered once
+        # more - whole - when its newline lands, rather than arriving in two pieces.
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write("half a li")
+        mid = state.log_tail("p/try01", since=delta["offset"])
+        assert mid["lines"] == [] and mid["partial"] == "half a li", mid
+        assert mid["offset"] == delta["offset"]
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write("ne\n")
+        whole = state.log_tail("p/try01", since=mid["offset"])
+        assert whole["lines"] == ["half a line"] and whole["partial"] == "", whole
+
+        # Truncation (or rotation) puts the cursor past the end; the client is told to start over.
+        log.write_text("restarted\n", encoding="utf-8")
+        after = state.log_tail("p/try01", since=whole["offset"])
+        assert after["reset"] is True and after["lines"] == ["restarted"], after
+        print("ok  the log endpoint serves byte-cursor deltas, partial lines and truncation resets")
+
+
+def test_snapshot_exposes_log_size_for_change_driven_terminals() -> None:
+    """A tile must notice late output even after the attempt becomes orphaned or finished."""
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(2), pid=999_999_999)
+
+        first = scan.scan_battery(battery, time.time()).as_dict()["attempts"][0]
+        assert first["state"] == "orphaned"
+        assert first["log_bytes"] == (run_dir / "agent.log").stat().st_size
+
+        with (run_dir / "agent.log").open("a", encoding="utf-8") as handle:
+            handle.write("late runner cleanup\n")
+        second = scan.scan_battery(battery, time.time()).as_dict()["attempts"][0]
+        assert second["log_bytes"] > first["log_bytes"]
+        print("ok  snapshots expose late log growth after an orphan transition")
+
+
+def test_log_query_params_are_clamped() -> None:
+    from sari_bench.watch.server import LOG_MAX_LINES, _int_param
+
+    query = {"lines": ["9999"], "since": ["-4"], "junk": ["nope"]}
+    assert _int_param(query, "lines", 25, 1, LOG_MAX_LINES) == LOG_MAX_LINES
+    assert _int_param(query, "since", None, 0, None) == 0
+    assert _int_param(query, "junk", 7, 0, None) == 7, "unparseable values must fall back"
+    assert _int_param({}, "since", None, 0, None) is None, "absent means bootstrap, not zero"
+    print("ok  log query params are clamped and fall back safely")
 
 
 def test_report_and_kill_stamp() -> None:
@@ -731,6 +806,9 @@ def main() -> int:
     test_discovery_prefers_newest_and_honours_pin()
     test_rotated_requeue_dir_stays_separate()
     test_http_surface_and_traversal_refusal()
+    test_log_cursor_appends_only_what_is_new()
+    test_snapshot_exposes_log_size_for_change_driven_terminals()
+    test_log_query_params_are_clamped()
     test_report_and_kill_stamp()
     test_target_bitrate_math()
     test_every_finish_notifies_once()

@@ -42,11 +42,22 @@ def _status(argv: list[str]) -> int:
         print("No sandboxes registered.")
         return 0
 
-    print(f"{'SANDBOX':<34} {'ADDRESS':<24} {'STATE':<11} {'LEASE'}")
+    print(f"{'SANDBOX':<34} {'ADDRESS':<24} {'STATE':<11} {'LEASE':<34} RESET")
     for sandbox in pool:
         address = f"{sandbox['host']}:{sandbox['port']}"
         lease = sandbox.get("lease_id") or "-"
-        print(f"{sandbox['sandbox_id']:<34} {address:<24} {sandbox['state']:<11} {lease}")
+        reset = "-"
+        if sandbox.get("state") == "Resetting":
+            seconds = sandbox.get("reset_seconds")
+            reset = (
+                f"{seconds}s ({sandbox.get('reset_reason') or 'unknown'})"
+                if seconds is not None
+                else "quarantined/untracked"
+            )
+        print(
+            f"{sandbox['sandbox_id']:<34} {address:<24} {sandbox['state']:<11} "
+            f"{lease:<34} {reset}"
+        )
     return 0
 
 
