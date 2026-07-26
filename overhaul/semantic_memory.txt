@@ -1,132 +1,117 @@
 This semantic memory outlines the store's environment, rendered from the annotated checkpoint map (not hand-written). Positions are world coordinates; checkpoints are reachable standing positions.
 
 **Store contents by checkpoint** (what is visible standing at each):
-15. Checkpoint 15 (unclassified): 
-16. Checkpoint 16 (unclassified): 
-17. Checkpoint 17 (unclassified): 
-18. Checkpoint 18 (unclassified): 
-19. Checkpoint 19 (unclassified): 
-20. Checkpoint 20 (unclassified): 
-21. Checkpoint 21 (unclassified): 
-22. Checkpoint 22 (unclassified): 
-23. Checkpoint 23 (unclassified): 
-24. Checkpoint 24 (unclassified): 
-25. Checkpoint 25 (unclassified): 
-26. Checkpoint 26 (unclassified): 
-27. Checkpoint 27 (unclassified): 
-28. Checkpoint 28 (unclassified): 
-29. Checkpoint 29 (unclassified): 
-30. Checkpoint 30 (unclassified): 
-31. Checkpoint 31 (unclassified): 
-32. Checkpoint 32 (unclassified): 
-33. Checkpoint 33 (unclassified): 
-34. Checkpoint 34 (unclassified): 
-35. Checkpoint 35 (unclassified): 
-36. Checkpoint 36 (unclassified): 
-37. Checkpoint 37 (unclassified): 
-38. Checkpoint 38 (unclassified): 
-39. Checkpoint 39 (unclassified): 
-40. Checkpoint 40 (unclassified): 
-41. Checkpoint 41 (unclassified): 
-42. Checkpoint 42 (unclassified): 
-43. Checkpoint 43 (unclassified): 
-44. Checkpoint 44 (unclassified): 
-45. Checkpoint 45 (unclassified): 
-46. Checkpoint 46 (unclassified): 
-47. Checkpoint 47 (unclassified): 
-48. Checkpoint 48 (unclassified): 
-49. Checkpoint 49 (unclassified): 
-50. Checkpoint 50 (unclassified): 
-51. Checkpoint 51 (unclassified): 
-52. Checkpoint 52 (unclassified): 
-53. Checkpoint 53 (unclassified): 
-54. Checkpoint 54 (COUNTER / drop-off): This checkpoint is a self-checkout station: a kiosk with a screen displaying a "Welcome to Self Checkout!" prompt and green "Start" button, a barcode scanner unit, and a flat bagging/tray surface, positioned against a plain wall corner.
+18. Checkpoint 18 (Water): This checkpoint faces a glass-doored refrigerated case stocked entirely with bottled water (Pocari Sweat, Nature's Spring, Wilkins Pure, Absolute, Le Mineral, Summit, and Refresh brands), arranged across three shelves with price tags along each shelf edge. A separate glass-doored cooler holding sodas (Coke, Sprite, Pepsi) is visible at the right edge of frame but is a different fixture.
+19. Checkpoint 19 (Water): This checkpoint faces a glass-door refrigerated case stocked entirely with bottled water of many brands (Nature's Spring, Pocari Sweat, Re Fresh, pure, Le Mineral, Absolute, Summit, W), arranged across four shelves with individual price tags on the shelf edges. A blank illuminated sign panel sits above the case but shows no text.
+20. Checkpoint 20 (Can, Chips): This checkpoint faces a double-sided center end-cap fixture: the right face holds stacked canned goods (sardines, corn, and similar canned items) while the left face holds hanging bagged snack items. A wall clock and a partially visible overhead sign reading 'Canne...' (likely Canned Goods) are visible, with additional soup/noodle shelving visible at the edges of view to either side.
+21. Checkpoint 21 (Chips, Noodles): This checkpoint faces a snack shelf stocked mainly with potato and corn chip bags (Vcut, Criss Cross, Clover Chips, Tostitos, Calbee, Pik-Nik) on the lower two shelves, with instant noodle pouches and cup noodles (Jin Ramen, Lucky Me! Pancit Canton, Indomie) along the top shelf. No aisle signage or other navigational landmarks are visible from this spot.
+22. Checkpoint 22 (Water, Soda): This checkpoint faces two glass-door refrigerated cases side by side: the left case is stocked with bottled water (Nature's Spring, Pure W, Wilkins, Summit, Nature Fresh) across multiple shelves, while the right case holds sodas and juices (Coca-Cola, Sprite, Pepsi, Mountain Dew, Royal, Dalandan, Cobra energy drink). Both units have price tags along each shelf edge and a blank sign panel above the left case.
+23. Checkpoint 23 (Soda, Water): This checkpoint faces a row of glass-door refrigerated beverage cases stocked with bottled sodas (Coca-Cola, Sprite, RC Cola, Royal, Pepsi, Cobra, Milkis) and bottled water, with a neighboring cooler visible at the edge holding cartons of plant milk (Oatside) and dairy drinks (Daily Quezo). A tan wall section separates this fridge run from the adjacent cooler.
+24. Checkpoint 24 (Chips): This checkpoint faces a tall shelf stocked entirely with bagged and canned chip snacks (Nik, Lesli's, Oishi, Jack 'n Jill, Pringles, Calbee, and others), with dense rows of variously flavored chip bags from top to bottom. Overhead hanging signs read 'Chips / Canned Food' and 'Noodles / Chips', and a self-checkout kiosk with a counter is visible in the open area ahead, alongside another chip/noodle shelf further along the wall.
+28. Checkpoint 28 (Can, Chips): This checkpoint faces a double-sided end-cap shelf stocked with canned goods on one face and bagged snack/chip products on the other, with a glass-door refrigerated case visible beyond it and additional shelving units of packaged goods further back near the wall.
+31. Checkpoint 31 (Biscuit, other): A tall biscuit and snack-cake shelf run stocked mainly with cookies, wafers, sticks, and a few boxed breakfast cereals (Kellogg's, Nestle), with a smaller snack-food end-cap visible off to the left along a side wall.
+32. Checkpoint 32 (Biscuit, other): This shelf fixture is stocked mainly with packaged biscuits, wafers, cookies, and chocolate-coated snacks (brands like Hello Panda, Pocky, Schogetten, Richoco, Fita, Danisa, Mamon), with a few breakfast cereal boxes (Koko Krunch, Coco Pops, Gold Corn Flakes) mixed in on the lower shelves. An overhead aisle sign reading '2 / Chips / Canned' is visible above the fixture.
+33. Checkpoint 33 (Biscuit, other): This shelf holds a mix of packaged snack foods and breakfast cereals - cookies, biscuit sticks, crackers, and cereal boxes from brands like Nestle, Kellogg's, Lotte, and Glico. An aisle sign labeled 'Aisle 2 - Chips / Canned...' hangs to the left, and the shelf run ends here opening onto an open floor area beside a plain wall.
+34. Checkpoint 34 (Biscuit): This checkpoint faces the end of a biscuit/cookie shelf stocked with Danish butter cookie tins, RITZ cracker boxes, and various wafer-stick snacks. From here, an open floor area leads toward low shelving units holding chips and canned goods, with a canned-goods aisle visible to the right and overhead aisle signs marking numbered sections (1: Chips, 2: Chips/Canned Food, 3: Water/Soda, Dairies, Soup).
+42. Checkpoint 42 (Biscuit, Can): This checkpoint faces the end of a shelf aisle stocked with biscuits, cookies, and snack crackers (Mamon, Pocky, Ube Filled Crackers) alongside canned goods on an adjacent run of shelving to the left. An aisle number sign reading "2" hangs from the ceiling near the shelf's near end, and open floor space stretches out to the right beyond the shelf's end.
+43. Checkpoint 43 (Noodles): This checkpoint faces an instant-noodle shelf stocked with Lucky Me! Pancit Canton, Indomie Mi Goreng packs, Jin Ramen (Ottogi) bags, and Nissin Cup Noodles cups arranged across three shelf levels, each with its own price tag on the shelf edge.
+44. Checkpoint 44 (Chips, Biscuit): A snack-food shelving unit stocked with bagged and canned chips, crackers, and pretzel-style snacks from brands like Oishi, Jack'n Jill/Chippy, Pringles, Piknik, Leslie's, Calbee, and Kamayong King, arranged across four shelf levels.
+45. Checkpoint 45 (Soup): This checkpoint faces a dry-goods shelf stocked with instant soup and porridge mixes - Maya Champorado, Ajinomoto Soup&Go cups, and White King Champ-O-Rado boxes arranged in rows with price tags along the shelf edge. A separate glass-fronted refrigerated dairy case (milk, yogurt drinks, cheese) is visible on the left side of the frame, across a gap from this shelf.
+46. Checkpoint 46 (Soda, Dairies): This checkpoint faces two adjoining glass-door refrigerated cases separated by a support pillar: the left case holds bottled sodas and soft drinks, while the right case holds milk and dairy-based beverages/cartons.
+47. Checkpoint 47 (Dairies, Soup): This checkpoint sits at a corner where a glass-door dairy refrigerator meets a dry-goods shelf stocked with instant soup and porridge mixes; a blank overhead sign panel is visible above the fridge.
+48. Checkpoint 48 (Soup, other): A shelf stocked entirely with instant breakfast porridge and soup-mix boxes - Aji brand 'Champorado' chocolate rice porridge and 'Soup & Go' cups, and White King 'Champ-O-Rado' boxes - arranged across three shelf levels against a plain wall.
+50. Checkpoint 50 (Chips, Biscuit): This checkpoint faces a tall multi-tier shelving unit stocked with bagged and canned snack chips - prawn crackers, potato chips, pretzel twists, cheese curls/rings, and choco-filled pillow crackers from brands like Oishi, Pringles, Jack 'n Jill, Pik-Nik, Bangkok King, Leslie's, Chipsy, Loaded!, and Criss Cross. A red-bordered aisle sign is visible on the ceiling in the background but its text is not legible from here.
+51. Checkpoint 51 (Chips, Biscuit): This checkpoint faces a multi-tier metal shelving unit stocked entirely with bagged and canned chips, crackers, and savory snacks (Pringles, Pik-Nik, Oishi, Leslie's Clover Chips, Piattos, Vcut, and similar brands). A hanging overhead sign reading "Chips / Canned Food" is visible to the upper right, and the shelf ends against a tan-colored wall on the left.
+52. Checkpoint 52 (Chips, Noodles): This shelf holds a mix of instant noodle products (Pancit Canton, Jin Ramen, Indomie cup and packet noodles) on its upper level and bagged/canned potato and corn chip snacks (Piattos, Criss Cross, Pringles, Chipsy, Cheezy, Mr. Chips, Pretzel Twists) on its middle level, with an identical duplicate noodle display on a low front table. Another shelving unit is visible at the right edge of the frame.
+53. Checkpoint 53 (Biscuit): This checkpoint faces a shelf stocked with biscuits, crackers, and wafer-style snacks, including a visible RITZ cracker box. Overhead aisle signs read '1' (partially obscured), '2: Chips / Canned Food', and '3: Water/Soda / Dairies / Soup', with additional snack and canned-goods shelving visible across the open floor ahead.
+56. Checkpoint 56 (Biscuit, other): This checkpoint faces a shelf stocked with imported cookies, biscuits, wafer sticks, and a few cereal boxes (brands like Danisa, Pocky, Pepero, Hello Panda, Kellogg's, and Nestle). A 'Chips' aisle sign for aisle 1 is visible at the upper right edge of the frame.
+57. Checkpoint 57 (Biscuit, other): This checkpoint faces a multi-tier shelf stocked mainly with packaged biscuits, wafers, cookies, crackers, and chocolate-coated sticks (Pocky, Pepero, Hello Panda, Danisa, Richoco), along with some boxed cereals (Kellogg's, Nestlé Honey Stars). An overhead aisle sign reading 'Chips' is visible in the distance but does not label this particular shelf.
+58. Checkpoint 58 (Biscuit): This checkpoint faces a metal shelving unit stocked with packaged snack biscuits and cookies (Pepero, Pocky, Hello Panda, Danisa, Frootees, Kellogg's cereal-branded snacks, Schogetten chocolate, and similar boxed treats), with a hanging aisle sign reading "Chips" visible above. A self-checkout kiosk and counter stand to the right of the shelf, on open floor.
+59. Checkpoint 59 (Can): This checkpoint faces a canned goods shelf stocked densely with corned beef, tuna, sardines, meat loaf, mushrooms, and squid cans (brands like Argentina, 555, San Marino, CDO, Century, Ligo, Mega, Bongga). The shelf sits at the end of an aisle where a tan-colored wall corner is visible open to the right, suggesting this is near a store corner with no through-passage in that direction.
+60. Checkpoint 60 (Can): This checkpoint faces a tall canned-goods shelf stocked with Filipino canned meats and seafood - tuna, sardines, corned beef, squid, mackerel, vienna sausage, mushrooms and similar canned products from brands like 555, San Marino, Bingo, Argentina, Mega, Star, CDO, Uni-Pak and Lucky 7. Rows of shelf-edge price tags run beneath each product row, and no aisle signage or other navigational landmarks are visible from this spot.
+61. Checkpoint 61 (Can): This checkpoint faces a tall metal shelving unit stocked entirely with canned goods - corned beef, meat loaf, sardines, tuna, vienna sausage, and squid from brands like Century Tuna, CDO, Ligo, 555, Star, and Argentina. To the left, two glass-door refrigerated cases holding bottled water and soda/soft drinks are visible in the background. An overhead aisle sign reading 'Water/Soda, Dairies, Soup' with the number 3 hangs above, though it does not describe this particular canned-goods shelf.
+62. Checkpoint 62 (Chips, Noodles): This checkpoint faces a shelving unit stocked with a mix of potato/corn chip snacks on the upper shelves and instant noodle products (Pancit Canton, Jin Ramen, cup noodles) on the middle and lower shelves; a second, similarly stocked shelf unit is visible further away across an open gap in the wall.
+63. Checkpoint 63 (Chips, Noodles): This shelving unit holds a mix of bagged snack chips (puffs, potato chips, corn chips, pretzels) on the upper and middle shelves and instant noodle products (pancit canton, ramen, cup noodles) on the lower and floor-level shelves, with a similar shelving unit visible to the left.
+64. Checkpoint 64 (COUNTER / drop-off): This checkpoint is at a self-checkout station, positioned against a corner wall. A checkout terminal with a screen displaying a welcome/start prompt and a barcode scanner unit is visible in front of the agent, with a countertop surface below it.
 
 **Connectivity** (which checkpoints link to which - use for rough routing):
-- Checkpoint 15 connects to: 16, 0
-- Checkpoint 16 connects to: 15, 1
-- Checkpoint 17 connects to: 0, 10, 18
-- Checkpoint 18 connects to: 0, 10, 17
-- Checkpoint 19 connects to: 20, 0
-- Checkpoint 20 connects to: 19, 8, 21
-- Checkpoint 21 connects to: 0, 8, 20
-- Checkpoint 22 connects to: 23, 2
-- Checkpoint 23 connects to: 22, 24, 25
-- Checkpoint 24 connects to: 23, 7
-- Checkpoint 25 connects to: 2, 7, 23
-- Checkpoint 26 connects to: 27, 2, 30
-- Checkpoint 27 connects to: 26, 5, 31
-- Checkpoint 28 connects to: 29, 2
-- Checkpoint 29 connects to: 28, 30
-- Checkpoint 30 connects to: 29, 31, 26
-- Checkpoint 31 connects to: 30, 5, 27
-- Checkpoint 32 connects to: 3, 6, 54
-- Checkpoint 33 connects to: 34, 4, 37
-- Checkpoint 34 connects to: 33, 35, 38
-- Checkpoint 35 connects to: 34, 7, 39
-- Checkpoint 36 connects to: 37, 4
-- Checkpoint 37 connects to: 36, 38, 33
-- Checkpoint 38 connects to: 37, 39, 34
-- Checkpoint 39 connects to: 38, 40, 35
-- Checkpoint 40 connects to: 39, 41
-- Checkpoint 41 connects to: 40, 7
-- Checkpoint 42 connects to: 5, 8, 43
-- Checkpoint 43 connects to: 44, 5, 42
-- Checkpoint 44 connects to: 43, 8
-- Checkpoint 45 connects to: 6, 9
-- Checkpoint 46 connects to: 47, 7, 49
-- Checkpoint 47 connects to: 46, 48, 50
-- Checkpoint 48 connects to: 47, 9, 51
-- Checkpoint 49 connects to: 50, 7, 46
-- Checkpoint 50 connects to: 49, 51, 47
-- Checkpoint 51 connects to: 50, 9, 48
-- Checkpoint 52 connects to: 53, 9
-- Checkpoint 53 connects to: 52, 10
-- Checkpoint 54 connects to: 32
+- Checkpoint 18 connects to: 19, 0
+- Checkpoint 19 connects to: 18, 1
+- Checkpoint 20 connects to: 0, 10, 21
+- Checkpoint 21 connects to: 0, 10, 20
+- Checkpoint 22 connects to: 23, 0
+- Checkpoint 23 connects to: 22, 9, 24
+- Checkpoint 24 connects to: 0, 9, 23
+- Checkpoint 28 connects to: 2, 8, 26
+- Checkpoint 31 connects to: 32, 3, 36
+- Checkpoint 32 connects to: 31, 33, 37
+- Checkpoint 33 connects to: 32, 34, 38
+- Checkpoint 34 connects to: 33, 7, 40
+- Checkpoint 42 connects to: 3, 4
+- Checkpoint 43 connects to: 4, 6
+- Checkpoint 44 connects to: 5, 9, 45
+- Checkpoint 45 connects to: 46, 5, 44
+- Checkpoint 46 connects to: 45, 9
+- Checkpoint 47 connects to: 48, 5, 50
+- Checkpoint 48 connects to: 47, 49, 51
+- Checkpoint 50 connects to: 51, 5, 47
+- Checkpoint 51 connects to: 50, 13, 48
+- Checkpoint 52 connects to: 6, 11
+- Checkpoint 53 connects to: 7, 8, 54
+- Checkpoint 56 connects to: 57, 8, 59
+- Checkpoint 57 connects to: 56, 58, 60
+- Checkpoint 58 connects to: 57, 11, 61
+- Checkpoint 59 connects to: 60, 8, 56
+- Checkpoint 60 connects to: 59, 61, 57
+- Checkpoint 61 connects to: 60, 11, 58
+- Checkpoint 62 connects to: 63, 10
+- Checkpoint 63 connects to: 62, 11
+- Checkpoint 64 connects to: 35
 
 **Fast Tracking** (use this to guide you quickly to the target object):
-- Checkpoint 15 (?) has the target position -> translation: (-4.35, 1.36, 4.55), rotation: (0.0, 11.3, 0.0)
-- Checkpoint 16 (?) has the target position -> translation: (-4.85, 1.36, 4.55), rotation: (0.0, 16.7, 0.0)
-- Checkpoint 17 (?) has the target position -> translation: (-3.05, 1.36, 2.65), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 18 (?) has the target position -> translation: (-4.55, 1.36, 2.65), rotation: (0.0, 270.0, 0.0)
-- Checkpoint 19 (?) has the target position -> translation: (-3.75, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
-- Checkpoint 20 (?) has the target position -> translation: (-2.45, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
-- Checkpoint 21 (?) has the target position -> translation: (-2.25, 1.36, 3.85), rotation: (0.0, 168.7, 0.0)
-- Checkpoint 22 (?) has the target position -> translation: (4.95, 1.36, 3.95), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 23 (?) has the target position -> translation: (4.95, 1.36, 2.15), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 24 (?) has the target position -> translation: (4.95, 1.36, 0.35), rotation: (0.0, 90.0, 0.0)
-- Checkpoint 25 (?) has the target position -> translation: (3.05, 1.36, 2.15), rotation: (0.0, 270.0, 0.0)
-- Checkpoint 26 (?) has the target position -> translation: (0.75, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 27 (?) has the target position -> translation: (-0.65, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 28 (?) has the target position -> translation: (3.55, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 29 (?) has the target position -> translation: (2.15, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 30 (?) has the target position -> translation: (0.75, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 31 (?) has the target position -> translation: (-0.65, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 32 (?) has the target position -> translation: (-4.55, 1.36, -2.55), rotation: (0.0, 270.0, 0.0)
-- Checkpoint 33 (?) has the target position -> translation: (-1.55, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 34 (?) has the target position -> translation: (0.25, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 35 (?) has the target position -> translation: (2.05, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 36 (?) has the target position -> translation: (-3.25, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 37 (?) has the target position -> translation: (-1.55, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 38 (?) has the target position -> translation: (0.25, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 39 (?) has the target position -> translation: (2.05, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 40 (?) has the target position -> translation: (3.75, 1.36, -4.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 41 (?) has the target position -> translation: (4.95, 1.36, 0.15), rotation: (0.0, 95.7, 0.0)
-- Checkpoint 42 (?) has the target position -> translation: (-0.85, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 43 (?) has the target position -> translation: (-0.85, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 44 (?) has the target position -> translation: (-2.15, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 45 (?) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 275.7, 0.0)
-- Checkpoint 46 (?) has the target position -> translation: (1.95, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 47 (?) has the target position -> translation: (0.05, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 48 (?) has the target position -> translation: (-1.75, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
-- Checkpoint 49 (?) has the target position -> translation: (1.95, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 50 (?) has the target position -> translation: (0.05, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 51 (?) has the target position -> translation: (-1.75, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
-- Checkpoint 52 (?) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 264.3, 0.0)
-- Checkpoint 53 (?) has the target position -> translation: (-4.65, 1.36, 1.15), rotation: (0.0, 264.3, 0.0)
-- Checkpoint 54 (counter) has the target position -> translation: (-4.45, 1.36, -3.55), rotation: (0.0, 212.0, 0.0)
+- Checkpoint 18 (Water) has the target position -> translation: (-4.45, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 19 (Water) has the target position -> translation: (-4.75, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 20 (Can, Chips) has the target position -> translation: (-3.05, 1.36, 2.65), rotation: (0.0, 90.0, 0.0)
+- Checkpoint 21 (Chips, Noodles) has the target position -> translation: (-4.55, 1.36, 2.65), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 22 (Water, Soda) has the target position -> translation: (-3.75, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
+- Checkpoint 23 (Soda, Water) has the target position -> translation: (-2.45, 1.36, 4.55), rotation: (0.0, 348.7, 0.0)
+- Checkpoint 24 (Chips) has the target position -> translation: (-2.25, 1.36, 3.85), rotation: (0.0, 168.7, 0.0)
+- Checkpoint 28 (Can, Chips) has the target position -> translation: (3.05, 1.36, 2.15), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 31 (Biscuit, other) has the target position -> translation: (-1.45, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 32 (Biscuit, other) has the target position -> translation: (0.25, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 33 (Biscuit, other) has the target position -> translation: (1.95, 1.36, -3.45), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 34 (Biscuit) has the target position -> translation: (2.95, 1.36, -1.75), rotation: (0.0, 275.7, 0.0)
+- Checkpoint 42 (Biscuit, Can) has the target position -> translation: (-2.85, 1.36, -2.65), rotation: (0.0, 78.7, 0.0)
+- Checkpoint 43 (Noodles) has the target position -> translation: (-4.55, 1.36, -2.55), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 44 (Chips, Biscuit) has the target position -> translation: (-0.75, 1.36, 3.95), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 45 (Soup) has the target position -> translation: (-0.75, 1.36, 4.95), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 46 (Soda, Dairies) has the target position -> translation: (-2.15, 1.36, 4.55), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 47 (Dairies, Soup) has the target position -> translation: (-0.55, 1.36, 4.95), rotation: (0.0, 354.3, 0.0)
+- Checkpoint 48 (Soup, other) has the target position -> translation: (0.95, 1.36, 4.55), rotation: (0.0, 354.3, 0.0)
+- Checkpoint 50 (Chips, Biscuit) has the target position -> translation: (-0.55, 1.36, 3.95), rotation: (0.0, 174.3, 0.0)
+- Checkpoint 51 (Chips, Biscuit) has the target position -> translation: (0.95, 1.36, 3.95), rotation: (0.0, 174.3, 0.0)
+- Checkpoint 52 (Chips, Noodles) has the target position -> translation: (-4.55, 1.36, 0.35), rotation: (0.0, 275.7, 0.0)
+- Checkpoint 53 (Biscuit) has the target position -> translation: (2.95, 1.36, -1.65), rotation: (0.0, 270.0, 0.0)
+- Checkpoint 56 (Biscuit, other) has the target position -> translation: (1.95, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 57 (Biscuit, other) has the target position -> translation: (0.05, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 58 (Biscuit) has the target position -> translation: (-1.75, 1.36, -0.55), rotation: (0.0, 180.0, 0.0)
+- Checkpoint 59 (Can) has the target position -> translation: (1.95, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 60 (Can) has the target position -> translation: (0.05, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 61 (Can) has the target position -> translation: (-1.75, 1.36, 1.05), rotation: (0.0, 0.0, 0.0)
+- Checkpoint 62 (Chips, Noodles) has the target position -> translation: (-4.65, 1.36, 1.15), rotation: (0.0, 264.3, 0.0)
+- Checkpoint 63 (Chips, Noodles) has the target position -> translation: (-4.55, 1.36, 0.25), rotation: (0.0, 264.3, 0.0)
+- Checkpoint 64 (counter) has the target position -> translation: (-3.85, 1.36, -5.05), rotation: (0.0, 241.9, 0.0)
 
-@ timestep 1: Champ-o-Rado is a snack product located on the shelves in the 'Chips / Canned Food' aisle (Aisle 3). The store layout includes aisles for noodles on the left and canned goods on the right, with refrigerated units at the back.
-@ timestep 2: The Champ-o-Rado boxes are yellow with a black bowl image, located on the middle and top shelves of the aisle. The agent is currently standing at Checkpoint 30, directly facing the shelf with the target item.
-@ timestep 3: The Champ-o-Rado boxes are yellow with a black bowl image, located on the middle and top shelves of the aisle. The agent is currently standing at Checkpoint 30, directly facing the shelf with the target item.
-@ timestep 4: The Champ-o-Rado box is a yellow package with a black bowl image, located on the middle shelf of the aisle at Checkpoint 30. The agent is currently standing directly in front of the shelf, having successfully centered the target item on screen.
+@ leg 1 step 1: I am currently at Checkpoint 34 (Biscuit), facing a shelf stocked with RITZ crackers and wafer sticks. The goal is to pick up chips, which are located at nearby checkpoints such as 24, 50, 51, 52, 62, or 63.
+@ leg 1 step 2: At Checkpoint 28, the double-sided end-cap shelf has bagged chips (orange packaging) on the right face and canned goods on the left face. The chips are on the middle shelf level.
+@ leg 1 step 3: At Checkpoint 28, the double-sided end-cap shelf holds bagged chips on the right face and canned goods on the left. The chips are located on the middle shelf level.
+@ leg 1 step 4: At Checkpoint 53, the view looks down an aisle with biscuit shelves on the left and canned goods on the right. The target chips are located at nearby Checkpoints 50, 51, or 52, which are connected via Checkpoint 47 or 48.
+@ leg 1 step 5: I am currently at Checkpoint 33, facing a shelf stocked with biscuits and cereals (Nestle Honey Stars, Pocky). The overhead sign indicates 'Chips / Canned Food' is nearby, but this specific shelf does not contain chips. I need to navigate to a checkpoint explicitly labeled with chips, such as 50, 51, 52, 62, or 63.
+@ leg 1 step 6: From Checkpoint 53, the aisle to the left (Aisle 1) is marked with a 'Chips' sign. The shelf end-cap on the immediate left holds red boxes, but the main chip bags are likely further down that aisle or on the adjacent shelves.
+@ leg 1 step 7: At Checkpoint 53, the view shows Aisle 1 (Chips) to the left and Aisle 3 (Canned Food) to the right. The immediate shelf on the left holds red boxes, but the target chips are likely on the shelves further down Aisle 1 or at Checkpoint 24.
+@ leg 1 step 8: At Checkpoint 53, Aisle 1 (Chips) is directly to the left. The shelf end-cap holds red boxes, but the main chip bags are on the shelves further down the aisle or at adjacent chip checkpoints like 24 or 50.
+@ leg 1 step 9: The agent is currently facing a tan wall at Checkpoint 12, which is not a valid location for chips. The nearest chip locations are Checkpoints 20, 21, 24, 28, 44, 50, 51, 52, 62, and 63.
+@ leg 1 step 10: From Checkpoint 42, the view looks down an aisle with a shelf stocked with biscuits and canned goods on the left. The path ahead is clear and leads toward the open floor area where chip shelves are located.
+@ leg 1 step 11: From the current position near the self-checkout (Checkpoint 64), the view looks down an aisle with a long shelf stocked with various snacks on the left and a plain wall on the right. The overhead sign indicates Aisle 1 is for Chips. The target chips are likely on the shelves to the left.
+@ leg 1 step 1: I am at Checkpoint 44, facing a shelf stocked with various chips including Oishi Prawn Crackers, Potato Fries, and Cheese Rings. The target chips are clearly visible on the middle shelves.
+@ leg 1 step 2: At Checkpoint 44, the 'Potato Fries' bag is on the middle shelf, directly accessible. The previous centering attempt was successful, aligning the target for a grab.
