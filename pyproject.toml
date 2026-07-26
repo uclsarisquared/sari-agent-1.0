@@ -66,13 +66,13 @@ watch = "python -m sari_bench watch"
 coordinator = "python -m sari_bench coordinator --port 9000"
 dbench = { cmd = """
     python -m sari_bench run
-        --prompts sari_bench/prompts/sari_bench_v2_prompts.json
+        --prompts sari_bench/prompts/easy_prompts.json
         --tries 5
         --time-limit 120
         --per-leg-minutes 40
-        --concurrency 20
+        --concurrency 10 
         --coordinator ws://127.0.0.1:9000
+        --sandbox-startup-timeout 30
         --arm graph
         --map-dir overhaul/slamtest/output_runs/run_0724_164652
 """ }
-

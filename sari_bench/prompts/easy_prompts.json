@@ -1,0 +1,142 @@
+{
+  "prompts": [
+    {
+      "id": "easy_01",
+      "family": "pickup",
+      "prompt": "Find and pick up Ritz Crackers",
+      "looking_for": "a pack of Ritz Crackers held in either hand"
+    },
+    {
+      "id": "easy_02",
+      "family": "pickup",
+      "prompt": "Find and pick up any chips",
+      "looking_for": "any chips product held in either hand"
+    },
+    {
+      "id": "easy_03",
+      "family": "pickup",
+      "prompt": "Go to Aisle 2 and pick up noodles",
+      "looking_for": "agent navigated to Aisle 2 and a noodle product held in either hand"
+    },
+    {
+      "id": "easy_04",
+      "family": "attribute",
+      "prompt": "Find strawberry-flavored Pocky",
+      "looking_for": "strawberry-flavored Pocky held in either hand"
+    },
+    {
+      "id": "easy_05",
+      "family": "attribute",
+      "prompt": "Find a product from Meiji",
+      "looking_for": "a product manufactured by Meiji held in either hand"
+    },
+    {
+      "id": "easy_06",
+      "family": "attribute",
+      "prompt": "Get a Nestle cereal box",
+      "looking_for": "a cereal box from Nestle held in either hand"
+    },
+    {
+      "id": "easy_07",
+      "family": "reasoning",
+      "prompt": "Get a can of food that is good for breakfast.",
+      "looking_for": "a canned food item suitable for breakfast held in either hand"
+    },
+    {
+      "id": "easy_08",
+      "family": "counting",
+      "prompt": "Get 2 noodle products.",
+      "looking_for": "two distinct noodle products held by the agent"
+    },
+    {
+      "id": "easy_09",
+      "family": "attribute",
+      "prompt": "Get crackers in a wrapper, not a box.",
+      "looking_for": "a wrapped (not boxed) crackers product held in either hand"
+    },
+    {
+      "id": "easy_10",
+      "family": "attribute",
+      "prompt": "Get something that is not chocolate but is a soup.",
+      "looking_for": "a non-chocolate soup product held in either hand"
+    },
+    {
+      "id": "easy_11",
+      "family": "attribute",
+      "prompt": "Get green colored chips.",
+      "looking_for": "a green-colored chips product held in either hand"
+    },
+    {
+      "id": "easy_12",
+      "family": "attribute",
+      "prompt": "Get yellow Pringles.",
+      "looking_for": "a yellow Pringles can held in either hand"
+    },
+    {
+      "id": "easy_13",
+      "family": "attribute",
+      "prompt": "Get an item that weighs more than 100 grams",
+      "looking_for": "an item weighing more than 100 grams held in either hand"
+    },
+    {
+      "id": "easy_14",
+      "family": "attribute",
+      "prompt": "Get crackers but not from Glico",
+      "looking_for": "a crackers product not manufactured by Glico held in either hand"
+    },
+    {
+      "id": "easy_15",
+      "family": "attribute",
+      "prompt": "Find chips that cost less than 30 php.",
+      "looking_for": "a chips product priced under 30 php held in either hand"
+    },
+    {
+      "id": "easy_16",
+      "family": "attribute",
+      "prompt": "Find a noodle product that is priced between 10 php and 20 php",
+      "looking_for": "a noodle product priced between 10 and 20 php held in either hand"
+    },
+    {
+      "id": "easy_17",
+      "family": "attribute",
+      "prompt": "Find a product with cheese.",
+      "looking_for": "a cheese-flavored or cheese-containing product held in either hand"
+    },
+    {
+      "id": "easy_18",
+      "family": "pickup",
+      "prompt": "Find Clover Chips. If you see one in the bottom shelf, pick that one.",
+      "looking_for": "Clover Chips held in either hand, taken from the bottom shelf if one was present there"
+    },
+    {
+      "id": "easy_19",
+      "family": "navigate",
+      "prompt": "Find an item near the checkout",
+      "looking_for": "agent located an item near the self-checkout area"
+    },
+    {
+      "id": "easy_20",
+      "family": "attribute",
+      "prompt": "Find a small biscuit.",
+      "looking_for": "a small-sized biscuit product held in either hand"
+    },
+    {
+      "id": "easy_21",
+      "family": "inspect",
+      "prompt": "Find a chip bag and check its expiration date",
+      "looking_for": "a chip bag held in either hand with its expiration date reported"
+    },
+    {
+      "id": "easy_22",
+      "family": "inspect",
+      "prompt": "Find noodles and check its price",
+      "looking_for": "a noodle product held in either hand with its price reported"
+    },
+    {
+      "id": "easy_23",
+      "family": "counting",
+      "prompt": "Count the number of unique products on Aisle 1",
+      "looking_for": "a correct count of unique products located on Aisle 1 reported"
+    }
+  ]
+}
