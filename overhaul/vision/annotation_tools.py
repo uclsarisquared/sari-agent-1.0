@@ -1,6 +1,6 @@
 import os
 from PIL import ImageDraw, Image
-from sim.env import TransformAgent, RequestScreenshot
+from sim.env import TransformAgent, RequestScreenshot, artifact_path, screenshot_dir
 
 def annotate_located_object(image: Image.Image | str, bbox: dict, color="red", radius=20):
     """
@@ -15,8 +15,10 @@ def annotate_located_object(image: Image.Image | str, bbox: dict, color="red", r
     Returns:
         PIL.Image: Annotated image.
     """
-    if type(image) == str:
-        image = Image.open(image)
+    if isinstance(image, (str, os.PathLike)):
+        with Image.open(image) as opened:
+            opened.load()
+            image = opened.copy()
     width, height = image.size
 
     annotated_image = image.copy()
@@ -34,11 +36,22 @@ def annotate_located_object(image: Image.Image | str, bbox: dict, color="red", r
     return annotated_image
 
 
-def annotate_boxes(roi, prefix="", file_path="screenshots/ClientScreenshot.png"):
+def annotate_boxes(roi, prefix="", file_path=None, source_image=None, output_dir=None):
+    """Annotate boxes without requiring a shared screenshot/output directory.
+
+    Live callers may provide the exact PIL ``source_image`` used for detection. In an orchestrated
+    attempt the compatibility defaults resolve under SARI_RUN_DIR; a standalone invocation retains
+    screenshots/ and annotations/ in the current directory.
+    """
+    file_path = file_path or os.path.join(screenshot_dir(), "ClientScreenshot.png")
+    output_dir = output_dir or artifact_path("annotations", legacy_base="")
+    os.makedirs(output_dir, exist_ok=True)
     if type(roi) != list:
         roi = [roi]
     for i, item in enumerate(roi):
         box = item["box"]
-        image = annotate_located_object(file_path, (box["xmin"], box["ymin"], box["xmax"], box["ymax"]))
-        os.makedirs("annotations", exist_ok=True)
-        image.save(f"annotations/{prefix+'-' if prefix else ''}{i}.png")
+        image = annotate_located_object(
+            source_image if source_image is not None else file_path,
+            (box["xmin"], box["ymin"], box["xmax"], box["ymax"]),
+        )
+        image.save(os.path.join(output_dir, f"{prefix+'-' if prefix else ''}{i}.png"))

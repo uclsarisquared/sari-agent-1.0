@@ -308,8 +308,10 @@ class Probe:
         if self._nav is None:
             try:
                 from nav.store_map import StoreMap, NavSession
+                from sim.env import default_uri
                 sm = StoreMap()
-                self._nav = NavSession(sm, stow_hands=False)   # do NOT disable hands - carrying!
+                self._nav = NavSession(sm, uri=default_uri(),
+                                       stow_hands=False)   # do NOT disable hands - carrying!
             except Exception as e:
                 print(f"  [drive] could not open the map/NavSession: {type(e).__name__}: {e}")
                 return

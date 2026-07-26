@@ -75,7 +75,7 @@ def main():
                          "store_map.checkout_held_items")
     args = ap.parse_args()
 
-    from sim.env import RequestScreenshot, SetHandsActive
+    from sim.env import RequestScreenshot, SetHandsActive, default_uri
     from manip.manipulation import set_hand_pose, extend_arm_until_grabbed
     from vision.perception import (scan_held_item, place_held_item,
                             center_to_screen, center_to_scanner, read_text_in_box)
@@ -89,7 +89,8 @@ def main():
         return 1
 
     sm = StoreMap()
-    nav = NavSession(sm, stow_hands=False)          # carry-safe: never stow a held item
+    nav = NavSession(sm, uri=default_uri(),
+                     stow_hands=False)          # carry-safe: never stow a held item
     SetHandsActive(True)
     results = {}
 

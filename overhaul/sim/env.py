@@ -4,6 +4,7 @@ import time
 import websockets
 import json
 import re
+import tempfile
 from datetime import datetime
 
 from typing import (
@@ -13,6 +14,32 @@ from typing import (
 )
 
 from loguru import logger
+
+
+RUN_DIR_ENV = "SARI_RUN_DIR"
+
+
+def current_run_dir() -> str | None:
+    """Return this process's attempt directory, if an orchestrator established one.
+
+    Distributed Sari Bench launches one process per attempt and passes ``--run-dir``.  The
+    orchestrator mirrors that value into SARI_RUN_DIR so helpers several layers below it can keep
+    debug artifacts attempt-local without growing a run_dir argument through every tool action.
+    Standalone scripts that do not establish a run keep their historical CWD-relative paths.
+    """
+    return os.environ.get(RUN_DIR_ENV) or None
+
+
+def artifact_path(*parts: str, legacy_base: str = "") -> str:
+    """Resolve an artifact below the active run, falling back to its legacy local location."""
+    base = current_run_dir()
+    if base:
+        return os.path.join(base, *parts)
+    return os.path.join(legacy_base, *parts)
+
+
+def screenshot_dir() -> str:
+    return artifact_path("screenshots", legacy_base="")
 
 
 def init_logger(run_name: str, directory: str = "logs"):
@@ -115,8 +142,24 @@ async def SendCommand(command: Dict[str, Any], uri: str = None):
                 # Save the image file in the specified folder
                 file_path = os.path.join(folder_name, file_name) if folder_name else file_name
 
-                with open(file_path, "wb") as file:
-                    file.write(downscale_for_storage(image_bytes))
+                # Several benchmark workers may share this checkout and therefore this legacy
+                # filename.  Writing it in place exposes a zero-length/partial PNG to readers in
+                # another process (Pillow then reports "image file is truncated").  Publish a
+                # complete file atomically instead.  The final image may still be whichever
+                # worker wrote most recently, but it can never be a half-written PNG.
+                fd, temp_path = tempfile.mkstemp(
+                    prefix=f".{file_name}.", suffix=".tmp", dir=folder_name or "."
+                )
+                try:
+                    with os.fdopen(fd, "wb") as file:
+                        file.write(downscale_for_storage(image_bytes))
+                    os.replace(temp_path, file_path)
+                except BaseException:
+                    try:
+                        os.unlink(temp_path)
+                    except FileNotFoundError:
+                        pass
+                    raise
 
             # The RETURN is left full-resolution: only the on-disk copy is capped. Live consumers
             # (e.g. a VLM call on the returned bytes) get the raw frame; storage is what we shrink.
@@ -241,7 +284,11 @@ def ToggleRightGrip(uri: str = None):
     if "True" in result:    return {"gripped": True}
     return {"gripped": False}
 
-def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str="screenshots", save_image=False, uri: str = None):
+def RequestScreenshot(prefix: str="", suffix: str="", folder_name: str | None = None,
+                      save_image=False, uri: str = None):
+    # Resolve at CALL time: subtask_agents sets SARI_RUN_DIR after importing sim.env.
+    if folder_name is None:
+        folder_name = screenshot_dir()
     result = asyncio.get_event_loop().run_until_complete(SendCommand({
         "command": "RequestScreenshot",
         "prefix": prefix,

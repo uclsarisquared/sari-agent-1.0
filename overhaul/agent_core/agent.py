@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import os
 import base64
 import json
+import tempfile
 import time
 from io import BytesIO
 from pathlib import Path
@@ -23,7 +24,7 @@ from agent_core.sys_inst import (
     SYS_INST_ASSOCIATIVE_EPISODIC,
     SYS_INST_VLM_LEAN
 )
-from agent_core.memory import BASE_SEMANTIC_MEMORY
+from agent_core.memory import base_semantic_memory
 from toolset.actions_str import (
     NAVIGATION_ACTIONS,
     PERCEPTION_ACTIONS,
@@ -120,7 +121,17 @@ def _ucl_creds():
 
     The bearer is read as UCL_API_KEY first (api.env's spelling, matching its *_API_KEY
     convention) then UCL_API (legacy env / conda state) - both are accepted so neither source
-    silently returns None."""
+    silently returns None.
+
+    The host comes back BARE - no scheme, no trailing slash - because every caller builds
+    f"http://{host}:8000/v1" from it. MEASURED 2026-07-26: api.env held the scheme
+    ("http://202.92.159.240"), so that f-string produced "http://http://202.92.159.240:8000/v1",
+    httpx tried to resolve the hostname `http`, and the SDK's retries turned a DNS failure into a
+    ~35s APIConnectionError that Sari Bench could only record as a bare agent_error. The
+    scheme-tolerant readers (annotate_probe.resolve_base_url, locate_task) already stripped it;
+    this path did not. Normalising here rather than in api.env fixes all three agent-runtime call
+    sites (ucl_qwen_config, orchestrator._llm_client, perception.CLIENT) at once and makes either
+    spelling of the var correct."""
     host = os.getenv("UCL_BASE_URL")
     key = os.getenv("UCL_API_KEY") or os.getenv("UCL_API")
     if not (host and key):
@@ -131,6 +142,13 @@ def _ucl_creds():
             key = key or sv.get("UCL_API_KEY") or sv.get("UCL_API")
         except OSError:
             pass
+    if host:
+        host = host.strip().split("//", 1)[-1].strip("/").split("/", 1)[0]
+        # A port in the var would collide with the :8000 the callers append. Explicit error
+        # beats another silent malformed-URL round trip.
+        if ":" in host:
+            raise RuntimeError(f"UCL_BASE_URL must be a bare host without a port, got {host!r} "
+                               "(the code appends :8000/v1 itself)")
     return host, key
 
 
@@ -302,7 +320,8 @@ class EmbodiedAgent:
                  nav_mode: Literal['vlm', 'graph', 'graph-advised'] = 'vlm',
                  resolver_backend: Literal['qwen', 'claude-cli'] = 'qwen',
                  advisor_backend: Literal['qwen', 'claude-cli'] = 'qwen',
-                 map_output_dir: Optional[str] = None) -> None:
+                 map_output_dir: Optional[str] = None,
+                 run_dir: Optional[str] = None) -> None:
 
         self.vlm_agent = VLMAgent(vlm_config)
         self.mode = mode
@@ -334,6 +353,11 @@ class EmbodiedAgent:
         # None -> StoreMap's DEFAULT_OUTPUT_DIR (slamtest/output). Threaded from the entry points'
         # --output-dir so a run can be pointed at an alternate map without touching the default.
         self._map_output_dir = map_output_dir
+        # Runtime/debug artifacts belong to the attempt, never to the shared frozen map. The
+        # environment fallback lets programmatic callers join the orchestrator's context without
+        # another argument; no context preserves the legacy standalone filenames.
+        active_run_dir = run_dir or os.environ.get("SARI_RUN_DIR")
+        self._run_dir = os.path.abspath(active_run_dir) if active_run_dir else None
         self._nav_candidates = []       # resolver output for the current task, in visit order
         self._nav_visited = set()
         self._nav_task = None
@@ -347,12 +371,35 @@ class EmbodiedAgent:
             self.set_semantic_memory()
 
     def set_semantic_memory(self) -> None:
-        self.vlm_agent.base_semantic_memory = BASE_SEMANTIC_MEMORY
+        # Rendered from the map dir THIS agent navigates (see agent_core/memory), so a run pointed
+        # at an alternate map can't be given prose describing the default one.
+        self.vlm_agent.base_semantic_memory = base_semantic_memory(self._map_output_dir)
         logger.info("Base semantic memory set for VLMAgent.")
 
     def set_episodic_memory(self, episodic_memory: str) -> None:
         self.vlm_agent.episodic_memory = episodic_memory
         logger.info(f"Episodic memory updated: {episodic_memory}")
+
+    def _run_artifact(self, name: str) -> str:
+        return os.path.join(self._run_dir, name) if self._run_dir else name
+
+    @staticmethod
+    def _write_text_atomic(path: str, content: str) -> None:
+        """Publish a complete snapshot so live readers never observe a half-written memory file."""
+        directory = os.path.dirname(os.path.abspath(path))
+        os.makedirs(directory, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", suffix=".tmp",
+                                         dir=directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+            os.replace(temp_path, path)
+        except BaseException:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
+            raise
 
     def _semantic_tag(self, timestep: int) -> str:
         """Provenance label prefixed to each appended semantic-memory entry. When the orchestrator has
@@ -419,9 +466,15 @@ class EmbodiedAgent:
         dispatch because NavSession needs the sim live."""
         if self._graph_nav is None:
             from nav.store_map import StoreMap, NavSession
+            from sim.env import default_uri
             sm = (StoreMap(output_dir=self._map_output_dir) if self._map_output_dir
                   else StoreMap())
-            nav = NavSession(sm, stow_hands=False)  # hands managed per-leg, not per-session
+            # Without an explicit uri, NavSession falls back to capture_walk's parser default
+            # (ws://localhost:8080/commands) instead of this attempt's leased sandbox port - every
+            # graph-nav command then dials a port nothing is listening on and times out on the
+            # handshake, stranding the agent at its starting checkpoint. default_uri() reads
+            # SARI_WS_URI, which the runner sets per-lease (see sari_bench/runner.py).
+            nav = NavSession(sm, uri=default_uri(), stow_hands=False)
             self._graph_nav = (sm, nav)
         return self._graph_nav
 
@@ -554,7 +607,8 @@ class EmbodiedAgent:
         else:
             _ask = lambda s, p, sc, im=(): locate_task.qwen_json(s, p, sc, im)
 
-        shots_dir = os.path.join(sm.output_dir, "advised_nav")
+        shots_dir = (os.path.join(self._run_dir, "advised_nav") if self._run_dir
+                     else os.path.join(sm.output_dir, "advised_nav"))
         os.makedirs(shots_dir, exist_ok=True)
         tgt_info = sm.checkpoint(target)
         tgt_holds = ", ".join(tgt_info["holds"]) or "unannotated"
@@ -974,10 +1028,10 @@ class EmbodiedAgent:
                                f"## WHAT TO AVOID: {episodic_response['what_to_avoid']}\n")
             self.set_episodic_memory(episodic_memory)
 
-        with open('semantic_memory.txt', 'w') as f:
-            f.write(self.vlm_agent.base_semantic_memory)
-        with open('episodic_memory.txt', 'w') as f:
-            f.write(self.vlm_agent.episodic_memory)
+        self._write_text_atomic(
+            self._run_artifact("semantic_memory.txt"), self.vlm_agent.base_semantic_memory)
+        self._write_text_atomic(
+            self._run_artifact("episodic_memory.txt"), self.vlm_agent.episodic_memory)
 
         return {
             'halt': False,

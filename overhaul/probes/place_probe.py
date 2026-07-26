@@ -165,7 +165,7 @@ def main():
     from sim.env import (RequestLidarCenter, SetCrouch, SetHandsActive, RequestScreenshot,
                      TransformHands, ToggleLeftGrip, _XTNFWD_LEFT_, _PLLBCK_LEFT_,
                      move_forward, move_backward, move_left, move_right,
-                     pan_left, pan_right, tilt_up, tilt_down)
+                     pan_left, pan_right, tilt_up, tilt_down, default_uri)
     from manip.manipulation import set_hand_pose, extend_arm_until_grabbed
     from vision.perception import (center_to_counter, COUNTER_AIM_NORM,
                             center_to_scanner, SCANNER_AIM_NORM,
@@ -185,7 +185,7 @@ def main():
     # 6.1 drop bug). We drive with the SAME machinery the agent uses (go_to_counter / nav.goto), then
     # fine-tune the standoff with the raw WASD primitives below.
     sm = StoreMap()
-    nav = NavSession(sm, stow_hands=False)
+    nav = NavSession(sm, uri=default_uri(), stow_hands=False)
 
     run_dir = os.path.join(OUT_DIR, datetime.now().strftime("%m%d_%H%M%S"))
     os.makedirs(run_dir, exist_ok=True)

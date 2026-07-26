@@ -106,7 +106,7 @@ def main():
                          "(checkout_held_items); logs a row per item to gate_checkout_2h.csv")
     args = ap.parse_args()
 
-    from sim.env import RequestScreenshot, SetHandsActive, TransformHands
+    from sim.env import RequestScreenshot, SetHandsActive, TransformHands, default_uri
     from manip.manipulation import set_hand_pose, extend_arm_until_grabbed
     from nav.store_map import StoreMap, NavSession, checkout_held_item, checkout_held_items
     from explore import step_agent
@@ -118,7 +118,7 @@ def main():
         return 1
 
     sm = StoreMap()
-    nav = NavSession(sm, stow_hands=False)
+    nav = NavSession(sm, uri=default_uri(), stow_hands=False)
     SetHandsActive(True)
     two = args.two_hands
     csv_path = CSV_PATH_2H if two else CSV_PATH

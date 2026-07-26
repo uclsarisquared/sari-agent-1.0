@@ -54,15 +54,27 @@ from mapping import normalize_deg  # noqa: E402
 DEFAULT_OUTPUT_DIR = os.path.join(_SLAM_DIR, "output")
 
 
+def default_output_dir():
+    """The map dir a caller who names none gets: $SARI_MAP_DIR, else the frozen slamtest/output.
+
+    The env var is how a HARNESS points a whole process tree at a captured map dir without every
+    call site having to thread `--output-dir`: Sari Bench sets it per attempt (sari_bench/runner
+    `_spawn_agent`), and it reaches the StoreMap() calls scattered across probes, gates and evals
+    that take no dir argument at all. Resolved per call, not bound at import, so setting the var
+    early in main() also works (same contract as SARI_WS_URI in sim/env.py).
+    """
+    return os.environ.get("SARI_MAP_DIR") or DEFAULT_OUTPUT_DIR
+
+
 class StaleMapError(RuntimeError):
     """Annotations and topology disagree - ids would describe different shelves than they claim."""
 
 
-def executor_args(output_dir=DEFAULT_OUTPUT_DIR, **overrides):
+def executor_args(output_dir=None, **overrides):
     """The executor's knobs (step size, safety margin, body radius, nudge/escape...) as an
     argparse Namespace with capture_walk's defaults. Parsing the real parser instead of copying
     values is the anti-drift property: there is exactly one definition of every default."""
-    args = capture_walk.build_parser().parse_args([output_dir])
+    args = capture_walk.build_parser().parse_args([output_dir or default_output_dir()])
     for k, v in overrides.items():
         if not hasattr(args, k):
             raise TypeError(f"unknown executor knob: {k}")
@@ -73,9 +85,10 @@ def executor_args(output_dir=DEFAULT_OUTPUT_DIR, **overrides):
 class StoreMap:
     """The frozen artifacts, joined and queryable. Offline - never touches the sim."""
 
-    def __init__(self, output_dir=DEFAULT_OUTPUT_DIR, topology_tag="final_shelf",
+    def __init__(self, output_dir=None, topology_tag="final_shelf",
                  annotations_tag="final_shelf", grid_tag="final", resolution=0.1,
                  use_reconciled=True):
+        output_dir = output_dir or default_output_dir()
         self.output_dir = output_dir
         self.grid_tag = grid_tag
         self.resolution = resolution

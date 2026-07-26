@@ -55,6 +55,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -965,6 +966,24 @@ def _current_nearest_cp(sm):
         return sm.nearest_checkpoint(SPAWN_XZ)
 
 
+def _resolve_run_dir(run_dir, arm):
+    """Return an absolute, existing, attempt-unique output directory.
+
+    An explicit path is owned by the caller (Distributed Sari Bench creates one per attempt).  A
+    local invocation gets an atomically-created directory, so even same-arm runs started in the
+    same second cannot select the same fallback.
+    """
+    if run_dir:
+        resolved = os.path.abspath(os.fspath(run_dir))
+        os.makedirs(resolved, exist_ok=True)
+        return resolved
+
+    base = os.path.join(_OVERHAUL_DIR, "subtask_run_outputs")
+    os.makedirs(base, exist_ok=True)
+    prefix = f"{datetime.now():%m%d_%H%M%S}_{arm}_"
+    return tempfile.mkdtemp(prefix=prefix, dir=base)
+
+
 def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                 resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1,
                 output_dir=None):
@@ -999,10 +1018,16 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     ResetEnvironment now calls ItemPoolingManager.ClearPool() + ShelfBuilder.DeleteAllPriceTags()
     before reloading (DataHandler.cs:617). Verify the duplication is gone on your build before relying
     on this in a batteried eval; it stays OFF by default."""
+    # Resolve the attempt context before ANY logger, model, or agent is constructed. Helpers deep in
+    # perception/sim resolve SARI_RUN_DIR at call time, keeping their scratch output attempt-local
+    # without adding configuration to ordinary single-run commands.
+    run_dir = _resolve_run_dir(run_dir, arm)
+    os.environ["SARI_RUN_DIR"] = run_dir
+
     # Before ANY reasoner runs, so the decomposer's and resolver's tokens are counted too.
-    token_meter.install()
+    token_meter.install(run_dir)
     client = _llm_client()
-    init_logger(run_name=f"subtask-{datetime.now():%m%d_%H%M%S}")
+    init_logger(run_name="runtime", directory=run_dir)
 
     # Barrier before ANY sim traffic. Under Distributed Sari Bench this process is launched the
     # moment a sandbox is leased, which can be while that sandbox is still booting or still
@@ -1017,13 +1042,8 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
 
     agent = EmbodiedAgent(vlm_config=VLM_CONFIG, associative_config=ASSOCIATIVE_CONFIG,
                           mode='lean', nav_mode=arm, resolver_backend=resolver_backend,
-                          map_output_dir=output_dir)
+                          map_output_dir=output_dir, run_dir=run_dir)
 
-    # Run outputs (per-leg JSONL + screenshots + summary.json) land under overhaul/subtask_run_outputs/
-    # (_OVERHAUL_DIR is overhaul/), one timestamped dir per task run.
-    run_dir = run_dir or os.path.join(_OVERHAUL_DIR, "subtask_run_outputs",
-                                      f"{datetime.now():%m%d_%H%M%S}_{arm}")
-    os.makedirs(run_dir, exist_ok=True)
     # From here the meter also writes run_dir/tokens.json as it goes: summary.json is only written at
     # exit, so an attempt the harness SIGKILLs would otherwise report no token cost at all.
     token_meter.dump(run_dir)
@@ -1195,7 +1215,8 @@ def main():
     ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"], default="qwen")
     ap.add_argument("--output-dir", default=None,
                     help="slamtest output dir to load the map from (topology/annotations/grid). "
-                         "Default: slamtest/output (StoreMap's DEFAULT_OUTPUT_DIR).")
+                         "Default: $SARI_MAP_DIR, else slamtest/output (StoreMap's "
+                         "DEFAULT_OUTPUT_DIR).")
     ap.add_argument("--leg-retries", type=int, default=1,
                     help="how many times to RETRY a failed leg with the failure reason in context "
                          "before aborting the task (orchestrator-level self-correction; 0 restores "

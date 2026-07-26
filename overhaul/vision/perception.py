@@ -114,7 +114,8 @@ def _encode_image(image: Image.Image) -> dict:
     return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
 
 
-def read_text(image_path='screenshots/ClientScreenshot.png'):
+def read_text(image_path=None):
+    image_path = image_path or os.path.join(screenshot_dir(), "ClientScreenshot.png")
     result = _get_ocr().ocr(image_path)
     return "\n".join([line[1][0] for line in result[0]]) if result else ""
 
@@ -151,37 +152,60 @@ def transform_paddle_result_to_coco_label_format(paddle_result):
     return [(b[0][0][0],b[0][0][1], b[0][2][0], b[0][2][1], b[1][0]) for b in paddle_result[0]]
 
 
-def annotate_target(ymin, xmin, ymax, xmax, file_path='screenshots/ClientScreenshot.png'):
+def annotate_target(ymin, xmin, ymax, xmax, file_path=None,
+                    source_image=None):
     """Draw the detected box on the screenshot (debug eyeballing only). Inputs are PIXEL coords -
     every caller passes pixels (bbox already scaled by ORIGINAL_W/H). The previous body re-divided
     by 1000 and re-multiplied by ORIGINAL_*, treating pixels as if normalised, so it drew a box
     shrunk ~1.08x/1.92x near the top-left and CRASHED PIL whenever an inverted box made y1<y0.
-    Now: sort so min<=max and clamp to the image, so a malformed detection can't kill the run."""
-    image = Image.open(file_path)
-    draw = ImageDraw.Draw(image)
-    W, H = image.size
-    # Inputs are in the fixed ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame (detections are
-    # 0-1000 normalised * ORIGINAL_*), so scale to the ACTUAL frame before drawing. Without this a
-    # higher-res screenshot (e.g. 4K) paints the box/crosshair in the top-left quadrant instead of
-    # over the target - the drawing is now resolution-dynamic, off the real image.size.
-    sx, sy = W / ORIGINAL_WIDTH, H / ORIGINAL_HEIGHT
-    x0, x1 = sorted((int(xmin * sx), int(xmax * sx)))
-    y0, y1 = sorted((int(ymin * sy), int(ymax * sy)))
-    x0, x1 = max(0, min(x0, W - 1)), max(0, min(x1, W - 1))
-    y0, y1 = max(0, min(y0, H - 1)), max(0, min(y1, H - 1))
-    draw.rectangle([x0, y0, x1, y1], outline="red", width=3)
-    draw.text((x0, max(0, y0 - 12)), "Target", fill="red")
-    # Debug-only annotated frame: cap on disk at 1080p (drawn at capture res, which may be 4K).
-    downscale_pil_for_storage(image).save('screenshots/annotated_target.png')
+    Now: sort so min<=max and clamp to the image, so a malformed detection can't kill the run.
+
+    ``source_image`` lets live callers annotate the exact in-memory frame they detected against.
+    This matters when parallel benchmark workers share the legacy ClientScreenshot.png path.
+    Annotation is debug-only, so an I/O failure is reported but must never abort an agent run."""
+    try:
+        if source_image is None:
+            file_path = file_path or os.path.join(screenshot_dir(), "ClientScreenshot.png")
+            with Image.open(file_path) as opened:
+                opened.load()
+                image = opened.copy()
+        else:
+            source_image.load()
+            image = source_image.copy()
+        draw = ImageDraw.Draw(image)
+        W, H = image.size
+        # Inputs are in the fixed ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame (detections are
+        # 0-1000 normalised * ORIGINAL_*), so scale to the ACTUAL frame before drawing. Without this
+        # a higher-res screenshot paints the box/crosshair in the top-left quadrant.
+        sx, sy = W / ORIGINAL_WIDTH, H / ORIGINAL_HEIGHT
+        x0, x1 = sorted((int(xmin * sx), int(xmax * sx)))
+        y0, y1 = sorted((int(ymin * sy), int(ymax * sy)))
+        x0, x1 = max(0, min(x0, W - 1)), max(0, min(x1, W - 1))
+        y0, y1 = max(0, min(y0, H - 1)), max(0, min(y1, H - 1))
+        draw.rectangle([x0, y0, x1, y1], outline="red", width=3)
+        draw.text((x0, max(0, y0 - 12)), "Target", fill="red")
+        # Debug-only annotated frame: cap on disk at 1080p (drawn at capture res, which may be 4K).
+        out_path = artifact_path("screenshots", "annotated_target.png",
+                                 legacy_base="")
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        downscale_pil_for_storage(image).save(out_path)
+    except Exception as e:
+        print(f"[perception] target annotation skipped: {type(e).__name__}: {e}")
 
 
-def _draw_debug_frame(frame_path, boxes, chosen, aim_xy, out_path):
-    """Debug-only: save `frame_path` with EVERY VLM candidate box (thin yellow), the chosen /
+def _draw_debug_frame(frame_source, boxes, chosen, aim_xy, out_path):
+    """Debug-only: save `frame_source` with EVERY VLM candidate box (thin yellow), the chosen /
     tracked instance (thick red), and the aim crosshair (green). This is the "what did the
     detector actually return, and which one are we driving to centre" picture. Best-effort - a
     drawing error must never take down a centring run."""
     try:
-        img = Image.open(frame_path).convert("RGB")
+        if isinstance(frame_source, Image.Image):
+            frame_source.load()
+            img = frame_source.convert("RGB")
+        else:
+            with Image.open(frame_source) as opened:
+                opened.load()
+                img = opened.convert("RGB")
         draw = ImageDraw.Draw(img)
         # boxes/aim are in the fixed ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame; scale to the
         # ACTUAL screenshot so the crosshair sits at true centre at any capture resolution (a 4K
@@ -426,14 +450,14 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     stalled = False         # did the residual stop shrinking (target likely at the frame edge)?
     locked = None           # predicted (x, y) of the tracked instance; None until look 1 picks one
     box = None              # last locked box (xmin/ymin/xmax/ymax/cx/cy/label); None if never detected
+    image = None            # exact final frame; private handoff for region OCR
     prev_mag = None
     no_improve = 0
     i = 0
     for i in range(1, max_iters + 2):   # max_iters rotations + one measurement-only look
-        RequestScreenshot(save_image=True)
-        filepath = os.path.join("screenshots", "ClientScreenshot.png")
-        with open(filepath, "rb") as image_file:
-            image = Image.open(BytesIO(image_file.read()))
+        screenshot = RequestScreenshot(save_image=True)
+        image = Image.open(BytesIO(screenshot["image"]))
+        image.load()
         boxes = _detect_boxes_px(image, target_info)
         if not boxes:
             print(f"[CENTER] look {i}: target not detected - not rotating (let the caller search).")
@@ -447,9 +471,10 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
             box = _seed_front_instance(boxes, aim_x, aim_y, front_bias)
         else:
             box = min(boxes, key=lambda b: (b['cx'] - locked[0]) ** 2 + (b['cy'] - locked[1]) ** 2)
-        annotate_target(box['ymin'], box['xmin'], box['ymax'], box['xmax'])
+        annotate_target(box['ymin'], box['xmin'], box['ymax'], box['xmax'],
+                        source_image=image)
         if debug_dir:
-            _draw_debug_frame(filepath, boxes, box, (aim_x, aim_y),
+            _draw_debug_frame(image, boxes, box, (aim_x, aim_y),
                               os.path.join(debug_dir, f"look{i}_bbox.png"))
         dx, dy = box['cx'] - aim_x, box['cy'] - aim_y
         residual = (round(dx, 1), round(dy, 1))
@@ -509,7 +534,8 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     print(f"[CENTER] result: {message}")
     state = dict(state)
     state.update({'centered': centered, 'detected': detected, 'residual_px': residual,
-                  'iters': i, 'outcome': outcome, 'center_message': message, 'box': box})
+                  'iters': i, 'outcome': outcome, 'center_message': message, 'box': box,
+                  '_source_image': image})
     return state
 
 
@@ -631,20 +657,28 @@ def center_to_screen(aim_norm=SCREEN_AIM_NORM, front_bias=0.0, **kwargs):
                                    front_bias=front_bias, **kwargs)
 
 
-def read_text_in_box(box, pad_frac=0.04, image_path='screenshots/ClientScreenshot.png'):
-    """OCR only the region of `image_path` under `box` (a center_object_on_screen 'box' dict, whose
+def read_text_in_box(box, pad_frac=0.04, image_path=None, source_image=None):
+    """OCR only the region under `box` (a center_object_on_screen 'box' dict, whose
     xmin/ymin/xmax/ymax are in the ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame). Scales the box
     to the actual image size the same way annotate_target does, pads it by `pad_frac` of its size so
     a slightly-tight detection doesn't clip the edge glyphs, crops, and runs paddleocr on the crop.
 
     Cropping first is the whole win over read_text(): the POS receipt is a small bright rectangle in
     a busy frame, and full-frame OCR mixes in shelf/label/button text. Returns [] on a None box or
-    any failure (OCR must never take down the caller). Reads the CURRENT screenshot by default -
-    center_to_screen leaves its final look in ClientScreenshot.png, consistent with the box."""
+    any failure (OCR must never take down the caller). Live callers pass ``source_image`` from the
+    centering result, so OCR cannot race another screenshot writer. The attempt-local saved frame is
+    retained as a compatibility fallback for standalone callers."""
     if not box:
         return []
     try:
-        img = Image.open(image_path).convert("RGB")
+        if source_image is not None:
+            source_image.load()
+            img = source_image.convert("RGB")
+        else:
+            image_path = image_path or os.path.join(screenshot_dir(), "ClientScreenshot.png")
+            with Image.open(image_path) as opened:
+                opened.load()
+                img = opened.convert("RGB")
         W, H = img.size
         sx, sy = W / ORIGINAL_WIDTH, H / ORIGINAL_HEIGHT
         x0, x1 = sorted((box['xmin'] * sx, box['xmax'] * sx))
@@ -655,9 +689,10 @@ def read_text_in_box(box, pad_frac=0.04, image_path='screenshots/ClientScreensho
         if x1 - x0 < 2 or y1 - y0 < 2:
             return []
         crop = img.crop((x0, y0, x1, y1))
-        buf = os.path.join("screenshots", "_ocr_crop.png")
-        crop.save(buf)
-        result = _get_ocr().ocr(buf)
+        # PaddleOCR accepts an ndarray. Keeping the crop in memory removes the last functional
+        # scratch-file handoff and therefore the _ocr_crop.png cross-worker race entirely.
+        import numpy as np
+        result = _get_ocr().ocr(np.asarray(crop))
         if not result or not result[0]:
             return []
         return [line[1][0].strip() for line in result[0] if line[1][0].strip()]
@@ -758,7 +793,7 @@ def scan_held_item(hand="auto", baseline=None, max_extend=25, fuzzy_ratio=0.8, d
     # Measured confirmation: centre the POS screen, region-OCR the receipt, diff vs the baseline.
     res = center_to_screen(debug_dir=debug_dir)
     box = res.get("box")
-    receipt = read_text_in_box(box) if box else []
+    receipt = read_text_in_box(box, source_image=res.get("_source_image")) if box else []
     new = _fuzzy_new_lines(baseline or [], receipt, ratio=fuzzy_ratio)
     scanned = any(any(c.isdigit() for c in l) for l in new)
 
@@ -953,9 +988,9 @@ def detect_object_via_gemini(target_name):
     model_name = MODEL_NAME
     original_width = 1920
     original_height = 1080
-    RequestScreenshot(save_image=True)
-    file_path = os.path.join("screenshots", "ClientScreenshot.png")
-    im = Image.open(BytesIO(open(file_path, "rb").read()))
+    screenshot = RequestScreenshot(save_image=True)
+    im = Image.open(BytesIO(screenshot["image"]))
+    im.load()
     prompt = (f"Detect the {target_name} in the image. The box_2d should be [xmin, ymin, xmax, ymax] in the image normalized to 0-1000. "
               "The top left corner of the image is the origin. The x and y axis go horizontally and vertically, respectively. "
               "Return bounding boxes as a JSON array with labels. Never return masks or code fencing. Limit to 1 object only. "
@@ -990,7 +1025,7 @@ def detect_object_via_gemini(target_name):
         ymax = coords[3] / 1000 * original_height
     else:
         return None
-    annotate_target(ymin, xmin, ymax, xmax)
+    annotate_target(ymin, xmin, ymax, xmax, source_image=im)
     return {'box': {'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax}}
 
 
@@ -1005,9 +1040,9 @@ def _get_md_model():
 
 
 def detect_object_via_moondream(target_name):
-    RequestScreenshot(save_image=True)
-    file_path = os.path.join("screenshots", "ClientScreenshot.png")
-    image = Image.open(BytesIO(open(file_path, "rb").read()))
+    screenshot = RequestScreenshot(save_image=True)
+    image = Image.open(BytesIO(screenshot["image"]))
+    image.load()
 
     model = _get_md_model()
     result = model.detect(image, target_name)
@@ -1028,21 +1063,34 @@ def detect_object_via_moondream(target_name):
     xmax = best["x_max"] * ORIGINAL_WIDTH
     ymax = best["y_max"] * ORIGINAL_HEIGHT
 
-    annotate_target(ymin, xmin, ymax, xmax)
+    annotate_target(ymin, xmin, ymax, xmax, source_image=image)
     return {"box": {"xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax}}
 
 
-def request_rgbd_image():
-    RequestScreenshot(save_image=True)
-    DEPTH_API = "http://202.92.159.242:8000/estimate-depth"
+LEGACY_DEPTH_API_URL = "http://202.92.159.242:8000/estimate-depth"
 
-    with open("screenshots/ClientScreenshot.png", "rb") as file:
-        response = requests.post(DEPTH_API, files={"file": file})
+
+def request_rgbd_image(depth_api_url=None, timeout=30.0):
+    """Request a depth map for the exact frame returned by the simulator.
+
+    The old write-then-read through ClientScreenshot.png could silently upload another worker's
+    frame. The returned websocket bytes are now the sole functional source. SARI_DEPTH_API_URL
+    makes the dormant endpoint deployable without changing ordinary local behavior.
+    """
+    screenshot = RequestScreenshot(save_image=False)
+    endpoint = depth_api_url or os.getenv("SARI_DEPTH_API_URL") or LEGACY_DEPTH_API_URL
+    response = requests.post(
+        endpoint,
+        files={"file": ("ClientScreenshot.png", screenshot["image"], "image/png")},
+        timeout=timeout,
+    )
 
     response.raise_for_status()
 
     depth_img = Image.open(BytesIO(response.content))
-    depth_img.save("depth_image.png")
+    depth_path = artifact_path("depth_image.png", legacy_base="")
+    os.makedirs(os.path.dirname(os.path.abspath(depth_path)), exist_ok=True)
+    depth_img.save(depth_path)
     return depth_img
 
 
