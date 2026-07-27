@@ -9,8 +9,6 @@ reasoning.
 The Unity project is a **separate repo** (`SariSandboxV2`). It is the sim and the ground-truth
 product catalog; this repo is the agent/mapping side.
 
----
-
 ## Setup
 
 Dependencies are managed with [uv](https://docs.astral.sh/uv/). Python 3.10.13 is pinned in
