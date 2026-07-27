@@ -142,6 +142,49 @@ def test_load_prompts_accepts_the_battery_schema() -> None:
     print("ok  prompt batteries load in every documented shape")
 
 
+def test_completion_guard_is_threaded_into_agent_command_and_battery_config() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        runner = _runner(
+            "ws://127.0.0.1:1",
+            [Prompt(id="p", prompt="pick it up")],
+            workspace,
+            completion_guard="vlm",
+        )
+        lease = type("LeaseStub", (), {"commands_uri": "ws://127.0.0.1:51001/commands"})()
+        command = runner._agent_command(
+            runner.prompts["p"], lease, workspace / "runs" / "p" / "try01")
+        index = command.index("--completion-guard")
+        assert command[index + 1] == "vlm", command
+        assert runner._semantic_config()["completion_guard"] == "vlm"
+        runner.output_dir.mkdir(parents=True)
+        runner._write_battery_manifest(1)
+        battery = json.loads((runner.output_dir / "battery.json").read_text())
+        assert battery["completion_guard"] == "vlm"
+
+        # A legacy battery without this field means deterministic, never an implicit VLM switch.
+        legacy = runner._semantic_config()
+        legacy.pop("completion_guard")
+        try:
+            runner._validate_resume_config(legacy)
+        except ResumeError:
+            pass
+        else:
+            raise AssertionError("a legacy deterministic battery resumed with the VLM guard")
+
+        legacy_workspace = workspace / "legacy"
+        legacy_workspace.mkdir()
+        deterministic = _runner(
+            "ws://127.0.0.1:1",
+            [Prompt(id="p", prompt="pick it up")],
+            legacy_workspace,
+        )
+        legacy = deterministic._semantic_config()
+        legacy.pop("completion_guard")
+        deterministic._validate_resume_config(legacy)
+    print("ok  completion guard reaches the agent command and durable battery config")
+
+
 async def test_battery_runs_every_prompt_and_attempt() -> None:
     coordinator, url = await _start_coordinator()
     sandboxes = [FakeSandbox("sandbox-a", 51001), FakeSandbox("sandbox-b", 51002)]
@@ -371,6 +414,13 @@ async def test_crashed_agent_still_releases_its_sandbox() -> None:
             assert summary["total_attempts"] == 2
             assert all(row["outcome"] == "agent_error" for row in summary["attempts"])
             assert all(row["exit_code"] == 3 for row in summary["attempts"])
+            assert summary["total_successes"] == 0
+            assert all(row["success"] is False for row in summary["attempts"])
+            manifests = [
+                json.loads((workspace / "runs" / prompt / "try01" / "attempt.json").read_text())
+                for prompt in ("p1", "p2")
+            ]
+            assert all(manifest["success"] is False for manifest in manifests)
             # The second attempt only ran because the first released despite crashing.
             assert sandbox.reset_count == 2
         finally:
@@ -535,7 +585,7 @@ async def test_human_success_stops_running_and_skips_queued_siblings() -> None:
                 discord=Discord(enabled=False),
                 min_interval=0.0,
             )
-            response = state.verdict("p/try01", True, by="tester")
+            response = state.verdict("p/try01", "pass", by="tester")
             assert response["ok"] is True, response
             assert response["siblings_stopped"] == 2, response
 
@@ -729,7 +779,7 @@ async def test_watcher_retry_replaces_a_finished_try_after_runner_exit() -> None
                 retry_agent_entry=str(workspace / "stub_agent.py"),
                 retry_agent_cwd=workspace,
             )
-            assert state.verdict("p1/try01", True, by="tester")["ok"] is True
+            assert state.verdict("p1/try01", "pass", by="tester")["ok"] is True
             accepted = state.retry("p1/try01")
             assert accepted["ok"] is True, accepted
             assert state.retry("p1/try01")["ok"] is False, "duplicate retry was accepted"
@@ -1075,6 +1125,7 @@ async def test_resume_stops_an_orphan_before_pid_publication() -> None:
 
 async def main() -> int:
     test_load_prompts_accepts_the_battery_schema()
+    test_completion_guard_is_threaded_into_agent_command_and_battery_config()
     for test in (
         test_battery_runs_every_prompt_and_attempt,
         test_pool_size_bounds_concurrency,

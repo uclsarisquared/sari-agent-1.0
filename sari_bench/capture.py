@@ -23,6 +23,9 @@ LATEST_CAPTURE = "latest.json"
 CAPTURE_WIDTH = 960
 CAPTURE_JPEG_QUALITY = 75
 CAPTURE_TIMEOUT_SECONDS = 10.0
+# Four observations per second keeps motion legible in the finished-run replay without turning
+# every simulator response into a full-resolution artifact.
+DEFAULT_INTERVAL_SECONDS = 0.25
 
 _CAPTURE_FRAME = re.compile(r"^frame(\d+)-(\d+)\.jpg$")
 _STEP_FRAME = re.compile(r"^step\d+\.png$")
@@ -213,5 +216,8 @@ async def record_previews(
             continue
 
         stats.frames += 1
-        latest_ns = captured_ns
+        # Start the next interval after publication. If fetching or JPEG encoding was slower than
+        # the requested cadence, measuring from acquisition would immediately start another fetch,
+        # producing catch-up traffic and potentially starving the runner's event loop.
+        latest_ns = time.time_ns()
         sequence += 1

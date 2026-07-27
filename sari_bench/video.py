@@ -40,9 +40,9 @@ BITRATE_HEADROOM = 0.95
 MIN_VIDEO_BITRATE = 120_000  # bps floor; below this h264 is unwatchable, so blow the budget instead
 RENDER_TIMEOUT_SECONDS = 600.0
 
-# Full replays use the dense capture stream at two observations per playback second. The bounded
+# Full replays use the dense capture stream at four observations per playback second. The bounded
 # Discord artifact remains step-only at one frame per second.
-DEFAULT_FPS = 2.0
+DEFAULT_FPS = 4.0
 UPLOAD_FPS = 1.0
 UPLOAD_WIDTH = 960
 
@@ -235,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--battery", type=Path, default=None,
                         help="Render EVERY attempt in this battery dir instead.")
     parser.add_argument("--fps", type=float, default=DEFAULT_FPS,
-                        help="Images per second (default: 1, so each image lasts about one second).")
+                        help="Images per second (default: 4).")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--gif", action="store_true", help="Write a gif instead of an mp4.")
     parser.add_argument("--no-caption", action="store_true")

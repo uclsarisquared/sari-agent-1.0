@@ -40,6 +40,7 @@ def _status(argv: list[str]) -> int:
 
     if not pool:
         print("No sandboxes registered.")
+        print("Total connected sandboxes: 0")
         return 0
 
     print(f"{'SANDBOX':<34} {'ADDRESS':<24} {'STATE':<11} {'LEASE':<34} RESET")
@@ -58,6 +59,7 @@ def _status(argv: list[str]) -> int:
             f"{sandbox['sandbox_id']:<34} {address:<24} {sandbox['state']:<11} "
             f"{lease:<34} {reset}"
         )
+    print(f"Total connected sandboxes: {len(pool)}")
     return 0
 
 

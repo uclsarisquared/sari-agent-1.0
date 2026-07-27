@@ -21,6 +21,13 @@ from sari_bench import capture, video
 from sari_bench.watch import scan
 
 
+def test_default_capture_rate_is_four_frames_per_second() -> None:
+    assert capture.DEFAULT_INTERVAL_SECONDS == 0.25
+    assert 1 / capture.DEFAULT_INTERVAL_SECONDS == 4
+    assert video.DEFAULT_FPS == 4.0
+    print("ok  capture and full replay default to four frames per second")
+
+
 def _png(width: int = 1600, height: int = 900, color: tuple[int, int, int] = (40, 80, 120)) -> bytes:
     output = io.BytesIO()
     Image.new("RGB", (width, height), color).save(output, format="PNG")
@@ -125,6 +132,7 @@ def test_watch_and_replay_merge_supplementary_frames() -> None:
 
 
 async def main() -> int:
+    test_default_capture_rate_is_four_frames_per_second()
     await test_recorder_fills_gaps_and_publishes_small_jpegs()
     await test_recent_agent_frame_suppresses_a_redundant_capture()
     test_watch_and_replay_merge_supplementary_frames()

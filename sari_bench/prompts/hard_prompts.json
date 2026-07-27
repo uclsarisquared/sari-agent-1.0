@@ -1,0 +1,118 @@
+{
+  "prompts": [
+    {
+      "id": "hard_01",
+      "family": "reasoning",
+      "prompt": "Which of these two products have lower sugar content: Pocky or Hello Panda? Bring that item to the counter",
+      "looking_for": "the product (Pocky or Hello Panda) with the lower sugar content correctly identified and brought to the checkout counter"
+    },
+    {
+      "id": "hard_02",
+      "family": "reasoning",
+      "prompt": "Compare two brands of cans and choose the cheaper one to scan at the checkout",
+      "looking_for": "two canned product brands compared by price, with the cheaper one scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "hard_03",
+      "family": "reasoning",
+      "prompt": "You have 200 php. Buy as many chips as you can.",
+      "looking_for": "the maximum number of chips products affordable within a 200 php budget scanned and bagged at the self-checkout, without exceeding the budget"
+    },
+    {
+      "id": "hard_04",
+      "family": "reasoning",
+      "prompt": "Get an alternative to Pancit Canton",
+      "looking_for": "a noodle product other than Pancit Canton held in either hand as a suitable alternative"
+    },
+    {
+      "id": "hard_05",
+      "family": "reasoning",
+      "prompt": "Find Choco Mallows and check its price. Then get a cheaper alternative.",
+      "looking_for": "Choco Mallows located with its price reported, followed by a cheaper alternative product held in either hand"
+    },
+    {
+      "id": "hard_06",
+      "family": "reasoning",
+      "prompt": "Pick 3 items that total under 250 php and scan them at the checkout",
+      "looking_for": "three items with a combined price under 250 php all scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "hard_07",
+      "family": "reasoning",
+      "prompt": "Pick a product for a college student budget meal.",
+      "looking_for": "an inexpensive, meal-appropriate product held in either hand"
+    },
+    {
+      "id": "hard_08",
+      "family": "reasoning",
+      "prompt": "Get a healthier option for Coca Cola",
+      "looking_for": "a lower-sugar or healthier alternative to Coca Cola held in either hand"
+    },
+    {
+      "id": "hard_09",
+      "family": "reasoning",
+      "prompt": "Buy chips, noodles, and soup while staying within 150 php",
+      "looking_for": "one chips item, one noodle item, and one soup item with a combined price under 150 php all scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "hard_10",
+      "family": "reasoning",
+      "prompt": "Compare Nestle Honey Stars and Koko Krunch and choose the one with fewer ingredients",
+      "looking_for": "Nestle Honey Stars and Koko Krunch compared by ingredient count, with the product having fewer ingredients held in either hand"
+    },
+    {
+      "id": "hard_11",
+      "family": "attribute",
+      "prompt": "Find biscuits with no added sugar or artificial ingredients",
+      "looking_for": "a biscuit product with no added sugar or artificial ingredients held in either hand"
+    },
+    {
+      "id": "hard_12",
+      "family": "attribute",
+      "prompt": "You are allergic to nuts. Find a suitable biscuit",
+      "looking_for": "a nut-free biscuit product held in either hand"
+    },
+    {
+      "id": "hard_13",
+      "family": "reasoning",
+      "prompt": "You only have 300 php. Choose which of these items to remove to stay under budget: 2x Nestle Honey Stars, 1x Pancit Canton",
+      "looking_for": "a correct item removed from the listed set (2x Nestle Honey Stars, 1x Pancit Canton) so the remaining total stays within 300 php, with the choice reported"
+    },
+    {
+      "id": "hard_14",
+      "family": "counting",
+      "prompt": "Find 3 biscuits with different sugar levels and scan them from lowest to highest",
+      "looking_for": "three biscuit products with distinct sugar levels scanned at the self-checkout in ascending order of sugar content"
+    },
+    {
+      "id": "hard_15",
+      "family": "attribute",
+      "prompt": "Find the cheapest noodles",
+      "looking_for": "the lowest-priced noodle product held in either hand"
+    },
+    {
+      "id": "hard_16",
+      "family": "attribute",
+      "prompt": "Find the most expensive canned food",
+      "looking_for": "the highest-priced canned food product held in either hand"
+    },
+    {
+      "id": "hard_17",
+      "family": "attribute",
+      "prompt": "Find the biggest chips",
+      "looking_for": "the largest-sized chips product held in either hand"
+    },
+    {
+      "id": "hard_18",
+      "family": "attribute",
+      "prompt": "Find the smallest biscuits",
+      "looking_for": "the smallest-sized biscuit product held in either hand"
+    },
+    {
+      "id": "hard_19",
+      "family": "attribute",
+      "prompt": "Get the newest product in chips",
+      "looking_for": "the most recently released chips product held in either hand"
+    }
+  ]
+}

@@ -192,10 +192,11 @@ class BenchmarkRunner:
         arm: str,
         map_dir: str | None,
         leg_retries: int,
+        completion_guard: str = "deterministic",
         per_leg_minutes: float | None = None,
         timeout_grace: float = DEFAULT_TIMEOUT_GRACE_SECONDS,
         sandbox_startup_timeout: float = 0.0,
-        capture_interval: float = 2.0,
+        capture_interval: float = capture.DEFAULT_INTERVAL_SECONDS,
         capacity_poll_interval: float = DEFAULT_CAPACITY_POLL_SECONDS,
         python_executable: str | None = None,
         agent_entry: str = ORCHESTRATOR_ENTRY,
@@ -222,6 +223,9 @@ class BenchmarkRunner:
         self.arm = arm
         self.map_dir = map_dir
         self.leg_retries = leg_retries
+        if completion_guard not in {"deterministic", "vlm"}:
+            raise ValueError(f"unsupported completion guard: {completion_guard!r}")
+        self.completion_guard = completion_guard
         self.timeout_grace = timeout_grace
         self.sandbox_startup_timeout = sandbox_startup_timeout
         self.capture_interval = capture_interval
@@ -428,6 +432,7 @@ class BenchmarkRunner:
             "capture_interval_seconds": self.capture_interval,
             "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
             "leg_retries": self.leg_retries,
+            "completion_guard": self.completion_guard,
             "timeout_grace_seconds": self.timeout_grace,
             "agent_entry": self.agent_entry,
             "agent_cwd": str(Path(self.agent_cwd).resolve()),
@@ -436,10 +441,18 @@ class BenchmarkRunner:
         }
 
     def _validate_resume_config(self, battery: dict[str, Any]) -> None:
+        # Batteries created before completion guards were configurable used the deterministic
+        # backend. Treat an absent legacy field as that default, while still refusing a resume that
+        # would silently switch an old deterministic battery to VLM.
+        def existing_value(key: str) -> Any:
+            if key == "completion_guard" and key not in battery:
+                return "deterministic"
+            return battery.get(key)
+
         mismatches = [
-            f"{key}: existing={battery.get(key)!r}, requested={requested!r}"
+            f"{key}: existing={existing_value(key)!r}, requested={requested!r}"
             for key, requested in self._semantic_config().items()
-            if battery.get(key) != requested
+            if existing_value(key) != requested
         ]
         if mismatches:
             raise ResumeError(
@@ -470,7 +483,13 @@ class BenchmarkRunner:
             exit_code=manifest.get("exit_code"),
             outcome=str(manifest.get("outcome") or "finished"),
         )
-        result.success = bool(manifest.get("success", result.success))
+        # The process outcome is authoritative over a stale/partial agent summary. In particular,
+        # an agent can write `success: true` and then crash during teardown; a non-zero exit is still
+        # an agent_error and must never become a successful benchmark attempt.
+        result.success = (
+            bool(manifest.get("success", result.success))
+            if result.outcome == "completed" else False
+        )
         result.end_reason = str(manifest.get("end_reason") or result.end_reason)
         result.sandbox_id = str(manifest.get("sandbox_id") or "")
         result.commands_uri = str(manifest.get("commands_uri") or "")
@@ -753,6 +772,7 @@ class BenchmarkRunner:
                 "capture_interval_seconds": self.capture_interval,
                 "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
                 "leg_retries": self.leg_retries,
+                "completion_guard": self.completion_guard,
                 "timeout_grace_seconds": self.timeout_grace,
                 "sandbox_startup_timeout_seconds": self.sandbox_startup_timeout,
                 "agent_entry": self.agent_entry,
@@ -938,6 +958,7 @@ class BenchmarkRunner:
                 "looking_for": prompt.looking_for,
                 "attempt": attempt,
                 "arm": self.arm,
+                "completion_guard": self.completion_guard,
                 "sandbox_id": lease.sandbox_id,
                 "commands_uri": lease.commands_uri,
                 "lease_id": getattr(lease, "lease_id", ""),
@@ -1223,6 +1244,8 @@ class BenchmarkRunner:
             str(self.per_leg_minutes),
             "--leg-retries",
             str(self.leg_retries),
+            "--completion-guard",
+            self.completion_guard,
             "--ws-uri",
             lease.commands_uri,
         ]
@@ -1291,7 +1314,10 @@ class BenchmarkRunner:
             self._apply_tokens(result, run_dir, summary=None)
             return result
 
-        result.success = bool(summary.get("success"))
+        # Only a clean process exit may carry the agent's task-success predicate. A summary can be
+        # written before a later teardown crash, so copying it onto `agent_error` would produce the
+        # contradictory and score-corrupting `agent_error (success=True)`.
+        result.success = bool(summary.get("success")) if outcome == "completed" else False
         result.llm_calls = int(summary.get("llm_calls") or 0)
         self._apply_tokens(result, run_dir, summary=summary)
         legs = summary.get("legs") or []
@@ -1352,6 +1378,10 @@ class BenchmarkRunner:
                 result = AttemptResult(**{key: value for key, value in row.items() if key in allowed})
             except (TypeError, ValueError):
                 continue
+            # Normalize historical rows too, so resuming an affected battery repairs its aggregate
+            # summary even if the old attempts.jsonl row recorded agent_error as successful.
+            if result.outcome != "completed":
+                result.success = False
             latest[(result.prompt_id, result.attempt)] = result
         results = list(latest.values())
 
@@ -1474,15 +1504,21 @@ async def async_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--capture-interval",
         type=float,
-        default=2.0,
+        default=capture.DEFAULT_INTERVAL_SECONDS,
         help="Seconds between saved observations; recent agent step frames suppress redundant "
-             "captures (0 disables supplementary capture).",
+             "captures (default: 0.25, or 4 frames/second; 0 disables supplementary capture).",
     )
     parser.add_argument("--only", default=None, help="Comma-separated prompt ids to run.")
     parser.add_argument("--max-steps", type=int, default=150, help="Per-leg step cap for the agent.")
     parser.add_argument("--arm", choices=["vlm", "graph", "graph-advised"], default="graph")
     parser.add_argument("--map-dir", default=None, help="slamtest output dir the agent loads its map from.")
     parser.add_argument("--leg-retries", type=int, default=1)
+    parser.add_argument(
+        "--completion-guard",
+        choices=["deterministic", "vlm"],
+        default="deterministic",
+        help="Pickup completion guard passed to the agent (default deterministic).",
+    )
     args = parser.parse_args(argv)
 
     prompts = load_prompts(args.prompts)
@@ -1530,6 +1566,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         arm=args.arm,
         map_dir=args.map_dir,
         leg_retries=max(0, args.leg_retries),
+        completion_guard=args.completion_guard,
         sandbox_startup_timeout=args.sandbox_startup_timeout,
         capture_interval=args.capture_interval,
         resume=args.resume,

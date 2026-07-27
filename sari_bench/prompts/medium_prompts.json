@@ -1,0 +1,76 @@
+{
+  "prompts": [
+    {
+      "id": "medium_01",
+      "family": "checkout",
+      "prompt": "Get Pocky and scan it at the checkout",
+      "looking_for": "Pocky scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_02",
+      "family": "checkout",
+      "prompt": "Get noodles and scan it at the checkout",
+      "looking_for": "a noodle product scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_03",
+      "family": "checkout",
+      "prompt": "Get Danisa Butter Cookies and then Clover Chips and scan them at the checkout",
+      "looking_for": "Danisa Butter Cookies and Clover Chips both scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_04",
+      "family": "checkout",
+      "prompt": "Get Lemon Square Mamon and scan it at the checkout. Then, get Hello Panda and scan it at the checkout",
+      "looking_for": "Lemon Square Mamon scanned and bagged first, followed by Hello Panda scanned and bagged, at the self-checkout"
+    },
+    {
+      "id": "medium_05",
+      "family": "checkout",
+      "prompt": "Get one item from each of the following categories: cans, noodles, and chips and scan them at the checkout",
+      "looking_for": "one canned item, one noodle item, and one chips item all scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_06",
+      "family": "checkout",
+      "prompt": "Get an item under 100 php and scan it at the checkout",
+      "looking_for": "an item priced under 100 php scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_07",
+      "family": "checkout",
+      "prompt": "Get chips under 120 php and scan at the checkout",
+      "looking_for": "a chips product priced under 120 php scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_08",
+      "family": "checkout",
+      "prompt": "Get Pringles, then go to the fridge and get a Coca Cola and scan them at the checkout",
+      "looking_for": "Pringles and a Coca Cola retrieved from the fridge, both scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_09",
+      "family": "checkout",
+      "prompt": "Get chips but avoid any with cheese and scan it at the checkout",
+      "looking_for": "a non-cheese chips product scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_10",
+      "family": "inspect",
+      "prompt": "Find Pocky, read ingredients for nuts, and scan it at the checkout if it doesn't contain it",
+      "looking_for": "Pocky's ingredients checked for nuts, then scanned and bagged at the self-checkout only if nut-free"
+    },
+    {
+      "id": "medium_11",
+      "family": "inspect",
+      "prompt": "Find canned tuna and check its expiration. Scan it at the checkout if it doesn't expire in a month",
+      "looking_for": "canned tuna's expiration date checked, then scanned and bagged at the self-checkout only if it does not expire within a month"
+    },
+    {
+      "id": "medium_12",
+      "family": "navigate",
+      "prompt": "Get an item from aisle 3 and scan it at the checkout without going through aisle 1",
+      "looking_for": "an item from Aisle 3 scanned and bagged at the self-checkout, with Aisle 1 avoided throughout"
+    }
+  ]
+}
