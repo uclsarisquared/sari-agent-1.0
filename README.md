@@ -243,17 +243,3 @@ Other standing constraints:
 | `docs/` | The SARI paper PDF and historical sketches. |
 | `legacy/chime.py`, `overhaul/chime.py` | Cross-platform completion beep. Duplicated on purpose — both stacks define their own `env.py`/`actions.py`, so sharing one copy via `sys.path` would shadow `overhaul`'s modules with the legacy stack's. |
 | `pyproject.toml` | Dependency source of truth (uv). The `requirements.txt` files are legacy freezes. |
-
-## Working conventions
-
-This project has repeatedly burned hypotheses that sounded obviously right:
-
-- **Measure, don't assume.** The fridge read badly and it wasn't the glass, wasn't the prompt, and
-  wasn't the model — it was effective resolution after the vision encoder's downscale.
-- **A/B on the identical input before claiming a prompt change worked.** Two reasonable-looking
-  prompt changes measurably made things *worse* and were reverted.
-- **Use negative controls.** `guided_json` looked like it worked for three runs — because conforming
-  output is also what an *ignored* schema produces.
-- **Record measured findings in the code.** Docstrings here carry *why*, including dead ends, on
-  purpose. Read the `MEASURED - DO NOT RE-ATTEMPT` block atop `slamtest/annotator_sys_inst.py`
-  before touching annotator prompts.
