@@ -5,10 +5,10 @@ stack). It writes the same summary.json the orchestrator does, so the result-fol
 exercised for real. What is being pinned down:
 
   1. prompts x tries all run, and each attempt lands in its own run dir;
-  2. concurrency is bounded by the POOL, not just by --concurrency - two sandboxes means at most
-     two agents alive at once;
-  3. an attempt that overruns its time limit is killed and recorded, not left hanging;
-  4. a crashed agent still releases its sandbox, so the battery finishes.
+  2. automatic concurrency fills the pool and grows when another sandbox joins;
+  3. explicit --concurrency remains a hard cap;
+  4. an attempt that overruns its time limit is killed and recorded, not left hanging;
+  5. a crashed agent still releases its sandbox, so the battery finishes.
 
     python sari_bench/tests/test_runner.py
 """
@@ -16,8 +16,11 @@ exercised for real. What is being pinned down:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
+import signal
+import socket
 import sys
 import tempfile
 from pathlib import Path
@@ -27,8 +30,11 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from sari_bench.coordinator import Coordinator
-from sari_bench.runner import BenchmarkRunner, Prompt, load_prompts
+from sari_bench import capture
+from sari_bench.runner import BenchmarkRunner, Prompt, ResumeError, load_prompts
 from sari_bench.tests.test_coordinator import FakeSandbox
+from sari_bench.watch.notify import Discord
+from sari_bench.watch.server import WatchState
 
 # Records its own liveness window so the test can prove two agents overlapped (or did not), and
 # honours the run-dir contract the runner reads results back out of.
@@ -40,7 +46,8 @@ task = sys.argv[sys.argv.index("--task") + 1]
 os.makedirs(run_dir, exist_ok=True)
 
 with open(os.path.join(run_dir, "liveness.json"), "w") as f:
-    json.dump({"start": time.time(), "uri": os.environ.get("SARI_WS_URI", "")}, f)
+    json.dump({"start": time.time(), "pid": os.getpid(),
+               "uri": os.environ.get("SARI_WS_URI", "")}, f)
 
 # The real agent's token_meter rewrites this every few seconds, so it exists even for an attempt
 # that never reaches summary.json.
@@ -51,6 +58,8 @@ mode = os.environ.get("STUB_MODE", "ok")
 if mode == "crash":
     sys.exit(3)
 if mode == "hang":
+    time.sleep(600)
+if mode == "cancel_siblings" and task == "winner prompt" and not run_dir.endswith("try01"):
     time.sleep(600)
 
 time.sleep(float(os.environ.get("STUB_SLEEP", "0.3")))
@@ -79,12 +88,14 @@ def _runner(url: str, prompts: list[Prompt], workspace: Path, **kwargs) -> Bench
     options = dict(
         tries=1,
         time_limit_minutes=1.0,
-        concurrency=2,
+        concurrency=None,
         max_steps=10,
         arm="graph",
         map_dir=None,
         leg_retries=0,
         timeout_grace=1.0,
+        capture_interval=0.0,
+        capacity_poll_interval=0.05,
     )
     options.update(kwargs)
     return BenchmarkRunner(
@@ -197,6 +208,94 @@ async def test_pool_size_bounds_concurrency() -> None:
     print("ok  a one-sandbox pool serialises attempts even at concurrency 3")
 
 
+async def test_automatic_concurrency_fills_and_grows_with_the_fleet() -> None:
+    """An empty-start run begins when a sandbox joins, then expands while attempts are active."""
+    coordinator, url = await _start_coordinator()
+    first = FakeSandbox("sandbox-a", 51001)
+    second = FakeSandbox("sandbox-b", 51002)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        prompts = [Prompt(id=f"p{i}", prompt=f"task {i}") for i in range(3)]
+        os.environ["STUB_SLEEP"] = "1.0"
+        runner_task = asyncio.create_task(_runner(url, prompts, workspace).run())
+        try:
+            await asyncio.sleep(0.15)
+            assert not list((workspace / "runs").rglob("liveness.json"))
+
+            await first.connect(url)
+            first_liveness = workspace / "runs" / "p0" / "try01" / "liveness.json"
+            for _ in range(100):
+                if first_liveness.exists():
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("automatic runner did not use the first joined sandbox")
+
+            await second.connect(url)
+            for _ in range(100):
+                liveness = list((workspace / "runs").rglob("liveness.json"))
+                if len(liveness) >= 2:
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("automatic runner did not grow for the second sandbox")
+
+            windows = [json.loads(path.read_text()) for path in liveness]
+            assert any("end" not in window for window in windows), windows
+            summary = await asyncio.wait_for(runner_task, timeout=30)
+            assert summary["concurrency"] == "auto"
+            assert summary["concurrency_mode"] == "auto"
+            assert summary["concurrency_limit"] is None
+            assert summary["peak_workers"] == 2
+            battery = json.loads((workspace / "runs" / "battery.json").read_text())
+            assert battery["peak_workers"] == 2
+        finally:
+            os.environ.pop("STUB_SLEEP", None)
+            if not runner_task.done():
+                runner_task.cancel()
+                await asyncio.gather(runner_task, return_exceptions=True)
+            await first.close()
+            await second.close()
+            await coordinator.stop()
+    print("ok  automatic concurrency fills an empty fleet and grows when a sandbox joins")
+
+
+async def test_explicit_concurrency_remains_a_hard_cap() -> None:
+    coordinator, url = await _start_coordinator()
+    sandboxes = [FakeSandbox("sandbox-a", 51001), FakeSandbox("sandbox-b", 51002)]
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            for sandbox in sandboxes:
+                await sandbox.connect(url)
+            os.environ["STUB_SLEEP"] = "0.4"
+            try:
+                summary = await _runner(
+                    url,
+                    [Prompt(id=f"p{i}", prompt=f"task {i}") for i in range(3)],
+                    workspace,
+                    concurrency=1,
+                ).run()
+            finally:
+                os.environ.pop("STUB_SLEEP", None)
+
+            windows = sorted(
+                (json.loads(path.read_text())["start"], json.loads(path.read_text())["end"])
+                for path in (workspace / "runs").rglob("liveness.json")
+            )
+            for (_, earlier_end), (later_start, _) in zip(windows, windows[1:]):
+                assert later_start >= earlier_end, "explicit concurrency=1 was exceeded"
+            assert summary["concurrency"] == 1
+            assert summary["concurrency_mode"] == "fixed"
+            assert summary["concurrency_limit"] == 1
+            assert summary["peak_workers"] == 1
+        finally:
+            for sandbox in sandboxes:
+                await sandbox.close()
+            await coordinator.stop()
+    print("ok  explicit concurrency remains a hard cap")
+
+
 async def test_startup_timeout_explains_an_empty_pool() -> None:
     coordinator, url = await _start_coordinator()
     with tempfile.TemporaryDirectory() as tmp:
@@ -280,6 +379,270 @@ async def test_crashed_agent_still_releases_its_sandbox() -> None:
     print("ok  a crashed agent still releases, so the battery finishes")
 
 
+async def test_capture_lifecycle_follows_the_agent_process() -> None:
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    original = capture.record_previews
+    called: list[str] = []
+    stopped = asyncio.Event()
+
+    async def fake_recorder(
+        _run_dir: Path,
+        commands_uri: str,
+        _interval: float,
+        *,
+        stats: capture.CaptureStats,
+        **_kwargs,
+    ) -> capture.CaptureStats:
+        called.append(commands_uri)
+        stats.frames += 1
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+        return stats
+
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            await sandbox.connect(url)
+            capture.record_previews = fake_recorder
+            summary = await _runner(
+                url,
+                [Prompt(id="p1", prompt="record me")],
+                workspace,
+                capture_interval=0.05,
+            ).run()
+            assert summary["total_successes"] == 1
+            assert stopped.is_set(), "recorder survived the agent process"
+            assert called == ["ws://127.0.0.1:51001/commands"]
+            manifest = json.loads(
+                (workspace / "runs" / "p1" / "try01" / "attempt.json").read_text(encoding="utf-8")
+            )
+            assert manifest["capture_frames"] == 1
+            assert manifest["capture_failures"] == 0
+            assert sandbox.reset_count == 1
+        finally:
+            capture.record_previews = original
+            await sandbox.close()
+            await coordinator.stop()
+    print("ok  supplementary capture stops before the sandbox is released")
+
+
+async def test_cancelling_runner_kills_agent_and_releases_sandbox() -> None:
+    """Ctrl+C cancels runner.run(); detached agent sessions must not survive that cancellation."""
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            await sandbox.connect(url)
+            os.environ["STUB_MODE"] = "hang"
+            runner_task = asyncio.create_task(
+                _runner(url, [Prompt(id="p1", prompt="interrupt me")], workspace).run()
+            )
+            liveness_path = workspace / "runs" / "p1" / "try01" / "liveness.json"
+            try:
+                for _ in range(100):
+                    if liveness_path.exists():
+                        break
+                    await asyncio.sleep(0.05)
+                else:
+                    raise AssertionError("agent did not start")
+
+                agent_pid = json.loads(liveness_path.read_text(encoding="utf-8"))["pid"]
+                os.kill(agent_pid, 0)  # It is alive before cancellation.
+                runner_task.cancel()
+                try:
+                    await asyncio.wait_for(runner_task, timeout=30)
+                except asyncio.CancelledError:
+                    pass
+                else:
+                    raise AssertionError("runner cancellation did not propagate")
+            finally:
+                os.environ.pop("STUB_MODE", None)
+
+            try:
+                os.kill(agent_pid, 0)
+            except ProcessLookupError:
+                pass
+            else:
+                raise AssertionError(f"agent process {agent_pid} survived runner cancellation")
+
+            assert sandbox.reset_count == 1
+            manifest = json.loads(
+                (workspace / "runs" / "p1" / "try01" / "attempt.json").read_text(encoding="utf-8")
+            )
+            assert manifest["state"] == "finished", manifest
+            assert manifest["outcome"] == "interrupted", manifest
+        finally:
+            await sandbox.close()
+            await coordinator.stop()
+    print("ok  cancelling the runner kills its detached agent and releases the sandbox")
+
+
+async def test_human_success_stops_running_and_skips_queued_siblings() -> None:
+    from sari_bench.watch.notify import Discord
+    from sari_bench.watch.server import WatchState
+
+    coordinator, url = await _start_coordinator()
+    sandboxes = [FakeSandbox("sandbox-a", 51001), FakeSandbox("sandbox-b", 51002)]
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            for sandbox in sandboxes:
+                await sandbox.connect(url)
+            os.environ["STUB_MODE"] = "cancel_siblings"
+            prompts = [
+                Prompt(id="p", prompt="winner prompt", family="shared"),
+                Prompt(id="next", prompt="next prompt", family="shared"),
+            ]
+            runner_task = asyncio.create_task(
+                _runner(url, prompts, workspace, tries=4, concurrency=2).run()
+            )
+            winner_manifest = workspace / "runs" / "p" / "try01" / "attempt.json"
+            running_manifest = workspace / "runs" / "p" / "try02" / "attempt.json"
+            second_running_manifest = workspace / "runs" / "p" / "try03" / "attempt.json"
+            for _ in range(300):
+                winner = (
+                    json.loads(winner_manifest.read_text())
+                    if winner_manifest.exists()
+                    else {}
+                )
+                running = (
+                    json.loads(running_manifest.read_text())
+                    if running_manifest.exists()
+                    else {}
+                )
+                second_running = (
+                    json.loads(second_running_manifest.read_text())
+                    if second_running_manifest.exists()
+                    else {}
+                )
+                if (
+                    winner.get("state") == "finished"
+                    and running.get("pid")
+                    and second_running.get("pid")
+                ):
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("winner did not finish while a sibling was running")
+
+            state = WatchState(
+                bench_root=workspace,
+                fixed_battery=workspace / "runs",
+                discord=Discord(enabled=False),
+                min_interval=0.0,
+            )
+            response = state.verdict("p/try01", True, by="tester")
+            assert response["ok"] is True, response
+            assert response["siblings_stopped"] == 2, response
+
+            summary = await asyncio.wait_for(runner_task, timeout=30)
+        finally:
+            os.environ.pop("STUB_MODE", None)
+            for sandbox in sandboxes:
+                await sandbox.close()
+            await coordinator.stop()
+
+        assert summary["total_attempts"] == 8, summary
+        rows = {(row["prompt_id"], row["attempt"]): row for row in summary["attempts"]}
+        assert rows[("p", 1)]["outcome"] == "completed"
+        assert rows[("p", 2)]["outcome"] == "operator_kill", rows[("p", 2)]
+        assert rows[("p", 2)]["end_reason"] == "already_successful"
+        assert rows[("p", 3)]["outcome"] == "operator_kill", rows[("p", 3)]
+        assert rows[("p", 3)]["end_reason"] == "already_successful"
+        assert rows[("p", 4)]["outcome"] == "skipped", rows[("p", 4)]
+        assert rows[("p", 4)]["end_reason"] == "already_successful"
+        assert rows[("p", 4)]["wall_seconds"] == 0.0
+        assert rows[("p", 4)]["winning_attempt_key"] == "p/try01"
+        assert all(rows[("next", n)]["outcome"] == "completed" for n in (1, 2, 3, 4))
+
+        skipped_manifest = json.loads(
+            (workspace / "runs" / "p" / "try04" / "attempt.json").read_text()
+        )
+        assert skipped_manifest["state"] == "finished"
+        assert skipped_manifest["outcome"] == "skipped"
+        assert skipped_manifest["winning_attempt_key"] == "p/try01"
+        lines = (workspace / "runs" / "attempts.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 8, "planned-attempt denominator was not preserved in the result spine"
+        from sari_bench.report import collect
+        report_rows = {
+            (row["prompt_id"], row["attempt"]): row
+            for row in collect(workspace / "runs")[0]
+        }
+        assert report_rows[("p", 2)]["end_reason"] == "already_successful"
+        assert report_rows[("p", 4)]["outcome"] == "skipped"
+        assert report_rows[("p", 4)]["winning_attempt_key"] == "p/try01"
+    print("ok  verified success kills a running sibling, skips queued work, and advances the battery")
+
+
+async def test_runner_closes_lease_and_pid_publication_races() -> None:
+    """Force the winner to appear at each checkpoint around subprocess publication."""
+
+    class RacingRunner(BenchmarkRunner):
+        winner_on_call: int
+        winner_calls: int
+
+        def _human_verified_winner(self, _prompt_id: str) -> dict | None:
+            self.winner_calls += 1
+            if self.winner_calls < self.winner_on_call:
+                return None
+            return {
+                "winning_attempt_key": "p/try00",
+                "stop_requested_at": "2026-07-27T12:00:00",
+                "stop_requested_by": "tester",
+            }
+
+    for winner_on_call, expected_outcome in ((2, "skipped"), (3, "operator_kill")):
+        coordinator, url = await _start_coordinator()
+        sandbox = FakeSandbox(f"sandbox-{winner_on_call}", 51000 + winner_on_call)
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            try:
+                await sandbox.connect(url)
+                base = _runner(
+                    url,
+                    [Prompt(id="p", prompt="race prompt")],
+                    workspace,
+                    concurrency=1,
+                )
+                runner = RacingRunner(
+                    prompts=list(base.prompts.values()),
+                    coordinator_url=base.coordinator_url,
+                    output_dir=base.output_dir,
+                    tries=base.tries,
+                    time_limit_minutes=base.time_limit_minutes,
+                    concurrency=base.concurrency,
+                    max_steps=base.max_steps,
+                    arm=base.arm,
+                    map_dir=base.map_dir,
+                    leg_retries=base.leg_retries,
+                    timeout_grace=base.timeout_grace,
+                    capture_interval=0.0,
+                    agent_entry=base.agent_entry,
+                    agent_cwd=base.agent_cwd,
+                )
+                runner.winner_on_call = winner_on_call
+                runner.winner_calls = 0
+                summary = await runner.run()
+            finally:
+                await sandbox.close()
+                await coordinator.stop()
+
+            row = summary["attempts"][0]
+            assert row["outcome"] == expected_outcome, row
+            assert row["end_reason"] == "already_successful", row
+            assert row["winning_attempt_key"] == "p/try00", row
+            assert sandbox.reset_count == 1
+            manifest = json.loads(
+                (workspace / "runs" / "p" / "try01" / "attempt.json").read_text()
+            )
+            assert bool(manifest.get("pid")) is (winner_on_call == 3), manifest
+    print("ok  runner observes winners after lease acquisition and immediately after PID publication")
+
+
 async def test_token_usage_is_recorded_per_attempt() -> None:
     """Tokens in/out are the point of this test twice over: from the agent's summary.json when it
     exits cleanly, and from its periodic tokens.json when the harness kills it first."""
@@ -340,15 +703,397 @@ async def test_token_usage_is_recorded_per_attempt() -> None:
     print("ok  token usage is recorded per attempt, killed attempts included")
 
 
+async def test_watcher_retry_replaces_a_finished_try_after_runner_exit() -> None:
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        try:
+            await sandbox.connect(url)
+            runner = _runner(url, [Prompt(id="p1", prompt="retry me")], workspace)
+            await asyncio.wait_for(runner.run(), timeout=60)
+
+            battery = workspace / "runs"
+            run_dir = battery / "p1" / "try01"
+            old_manifest = json.loads((run_dir / "attempt.json").read_text())
+            archive = battery / "p1" / "try01.requeue00"
+            archive.mkdir()
+            (archive / "agent.log").write_text("old sandbox-loss log")
+
+            state = WatchState(
+                bench_root=workspace,
+                fixed_battery=battery,
+                discord=Discord(enabled=False),
+                min_interval=0.0,
+                coordinator_url=url,
+                retry_agent_entry=str(workspace / "stub_agent.py"),
+                retry_agent_cwd=workspace,
+            )
+            assert state.verdict("p1/try01", True, by="tester")["ok"] is True
+            accepted = state.retry("p1/try01")
+            assert accepted["ok"] is True, accepted
+            assert state.retry("p1/try01")["ok"] is False, "duplicate retry was accepted"
+
+            for _ in range(1000):
+                with state._lock:
+                    pending = bool(state._retry_jobs)
+                if not pending:
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("watcher retry did not finish")
+
+            replacement = json.loads((run_dir / "attempt.json").read_text())
+            assert replacement["run_id"] != old_manifest["run_id"]
+            assert replacement["state"] == "finished"
+            assert not archive.exists(), "sandbox-loss history survived destructive retry"
+            rows = [
+                json.loads(line)
+                for line in (battery / "attempts.jsonl").read_text().splitlines()
+                if line.strip()
+            ]
+            assert len(rows) == 1 and rows[0]["prompt_id"] == "p1" and rows[0]["attempt"] == 1
+            summary = json.loads((battery / "summary.json").read_text())
+            assert summary["total_attempts"] == 1, summary
+            plan = json.loads((battery / "battery.json").read_text())
+            assert "p1" not in (plan.get("human_verified_winners") or {})
+            assert "verified_success" not in replacement
+            assert sandbox.reset_count == 2, "replacement did not lease and reset a fresh sandbox"
+        finally:
+            await sandbox.close()
+            await coordinator.stop()
+    print("ok  watcher retry deletes history and replaces a finished try after runner exit")
+
+
+async def test_watcher_retry_stops_and_replaces_a_live_try() -> None:
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        runner_task: asyncio.Task | None = None
+        try:
+            await sandbox.connect(url)
+            os.environ["STUB_MODE"] = "hang"
+            runner_task = asyncio.create_task(
+                _runner(url, [Prompt(id="p1", prompt="interrupt me")], workspace).run()
+            )
+            manifest_path = workspace / "runs" / "p1" / "try01" / "attempt.json"
+            for _ in range(500):
+                if manifest_path.exists():
+                    manifest = json.loads(manifest_path.read_text())
+                    if manifest.get("state") == "running":
+                        break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("original attempt never became live")
+            old_run_id = manifest["run_id"]
+            os.environ.pop("STUB_MODE", None)
+
+            state = WatchState(
+                bench_root=workspace,
+                fixed_battery=workspace / "runs",
+                discord=Discord(enabled=False),
+                min_interval=0.0,
+                coordinator_url=url,
+                retry_agent_entry=str(workspace / "stub_agent.py"),
+                retry_agent_cwd=workspace,
+            )
+            assert state.retry("p1/try01")["ok"] is True
+            await asyncio.wait_for(runner_task, timeout=60)
+            for _ in range(1000):
+                with state._lock:
+                    pending = bool(state._retry_jobs)
+                if not pending:
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("live retry did not finish")
+
+            manifest = json.loads(manifest_path.read_text())
+            assert manifest["run_id"] != old_run_id
+            assert manifest["outcome"] == "completed"
+            rows = [
+                json.loads(line)
+                for line in (workspace / "runs" / "attempts.jsonl").read_text().splitlines()
+            ]
+            assert len(rows) == 1 and rows[0]["outcome"] == "completed", rows
+            assert sandbox.reset_count == 2
+        finally:
+            os.environ.pop("STUB_MODE", None)
+            if runner_task is not None and not runner_task.done():
+                runner_task.cancel()
+                await asyncio.gather(runner_task, return_exceptions=True)
+            await sandbox.close()
+            await coordinator.stop()
+    print("ok  watcher retry stops, cleans, and replaces a live try")
+
+
+async def test_nonempty_output_requires_explicit_resume() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        output = workspace / "runs"
+        output.mkdir()
+        (output / "unrelated.txt").write_text("do not overwrite", encoding="utf-8")
+        runner = _runner(
+            "ws://127.0.0.1:1",
+            [Prompt(id="p", prompt="never start")],
+            workspace,
+            sandbox_startup_timeout=0.01,
+        )
+        try:
+            await runner.run()
+        except ResumeError as error:
+            assert "--resume" in str(error), error
+        else:
+            raise AssertionError("non-empty output directory was reused without --resume")
+        assert (output / "unrelated.txt").read_text() == "do not overwrite"
+        assert not (output / "battery.json").exists()
+    print("ok  a non-empty output directory requires explicit resume")
+
+
+async def test_completed_resume_repairs_results_without_a_sandbox() -> None:
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        prompts = [Prompt(id="p", prompt="resume me")]
+        try:
+            await sandbox.connect(url)
+            await _runner(url, prompts, workspace, tries=2, concurrency=1).run()
+            original_resets = sandbox.reset_count
+        finally:
+            await sandbox.close()
+            await coordinator.stop()
+
+        battery_dir = workspace / "runs"
+        attempts_path = battery_dir / "attempts.jsonl"
+        rows = [json.loads(line) for line in attempts_path.read_text().splitlines()]
+        duplicate = dict(rows[0])
+        duplicate["error"] = "latest duplicate retained"
+        # Simulate both legacy duplication and a crash after closing a manifest but before
+        # publishing its aggregate result row.
+        attempts_path.write_text(
+            json.dumps(rows[0]) + "\n" + json.dumps(duplicate) + "\n",
+            encoding="utf-8",
+        )
+        try01_manifest_path = battery_dir / "p" / "try01" / "attempt.json"
+        stale_manifest = json.loads(try01_manifest_path.read_text())
+        stale_manifest["state"] = "running"
+        try01_manifest_path.write_text(json.dumps(stale_manifest), encoding="utf-8")
+        battery = json.loads((battery_dir / "battery.json").read_text())
+        battery["human_verified_winners"] = {
+            "p": {
+                "winning_attempt_key": "p/try01",
+                "stop_requested_at": "2026-07-27T12:00:00",
+                "stop_requested_by": "tester",
+            }
+        }
+        (battery_dir / "battery.json").write_text(json.dumps(battery), encoding="utf-8")
+        try01_start = json.loads(
+            (battery_dir / "p" / "try01" / "liveness.json").read_text()
+        )["start"]
+
+        # Operational settings may change, and a fully complete resume must not need a coordinator.
+        resumed = _runner(
+            "ws://127.0.0.1:1",
+            prompts,
+            workspace,
+            tries=2,
+            concurrency=None,
+            resume=True,
+        )
+        summary = await resumed.run()
+        repaired = [json.loads(line) for line in attempts_path.read_text().splitlines()]
+        assert len(repaired) == 2, repaired
+        assert repaired[0]["error"] == "latest duplicate retained", repaired
+        assert summary["total_attempts"] == 2
+        assert json.loads(
+            (battery_dir / "p" / "try01" / "liveness.json").read_text()
+        )["start"] == try01_start
+        assert json.loads(try01_manifest_path.read_text())["state"] == "finished"
+        durable = json.loads((battery_dir / "battery.json").read_text())
+        assert durable["human_verified_winners"]["p"]["winning_attempt_key"] == "p/try01"
+        assert durable["resume_count"] == 1
+        assert original_resets == 2
+
+        incompatible = _runner(
+            "ws://127.0.0.1:1",
+            prompts,
+            workspace,
+            tries=3,
+            resume=True,
+        )
+        try:
+            await incompatible.run()
+        except ResumeError as error:
+            assert "tries" in str(error), error
+        else:
+            raise AssertionError("semantic resume mismatch was accepted")
+    print("ok  completed resume compacts/backfills results, preserves winners, and needs no sandbox")
+
+
+async def test_resume_deletes_and_reruns_only_an_interrupted_attempt() -> None:
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        prompts = [Prompt(id="p", prompt="partial battery")]
+        try:
+            await sandbox.connect(url)
+            await _runner(url, prompts, workspace, tries=2, concurrency=1).run()
+            battery = workspace / "runs"
+            first_start = json.loads(
+                (battery / "p" / "try01" / "liveness.json").read_text()
+            )["start"]
+            interrupted_dir = battery / "p" / "try02"
+            interrupted = json.loads((interrupted_dir / "attempt.json").read_text())
+            interrupted.update(
+                {
+                    "state": "running",
+                    "outcome": "",
+                    "pid": 999_999_999,
+                    "lease_id": "already-reaped-test-lease",
+                }
+            )
+            (interrupted_dir / "attempt.json").write_text(json.dumps(interrupted))
+            (interrupted_dir / "partial-only.txt").write_text("discard me")
+            rows = [
+                json.loads(line)
+                for line in (battery / "attempts.jsonl").read_text().splitlines()
+            ]
+            (battery / "attempts.jsonl").write_text(
+                "".join(
+                    json.dumps(row) + "\n"
+                    for row in rows
+                    if not (row["prompt_id"] == "p" and row["attempt"] == 2)
+                )
+            )
+
+            resumed = _runner(
+                url,
+                prompts,
+                workspace,
+                tries=2,
+                concurrency=1,
+                resume=True,
+            )
+            summary = await resumed.run()
+            assert summary["total_attempts"] == 2
+            assert sandbox.reset_count == 3, "a finished attempt was rerun"
+            assert json.loads(
+                (battery / "p" / "try01" / "liveness.json").read_text()
+            )["start"] == first_start
+            assert not (interrupted_dir / "partial-only.txt").exists()
+            assert not (battery / "p" / "try02.requeue00").exists()
+            result_rows = [
+                json.loads(line)
+                for line in (battery / "attempts.jsonl").read_text().splitlines()
+            ]
+            assert len(result_rows) == 2
+        finally:
+            await sandbox.close()
+            await coordinator.stop()
+    print("ok  resume deletes and cleanly reruns only the interrupted logical attempt")
+
+
+async def test_resume_stops_an_orphan_before_pid_publication() -> None:
+    coordinator, url = await _start_coordinator()
+    sandbox = FakeSandbox("sandbox-a", 51001)
+    orphan: asyncio.subprocess.Process | None = None
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        prompts = [Prompt(id="p", prompt="orphaned attempt")]
+        try:
+            await sandbox.connect(url)
+            base = _runner(url, prompts, workspace, concurrency=1)
+            base.output_dir.mkdir(parents=True)
+            base._write_battery_manifest(1)
+            run_dir = base.output_dir / "p" / "try01"
+            run_dir.mkdir(parents=True)
+            env = dict(os.environ)
+            env["STUB_MODE"] = "hang"
+            orphan = await asyncio.create_subprocess_exec(
+                sys.executable,
+                base.agent_entry,
+                "--task",
+                "orphaned attempt",
+                "--run-dir",
+                str(run_dir),
+                env=env,
+                start_new_session=True,
+            )
+            for _ in range(100):
+                if (run_dir / "liveness.json").exists():
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("orphan fixture did not start")
+
+            # Model SIGKILL landing between create_subprocess_exec() and publication of its PID.
+            (run_dir / "attempt.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "crash-window",
+                        "prompt_id": "p",
+                        "prompt": "orphaned attempt",
+                        "attempt": 1,
+                        "state": "starting",
+                        "pid": None,
+                        "runner_host": socket.gethostname(),
+                        "runner_boot_id": base._boot_id(),
+                        "run_dir": str(run_dir),
+                        "command": [
+                            sys.executable,
+                            base.agent_entry,
+                            "--task",
+                            "orphaned attempt",
+                            "--run-dir",
+                            str(run_dir),
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            resumed = _runner(url, prompts, workspace, concurrency=1, resume=True)
+            summary = await resumed.run()
+            await asyncio.wait_for(orphan.wait(), timeout=5)
+            assert orphan.returncode != 0, "the old agent was not terminated"
+            assert summary["total_attempts"] == 1
+            replacement = json.loads((run_dir / "attempt.json").read_text())
+            assert replacement["run_id"] != "crash-window"
+            assert replacement["state"] == "finished"
+        finally:
+            if orphan is not None and orphan.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(os.getpgid(orphan.pid), signal.SIGKILL)
+                await orphan.wait()
+            await sandbox.close()
+            await coordinator.stop()
+    print("ok  resume finds and stops an orphan from the pre-PID publication crash window")
+
+
 async def main() -> int:
     test_load_prompts_accepts_the_battery_schema()
     for test in (
         test_battery_runs_every_prompt_and_attempt,
         test_pool_size_bounds_concurrency,
+        test_automatic_concurrency_fills_and_grows_with_the_fleet,
+        test_explicit_concurrency_remains_a_hard_cap,
         test_startup_timeout_explains_an_empty_pool,
         test_overrunning_attempt_is_killed_and_recorded,
         test_crashed_agent_still_releases_its_sandbox,
+        test_capture_lifecycle_follows_the_agent_process,
+        test_cancelling_runner_kills_agent_and_releases_sandbox,
+        test_human_success_stops_running_and_skips_queued_siblings,
+        test_runner_closes_lease_and_pid_publication_races,
         test_token_usage_is_recorded_per_attempt,
+        test_watcher_retry_replaces_a_finished_try_after_runner_exit,
+        test_watcher_retry_stops_and_replaces_a_live_try,
+        test_nonempty_output_requires_explicit_resume,
+        test_completed_resume_repairs_results_without_a_sandbox,
+        test_resume_deletes_and_reruns_only_an_interrupted_attempt,
+        test_resume_stops_an_orphan_before_pid_publication,
     ):
         await test()
     print("\nAll runner tests passed.")

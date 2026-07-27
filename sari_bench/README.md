@@ -50,19 +50,51 @@ player you want to be a fleet member with no environment set.
 ```bash
 python -m sari_bench run \
     --prompts sari_bench/prompts/example_battery.json \
-    --tries 3 --time-limit 120 --per-leg-minutes 40 --concurrency 4 \
+    --tries 3 --time-limit 120 --per-leg-minutes 40 \
     --coordinator ws://coordinator-host:9000
 ```
+
+With no `--concurrency` flag, the runner fills every registered, store-loaded sandbox and adds
+workers automatically when more sandboxes join during the battery. Pass `--concurrency N` to keep
+an explicit upper bound.
 
 The `uv run poe dbench` shortcut waits up to 30 seconds for at least one usable sandbox to
 register, then exits with launch instructions instead of leaving every prompt at
 `waiting for a sandbox`. Use the `status` command above to inspect the pool.
 
 Results land in `bench_runs/<timestamp>/`: `battery.json` (the plan), `summary.json` (per-prompt
-success rates and outcome counts), `attempts.jsonl` (written as attempts finish, so an interrupted
-battery is still usable), and `<prompt_id>/try<NN>/` holding `attempt.json` (that attempt's
+success rates and outcome counts), `attempts.jsonl` (atomically updated as attempts finish, with one
+canonical row per prompt/attempt, so an interrupted battery is still usable), and
+`<prompt_id>/try<NN>/` holding `attempt.json` (that attempt's
 manifest — sandbox, pid, deadline, outcome), the orchestrator's own `summary.json`, per-leg JSONL,
 screenshots, and the agent's stdout in `agent.log`.
+
+### Restarting a battery
+
+Reusing a non-empty `--output-dir` is rejected unless resume is explicit:
+
+```bash
+python -m sari_bench run \
+    --prompts sari_bench/prompts/example_battery.json \
+    --tries 3 --time-limit 120 --per-leg-minutes 40 \
+    --coordinator ws://coordinator-host:9000 \
+    --output-dir bench_runs/20260727_120000 \
+    --resume
+```
+
+Resume requires the prompts and attempt-shaping settings to match the original `battery.json`;
+operational settings such as coordinator and concurrency may change. Finished logical attempts are
+not run again. A try left in flight is stopped if its orphan subprocess can be safely identified,
+its stale lease is defensively released, and its partial `tryNN` directory is deleted before that
+try starts cleanly. There is no mid-step continuation.
+
+Legacy duplicate rows in `attempts.jsonl` are compacted to the latest row for each prompt/attempt,
+and a finished `attempt.json` whose aggregate row was never published is recovered during resume.
+Human-verified winners in `battery.json` are preserved, so their remaining siblings stay skipped.
+A fully completed battery resumes without needing a live coordinator or sandbox.
+
+The watcher is independent of this scheduler behavior: `python -m sari_bench watch --run-dir
+<battery>` can visualize a completed battery without running or resuming anything.
 
 **Token usage** is recorded per attempt: `tokens_in` (prompt) / `tokens_out` (completion) on every
 row of `attempts.jsonl`, in each attempt's `attempt.json`, summed per prompt and battery-wide in the
@@ -134,20 +166,28 @@ retries the connection itself for a sandbox that is not listening yet.
 | Agent exited non-zero | `agent_error` | reset, re-pooled |
 | Attempt overran `--time-limit` | `harness_timeout` (SIGTERM then SIGKILL to the process group) | reset, re-pooled |
 | Killed from the dashboard | `operator_kill` | reset, re-pooled |
+| Sibling stopped after a human-verified success | `operator_kill`, end reason `already_successful` | reset, re-pooled |
+| Sibling not yet spawned after a human-verified success | `skipped`, end reason `already_successful` | unchanged |
 | Sandbox stopped heartbeating | attempt **requeued** (up to 3x), then `sandbox_lost` | hung up on, rejoins when the sim reconnects |
 | Runner died holding a lease | — | lease reaped, reset, re-pooled |
 
-A requeued attempt reuses its `<prompt_id>/try<NN>` path, so the dead attempt's dir is **rotated
+A sandbox-loss requeue reuses its `<prompt_id>/try<NN>` path, so the dead attempt's dir is **rotated
 aside** to `try<NN>.requeue<KK>` before the replacement starts. Without that the orchestrator's
 append-mode `legNN.jsonl` interleaves two attempts' steps into one file and their `stepNN.png`
 frames overwrite each other, which misreports timesteps for both.
 
 ## Watching a battery
 
-`python -m sari_bench watch` serves a live dashboard. It reads the filesystem and nothing else: it
-never talks to a sandbox, and the only things it ever writes into a run dir are the `killed_by` stamp
-and a human verdict — neither of which an agent reads. So it cannot perturb a battery that is hours
-in, and it can be restarted mid-run freely.
+`python -m sari_bench watch` serves a live dashboard. It coordinates with the runner through durable
+filesystem stamps and never sends sandbox commands itself. Kill requests and successful human
+verdicts can stop work; ordinary observation, replay, and fail verdicts do not perturb the battery.
+The watcher can be restarted mid-run freely.
+
+The runner keeps each live tile fresh during long model calls by filling gaps between the agent's
+own step screenshots. `--capture-interval 2` is the default; a recent step frame suppresses the
+extra request, and `--capture-interval 0` disables supplementary capture. These frames are stored as
+960px JPEGs under each attempt's `capture/` directory and are included in full dashboard/CLI
+replays. Discord's size-bounded clip remains step-only.
 
 Run it **beside the runner**. Screenshots and step logs are written by the agent subprocesses the
 runner spawns, so they are on the runner's local disk; the coordinator is allowed to be a third
@@ -179,8 +219,14 @@ records `run_leg` already flushes, so there is no new agent-side instrumentation
 so the coordinator resets and re-pools the sandbox. There is no second code path, and the watcher
 never has to talk to the coordinator about it.
 
-`--host` defaults to `127.0.0.1`. Binding `0.0.0.0` exposes the kill endpoint to the network; there
-is no auth.
+**Retry** replaces one logical prompt/try in place. It stops a live agent through that same cleanup
+path, deletes `tryNN` and all of its `tryNN.requeue*` history, removes the old aggregate result, and
+leases a fresh sandbox for the same prompt and try number. The watcher owns the replacement runner,
+so retry remains available after the original battery runner exits. This is deliberately destructive:
+the dashboard confirms before deleting logs, frames, replay clips, verdicts, and report data.
+
+`--host` defaults to `127.0.0.1`. Binding `0.0.0.0` exposes the destructive kill and retry endpoints
+to the network; there is no auth.
 
 ### Human-verified outcomes
 
@@ -193,17 +239,24 @@ A halted attempt's tile therefore carries **▶ replay · ✓ success · ✗ fai
 renders that attempt's frames into the same ≤8 MB clip Discord gets, plays it in a modal, and you
 judge the run against what you just watched.
 
-* **Only where the agent stopped on its own** — `end_reason` of `halt_granted` (it said STOP and the
-  predicate granted) or `completed_no_stop` (the backstop fired). A run the harness cut off at its
-  step or time cap never claimed to be done, so there is nothing to confirm or deny. The server
-  re-checks this; the button is not the only gate.
+* **Every finished attempt is judgeable.** Verdict controls are available regardless of end reason,
+  including forced halts, caps, errors, and administrative skips. A still-running attempt remains
+  ineligible because its outcome can change. The server re-checks this; the button is not the only
+  gate.
 * **Stored beside `success`, never over it.** The stamp is `verified_success` / `verified_by` /
   `verified_at` / `verified_note` in `attempt.json`. This is the same honest-scoring rule
   `gates/gate_checkout.py` follows: measured and verified are logged separately and never promoted,
   because *a measured pass with a verified fail is the discrepancy the whole exercise exists to
-  surface*. A card where the two disagree is outlined in amber and says so.
-* **Correctable.** Pressing the other button overwrites; `clear` removes the stamp entirely, so the
-  attempt reads as never reviewed rather than as a verdict of fail.
+  surface*. A card where the two disagree says so without re-highlighting the completed card; the
+  human badge is green for ✓ and red for ✗.
+* **A verified success stops sibling tries.** Confirming ✓ success durably cancels only other tries
+  of that exact prompt ID (never other prompts with the same `family`). Running siblings finish as
+  `operator_kill`; queued siblings are recorded as zero-runtime `skipped` attempts. Both carry
+  `end_reason=already_successful` and the winning attempt key, so the planned denominator and report
+  coverage remain intact.
+* **Verdict metadata is correctable; cancellation is not.** Pressing the other button overwrites and
+  `clear` removes the review stamp, but neither action restarts, requeues, or restores siblings
+  stopped by an earlier successful verdict.
 * Clips are rendered **on demand**, on the same one-at-a-time worker Discord uses, and reused if that
   path already made one. Nothing is encoded for attempts nobody opens.
 * The header tracks review progress: `N reviewed (M✓/K✗, J disagree) · P awaiting review`.
@@ -260,11 +313,11 @@ never counted as one a human failed. The closing line reports how many verdicts 
 did not, which is the number to watch: it is a direct measurement of how much the completion
 predicates can be trusted.
 
-`video` stitches `legNN/stepNN.png` into an mp4, captioning each frame with that step's mode,
-action and checkpoint. mp4 rather than gif: a 150-frame 1080p gif runs to hundreds of megabytes and
-cannot be scrubbed (`--gif` is there for pasting into chat). Needs `ffmpeg` on PATH. This writes
-`replay.mp4` uncapped, for watching; the watcher's 8 MB `replay.discord.mp4` is a separate file and
-neither overwrites the other.
+`video` chronologically merges `legNN/stepNN.png` with supplementary `capture/*.jpg` frames into an
+mp4, captioning steps with their mode, action and checkpoint and gap captures with elapsed time. mp4
+rather than gif: a long 1080p gif runs to hundreds of megabytes and cannot be scrubbed (`--gif` is
+there for pasting into chat). Needs `ffmpeg` on PATH. This writes `replay.mp4` uncapped, for watching;
+the watcher's step-only 8 MB `replay.discord.mp4` is a separate file and neither overwrites the other.
 
 ## Tests
 

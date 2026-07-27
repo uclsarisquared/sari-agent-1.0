@@ -126,10 +126,15 @@ class CoordinatorClient:
 
     async def release(self, lease: Lease, outcome: str) -> None:
         """Hands the sandbox back. The coordinator resets it before anyone else gets it."""
-        await self._request(
-            encode("bench.release", lease_id=lease.lease_id, outcome=outcome),
+        await self.release_lease_id(lease.lease_id, outcome)
+
+    async def release_lease_id(self, lease_id: str, outcome: str) -> bool:
+        """Defensively release a persisted lease ID; unknown/reaped IDs are harmless."""
+        reply = await self._request(
+            encode("bench.release", lease_id=lease_id, outcome=outcome),
             "bench.released",
         )
+        return bool(reply.get("known"))
 
     async def pool(self) -> list[dict[str, Any]]:
         reply = await self._request(encode("bench.status"), "bench.pool")

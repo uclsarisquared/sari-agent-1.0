@@ -3,7 +3,7 @@
 The runner and the agents already write everything a dashboard needs, and they flush as they go:
 
     bench_runs/<battery>/battery.json          the battery's plan (denominators)
-    bench_runs/<battery>/attempts.jsonl        finished attempts, appended
+    bench_runs/<battery>/attempts.jsonl        canonical finished-attempt index
     bench_runs/<battery>/<prompt>/try<NN>/
         attempt.json                           this attempt's manifest, incl. pid and deadline
         agent.log                              the agent's stdout
@@ -24,20 +24,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sari_bench import capture
 from sari_bench.watch import health
 
 ATTEMPT_MANIFEST = "attempt.json"
 BATTERY_MANIFEST = "battery.json"
-
-# The two end reasons that mean the AGENT decided it was done, rather than the harness deciding for
-# it: `halt_granted` is a STOP the completion predicate granted, `completed_no_stop` is the backstop
-# firing after the predicate held for several steps running. Everything else (step_cap, time_cap,
-# halt_forced, errors) is the run being cut off, and there is no claim of completion to review.
-#
-# These are the only attempts the dashboard offers a human verdict on, because the predicates behind
-# them are the ones that grant on unverifiable state - see the `[unverified]` reasons in
-# overhaul/orchestrator/subtask_completion.py. A human watching the replay is the check on those.
-VERIFIABLE_END_REASONS = frozenset({"halt_granted", "completed_no_stop"})
 
 # Run dirs look like <prompt_id>/try01, plus <prompt_id>/try01.requeue00 for rotated-aside ones.
 _TRY_DIR = re.compile(r"^try\d+(\.requeue\d+)?$")
@@ -48,6 +39,7 @@ _STEP_PNG = re.compile(r"^step(\d+)\.png$")
 @dataclass
 class AttemptView:
     key: str                      # "<prompt_id>/<try dir>", unique within a battery
+    run_id: str = ""              # unique execution identity; changes when a try is retried
     prompt_id: str = ""
     attempt: int = 0
     prompt: str = ""
@@ -66,12 +58,18 @@ class AttemptView:
     pid: int | None = None
     alive: bool = False
     killed_by: str = ""
+    stop_reason: str = ""
+    stop_requested_at: str = ""
+    stop_requested_by: str = ""
+    winning_attempt_key: str = ""
+    retry_state: str = ""
+    retry_error: str = ""
 
     # The human verdict, kept strictly beside `success` and never folded into it. `success` stays the
     # predicate's answer; `verified_success` is a reviewer's. Where they disagree is the signal.
     # `verified_success` is None - not False - until someone actually looks, so "not reviewed" is
     # never read as "reviewed and failed".
-    verifiable: bool = False      # finished, and the agent halted of its own accord
+    verifiable: bool = False      # finished and eligible for a human verdict
     verified: bool = False
     verified_success: bool | None = None
     verified_by: str = ""
@@ -146,13 +144,13 @@ def _pid_alive(pid: int | None) -> bool:
     return True
 
 
-def is_verifiable(state: str, end_reason: str) -> bool:
+def is_verifiable(state: str, _end_reason: str) -> bool:
     """Whether an attempt is eligible for a human verdict.
 
     One definition, shared by the API guard, the view the dashboard renders from, and the report - so
     the button the reviewer sees and the check the POST handler makes can never drift apart.
     """
-    return state == "finished" and end_reason in VERIFIABLE_END_REASONS
+    return state == "finished"
 
 
 def read_step_records(leg_path: Path) -> list[dict[str, Any]]:
@@ -184,8 +182,11 @@ def _leg_files(run_dir: Path) -> list[Path]:
 
 
 def _latest_frame(run_dir: Path) -> Path | None:
-    """Newest stepNN.png across the attempt's leg dirs, by leg then step - NOT by mtime, which
-    reorders under a filesystem with coarse timestamps."""
+    """Newest live observation.
+
+    Agent frames retain their leg/step ordering for compatibility with coarse filesystems. A
+    supplementary capture wins only when its embedded capture timestamp is newer.
+    """
     best: tuple[int, int] | None = None
     best_path: Path | None = None
     if not run_dir.is_dir():
@@ -202,7 +203,18 @@ def _latest_frame(run_dir: Path) -> Path | None:
             rank = (leg_index, int(match.group(1)))
             if best is None or rank > best:
                 best, best_path = rank, frame
-    return best_path
+    capture_dir = run_dir / capture.CAPTURE_DIR
+    newest_capture = capture.latest_capture(run_dir) if capture_dir.is_dir() else None
+
+    if newest_capture is None:
+        return best_path
+    if best_path is None:
+        return newest_capture
+    return (
+        newest_capture
+        if capture.frame_timestamp_ns(newest_capture) >= capture.frame_timestamp_ns(best_path)
+        else best_path
+    )
 
 
 def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
@@ -210,6 +222,7 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
     manifest = _read_json(run_dir / ATTEMPT_MANIFEST)
     view = AttemptView(
         key=f"{run_dir.parent.name}/{run_dir.name}",
+        run_id=str(manifest.get("run_id") or manifest.get("started_at") or ""),
         prompt_id=str(manifest.get("prompt_id") or run_dir.parent.name),
         attempt=int(manifest.get("attempt") or 0),
         prompt=str(manifest.get("prompt") or ""),
@@ -225,6 +238,10 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
         commands_uri=str(manifest.get("commands_uri") or ""),
         pid=manifest.get("pid"),
         killed_by=str(manifest.get("killed_by") or ""),
+        stop_reason=str(manifest.get("stop_reason") or ""),
+        stop_requested_at=str(manifest.get("stop_requested_at") or ""),
+        stop_requested_by=str(manifest.get("stop_requested_by") or ""),
+        winning_attempt_key=str(manifest.get("winning_attempt_key") or ""),
         verified="verified_success" in manifest,
         verified_success=(bool(manifest["verified_success"])
                           if "verified_success" in manifest else None),

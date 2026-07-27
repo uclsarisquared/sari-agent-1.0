@@ -62,17 +62,26 @@ dev = [
 ]
 
 [tool.poe.tasks]
-watch = "python -m sari_bench watch"
-coordinator = "python -m sari_bench coordinator --port 9000"
-dbench = { cmd = """
+dbench-watch = { cmd = "python -m sari_bench watch", help = "Live dashboard for a running battery (run beside the runner)" }
+dbench-coordinator = { cmd = "python -m sari_bench coordinator --port 9000", help = "Run the sandbox registry" }
+dbench-status = { cmd = "python -m sari_bench status --coordinator ws://127.0.0.1:9000", help = "Print the current sandbox pool" }
+dbench-easy = { cmd = """
     python -m sari_bench run
         --prompts sari_bench/prompts/easy_prompts.json
         --tries 5
         --time-limit 120
         --per-leg-minutes 40
-        --concurrency 10 
         --coordinator ws://127.0.0.1:9000
         --sandbox-startup-timeout 30
         --arm graph
         --map-dir overhaul/slamtest/output_runs/run_0724_164652
-""" }
+""", help = "Run the full easy-prompt battery across the fleet (needs a coordinator running)" }
+debug-grab = { cmd = """
+    python orchestrator/subtask_agents.py
+    --task "Pick up ${item}"
+    --arm graph
+    --max-steps 30
+    --output-dir slamtest/output_runs/run_0724_164652
+""", cwd = "overhaul", help = "Repro a single grab task standalone (default item: Choco Mallows)", args = [
+    { name = "item", positional = true, default = "Choco Mallows", help = "Item to pick up, e.g. 'Ritz Crackers'" },
+] }

@@ -19,8 +19,10 @@
   .pill { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--dim); }
   main { padding: 16px; display: grid; gap: 14px;
          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
-  /* One thin outline all the way round; the health colour rides on it. Nothing thicker on one side,
-     and no glow - the badge and the signal banner already say the loud part. */
+  /* `display: grid` beats the hidden attribute's UA rule, so the inactive tab needs saying twice. */
+  main[hidden], section[hidden] { display: none; }
+  /* One thin outline all the way round. A live process stays green even when its health signals
+     need attention; the signal banner carries that separate state. */
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
           display: flex; flex-direction: column; }
   .card.ok { border-color: var(--ok); }
@@ -38,22 +40,28 @@
   .rows dt { color: var(--dim); }
   .rows dd { margin: 0; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rows [hidden] { display: none; }
-  .sig { margin: 0 12px 8px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
+  .sig { margin: 12px 12px 4px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
          background: rgba(224,85,63,.12); color: #f0a596; }
   .sig.watch { background: rgba(224,162,63,.12); color: #e8c48d; }
+  .sig-title { font-weight: 650; text-transform: lowercase; }
+  .sig-summary { margin-top: 2px; }
   .actions { margin-top: auto; padding: 8px 12px 12px; display: flex; gap: 8px; }
   button { font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 6px; cursor: pointer;
            background: #262b33; color: var(--ink); border: 1px solid var(--line); }
   button:hover { background: #2f3540; }
   button.danger { color: #ffbdb1; border-color: #57302a; }
   button.danger:hover { background: #3a221e; }
+  a.btn { font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 6px;
+          background: #262b33; color: var(--ink); border: 1px solid var(--line); text-decoration: none; }
+  a.btn:hover { background: #2f3540; }
   .empty { padding: 48px 18px; color: var(--dim); text-align: center; grid-column: 1 / -1; }
   .badge { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
   .badge.alert { color: #f0a596; border-color: #57302a; }
   .badge.watch { color: #e8c48d; border-color: #58472a; }
   .badge.success { color: #a8dcbb; border-color: #2c4b38; }
   .badge.fail { color: #f0a596; border-color: #57302a; }
-  .badge.verified { color: #cbd6e6; border-color: #3a4a5e; background: rgba(79,143,208,.10); }
+  .badge.verified.success { color: #a8dcbb; border-color: #2c4b38; background: rgba(79,169,107,.10); }
+  .badge.verified.fail { color: #f0a596; border-color: #57302a; background: rgba(224,85,63,.10); }
 
   /* The terminal. A fixed height, not a max-height: a card must not resize as its log fills, or the
      whole grid reflows under the reader every two seconds. overflow-anchor is off because the
@@ -81,10 +89,82 @@
   button.vote.on[data-success="false"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
   button.link { background: none; border: none; color: var(--dim); padding: 5px 2px; text-decoration: underline; }
   button.link:hover { background: none; color: var(--ink); }
-  /* The disagreement is the whole point of collecting verdicts, so it stays at full opacity. */
-  .card.disagree { border-color: var(--watch); opacity: 1; }
-  .mismatch { margin: 0 12px 8px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
+  .mismatch { margin: 8px 12px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
               background: rgba(224,162,63,.12); color: #e8c48d; }
+
+  /* -- tabs --------------------------------------------------------------------------------- */
+  .tabs { display: flex; gap: 4px; }
+  button.tab { padding: 4px 12px; border-radius: 999px; background: none;
+               border: 1px solid transparent; color: var(--dim); }
+  button.tab:hover { background: #262b33; }
+  button.tab.on { background: #262b33; border-color: var(--line); color: var(--ink); }
+
+  /* -- overview ----------------------------------------------------------------------------- */
+  #overview { padding: 16px; }
+  .ov-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .ov-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px;
+               background: var(--panel); }
+  table.ov { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
+  table.ov th, table.ov td { padding: 5px 10px; text-align: left; white-space: nowrap;
+                             border-bottom: 1px solid var(--line); }
+  table.ov thead th { position: sticky; top: 0; z-index: 2; background: #22262e;
+                      color: var(--dim); font-weight: 600; }
+  /* The task id follows the reader across a battery wide enough to scroll. Its own z-index sits
+     above the body rows and below the header, so the top-left corner still stacks correctly. */
+  table.ov .task { position: sticky; left: 0; z-index: 1; background: var(--panel); font-weight: 600; }
+  table.ov thead .task { z-index: 3; background: #22262e; }
+  table.ov tbody tr:hover td { background: #21252c; }
+  table.ov tbody tr:hover .task { background: #21252c; }
+  /* The prompt takes every spare pixel, so the try and total columns stay packed on the right
+     instead of one of them stretching across half the table. */
+  table.ov .ptext { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis;
+                    color: var(--dim); }
+  table.ov .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.ov .res { text-align: center; }
+
+  /* A cell is always a button so the whole box is the hit target; the not-run cells simply stop
+     taking pointer events, which also keeps the hover card off them. */
+  table.ov td.cell { padding: 0; }
+  .cellbtn { display: block; width: 100%; min-width: 42px; padding: 6px 8px; border: 0;
+             border-radius: 0; text-align: center; font-weight: 650; background: none;
+             color: var(--dim); }
+  .cellbtn:hover { background: none; box-shadow: inset 0 0 0 1px var(--dim); }
+  .cell.p .cellbtn { background: rgba(79,169,107,.22); color: #a8dcbb; }
+  .cell.f .cellbtn { background: rgba(224,85,63,.20); color: #f0a596; }
+  .cell.r .cellbtn { background: rgba(224,162,63,.24); color: #f0cd9b; }
+  .cell.q .cellbtn { background: rgba(79,143,208,.20); color: #a9cbec; }
+  .cell.k .cellbtn { background: rgba(90,100,114,.28); color: var(--dim); }
+  .cell.none .cellbtn { background: rgba(90,100,114,.08); color: #3f4753; pointer-events: none; }
+  td.res { font-weight: 650; }
+  td.res.p { background: rgba(79,169,107,.22); color: #a8dcbb; }
+  td.res.f { background: rgba(224,85,63,.20); color: #f0a596; }
+  td.res.q { background: rgba(79,143,208,.18); color: #a9cbec; }
+  td.res.none { color: #3f4753; }
+  table.ov tbody tr:hover td.res.p { background: rgba(79,169,107,.30); }
+  table.ov tbody tr:hover td.res.f { background: rgba(224,85,63,.28); }
+  table.ov tbody tr:hover td.res.q { background: rgba(79,143,208,.26); }
+
+  table.ov tfoot td { border-top: 2px solid var(--line); border-bottom: 0; font-weight: 600;
+                      background: #1a1d23; }
+  table.ov tfoot .lbl { color: var(--dim); font-weight: 500; }
+
+  /* The hover card. pointer-events off so it can sit under the cursor without stealing the
+     mouseover that keeps it alive. */
+  #ov-tip { position: fixed; z-index: 30; display: none; pointer-events: none; width: 320px;
+            background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+            overflow: hidden; box-shadow: 0 12px 32px rgba(0,0,0,.55); }
+  #ov-tip.on { display: block; }
+  #ov-tip img, #ov-tip .tip-none { width: 100%; aspect-ratio: 16/9; display: block;
+                                   background: var(--term-bg); object-fit: cover; }
+  #ov-tip .tip-none { display: grid; place-items: center; color: var(--dim); font-size: 12px; }
+  #ov-tip img[hidden], #ov-tip .tip-none[hidden] { display: none; }
+  #ov-tip .tip-body { padding: 8px 10px; font-size: 12px; }
+  #ov-tip .tip-title { font-weight: 650; margin-bottom: 4px; white-space: nowrap;
+                       overflow: hidden; text-overflow: ellipsis; }
+  #ov-tip dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; }
+  #ov-tip dt { color: var(--dim); }
+  #ov-tip dd { margin: 0; font-variant-numeric: tabular-nums; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
 
   /* Both overlays live outside #grid. The cards are patched in place now rather than rebuilt, but a
      <video> mid-playback and a log the reader has scrolled back through are still the two things
@@ -96,12 +176,36 @@
                  max-width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
   .overlay-head { padding: 10px 14px; display: flex; gap: 12px; align-items: baseline;
                   border-bottom: 1px solid var(--line); }
-  #modal-video { width: 100%; max-height: 68vh; background: #000; display: block; }
-  #modal-note { padding: 24px; color: var(--dim); text-align: center; }
+  #modal .overlay-box { width: min(1100px, 100%); }
+  #modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+  /* Short enough that the rows sit above the fold under it - the clip and the numbers are read
+     together, and a reviewer should not have to scroll to find out what they just watched. */
+  #modal-media { position: relative; display: grid; place-items: center; min-height: min(48vh, 320px);
+                 overflow: hidden; background: #000; }
+  #modal-video, #modal-still { grid-area: 1 / 1; width: 100%; max-height: 48vh; background: #000;
+                               display: block; object-fit: contain; }
+  /* `display: block` above outranks the hidden attribute's UA rule - the same trap .frame has. */
+  #modal-still[hidden] { display: none; }
+  #modal-play { grid-area: 1 / 1; z-index: 1; width: 68px; height: 68px; padding: 0 0 2px 5px;
+                border: 1px solid rgba(255,255,255,.72); border-radius: 50%; font-size: 27px;
+                color: #fff; background: rgba(15,17,21,.78); box-shadow: 0 8px 28px rgba(0,0,0,.55); }
+  #modal-play:hover { background: rgba(38,43,51,.94); transform: scale(1.04); }
+  #modal-note { padding: 10px 14px; color: var(--dim); text-align: center; font-size: 12.5px; }
+  #modal-rows { border-top: 1px solid var(--line); }
+  #modal-log { height: 240px; overflow-y: auto; }
   #modal-foot { padding: 10px 14px; display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--line); }
   #log-modal .overlay-box { width: min(1100px, 100%); height: min(880px, 100%); }
   #log-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px;
                     font-size: 12.5px; line-height: 1.5; border: 0; }
+
+  /* Verdict acknowledgements should never interrupt the next review. They stack beneath the
+     header in the top-right corner and quietly expire on their own. */
+  #notifications { position: fixed; z-index: 40; top: 62px; right: 16px; width: min(380px, calc(100vw - 32px));
+                   display: grid; gap: 8px; pointer-events: none; }
+  .notification { padding: 10px 12px; border: 1px solid #2c4b38; border-radius: 8px;
+                  background: #1d2a22; color: #c5e8d0; box-shadow: 0 10px 28px rgba(0,0,0,.45);
+                  opacity: 0; transform: translateY(-6px); transition: opacity .16s ease, transform .16s ease; }
+  .notification.on { opacity: 1; transform: translateY(0); }
 </style>
 </head>
 <body>
@@ -109,11 +213,26 @@
   <h1>Sari Bench</h1>
   <span class="pill" id="battery">—</span>
   <span class="pill" id="mode">—</span>
+  <span class="tabs">
+    <button class="tab on" data-act="tab" data-tab="live">live</button>
+    <button class="tab" data-act="tab" data-tab="overview">overview</button>
+  </span>
   <span class="muted" id="progress"></span>
   <span class="muted" id="pool"></span>
   <span class="muted" id="updated" style="margin-left:auto"></span>
 </header>
 <main id="grid"><div class="empty" id="empty">Loading…</div></main>
+
+<section id="overview" hidden>
+  <div class="ov-bar">
+    <a class="btn" href="/api/report.csv" download>export to CSV</a>
+    <span class="muted" id="ov-note"></span>
+  </div>
+  <div class="ov-scroll"><table class="ov" id="ov-table"></table></div>
+</section>
+
+<div id="notifications" aria-live="polite" aria-atomic="false"></div>
+<div id="ov-tip"></div>
 
 <div id="modal" class="overlay">
   <div class="overlay-box">
@@ -122,12 +241,32 @@
       <span class="muted" id="modal-sub"></span>
       <button data-act="modal-close" style="margin-left:auto">close</button>
     </div>
-    <video id="modal-video" controls preload="metadata" style="display:none"></video>
-    <div id="modal-note">rendering the clip…</div>
+    <div id="modal-body">
+      <div id="modal-media">
+        <video id="modal-video" controls preload="metadata" style="display:none"></video>
+        <img id="modal-still" alt="latest frame" hidden>
+        <button id="modal-play" data-act="replay-start" aria-label="Render and play replay"
+                title="Render replay">▶</button>
+      </div>
+      <div id="modal-note">Click ▶ to render the replay.</div>
+      <dl class="rows" id="modal-rows">
+        <dt>leg</dt><dd data-ref="leg"></dd>
+        <dt>step</dt><dd data-ref="step"></dd>
+        <dt>action</dt><dd data-ref="action"></dd>
+        <dt>at</dt><dd data-ref="at"></dd>
+        <dt>held</dt><dd data-ref="held"></dd>
+        <dt>elapsed</dt><dd data-ref="elapsed"></dd>
+        <dt>tokens</dt><dd data-ref="tokens"></dd>
+        <dt>sandbox</dt><dd data-ref="sandbox"></dd>
+        <dt data-ref="endLabel" hidden>end</dt><dd data-ref="end" hidden></dd>
+      </dl>
+      <pre class="term" id="modal-log"></pre>
+    </div>
     <div id="modal-foot">
       <span class="muted">verdict:</span>
       <button class="vote" data-act="verdict" data-success="true" id="modal-yes">✓ success</button>
       <button class="vote" data-act="verdict" data-success="false" id="modal-no">✗ fail</button>
+      <button class="link" data-act="verdict-clear" id="modal-clear" hidden>clear</button>
       <span class="muted" id="modal-verdict" style="margin-left:auto"></span>
     </div>
   </div>
@@ -162,8 +301,13 @@ let modalKey = null;
 let logModalKey = null;
 let latest = [];
 
+// "live" or "overview". Only the live tab pays for frame decodes and log polling.
+let activeTab = "live";
+
 const fmtMin = s => (s === null || s === undefined) ? "—"
   : (s < 0 ? "-" : "") + Math.floor(Math.abs(s) / 60) + "m" + String(Math.floor(Math.abs(s) % 60)).padStart(2, "0") + "s";
+const fmtNum = n => Number(n || 0).toLocaleString();
+const fmtTok = a => `${fmtNum(a.tokens_in)} in / ${fmtNum(a.tokens_out)} out`;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const isLive = a => a.state === "starting" || a.state === "running";
 const api = (key, path) => `/api/attempt/${encodeURI(key)}/${path}`;
@@ -172,32 +316,49 @@ const api = (key, path) => `/api/attempt/${encodeURI(key)}/${path}`;
 const setText = (el, value) => { const s = String(value); if (el.textContent !== s) el.textContent = s; };
 const setHTML = (el, value) => { if (el.innerHTML !== value) el.innerHTML = value; };
 
-// A human said one thing and the predicate said another. Worth seeing from across the room.
+function notify(message) {
+  const el = document.createElement("div");
+  el.className = "notification";
+  el.setAttribute("role", "status");
+  el.textContent = message;
+  document.getElementById("notifications").appendChild(el);
+  requestAnimationFrame(() => el.classList.add("on"));
+  setTimeout(() => {
+    el.classList.remove("on");
+    setTimeout(() => el.remove(), 180);
+  }, 5000);
+}
+
+// Keep the disagreement in its banner without visually reactivating the completed card.
 const disagrees = a => a.verified && Boolean(a.verified_success) !== Boolean(a.success);
 
 function classOf(a) {
-  if (disagrees(a)) return "card finished disagree";
+  if (a.state === "retrying") return "card watch";
   if (a.state === "finished" || a.state === "requeued") return "card finished";
   if (a.state === "orphaned") return "card alert";
-  return "card " + ((a.health && a.health.level) || "ok");
+  return "card ok";
 }
 
 function verdictBadge(a) {
   if (!a.verified) return "";
   const who = [a.verified_by, a.verified_at].filter(Boolean).join(" · ");
   const mark = a.verified_success ? "✓" : "✗";
-  return `<span class="badge verified" title="human verdict${who ? " — " + esc(who) : ""}${a.verified_note ? "\n" + esc(a.verified_note) : ""}">human ${mark}</span>`;
+  const cls = a.verified_success ? "success" : "fail";
+  return `<span class="badge verified ${cls}" title="human verdict${who ? " — " + esc(who) : ""}${a.verified_note ? "\n" + esc(a.verified_note) : ""}">human ${mark}</span>`;
 }
 
 function statusBadge(a) {
+  if (a.retry_state) {
+    const cls = a.retry_state === "error" ? "alert" : "watch";
+    return `<span class="badge ${cls}" title="${esc(a.retry_error || "")}">retry: ${esc(a.retry_state)}</span>`;
+  }
   if (a.state === "finished") {
     const cls = a.success ? "success" : "fail";
     return `<span class="badge ${cls}">${esc(a.outcome || "finished")}</span>`;
   }
   if (a.state === "orphaned") return `<span class="badge alert">orphaned</span>`;
   if (a.state === "requeued") return `<span class="badge">requeued</span>`;
-  const lvl = (a.health && a.health.level) || "ok";
-  return `<span class="badge ${lvl}">${lvl === "ok" ? "running" : lvl}</span>`;
+  return `<span class="badge">running</span>`;
 }
 
 // -- terminals ---------------------------------------------------------------------------
@@ -209,10 +370,10 @@ function statusBadge(a) {
 // The one node that is ever rewritten is `partial`, kept last: the line the writer has not finished.
 // It becomes a normal committed line as soon as its newline arrives.
 
-function newTerm(el) {
+function newTerm(el, trim = true) {
   const partial = document.createTextNode("");
   el.appendChild(partial);
-  return { el, partial, cursor: null, size: null, count: 0, busy: false, done: false };
+  return { el, partial, cursor: null, size: null, count: 0, busy: false, done: false, trim };
 }
 
 function termClear(term) {
@@ -232,7 +393,7 @@ function termWrite(term, lines, partial) {
   }
   // Trimming rewrites the whole node and so loses the scroll position; only ever do it for a reader
   // who is following the tail anyway, and let the buffer overrun for one who is reading scrollback.
-  if (atBottom && term.count > TERM_BUFFER_LINES) {
+  if (term.trim && atBottom && term.count > TERM_BUFFER_LINES) {
     const text = el.textContent;
     const committed = text.slice(0, text.length - term.partial.nodeValue.length);
     // Committed text always ends in a newline, so the last split element is the empty string after it.
@@ -246,7 +407,7 @@ function termWrite(term, lines, partial) {
   if (atBottom) el.scrollTop = el.scrollHeight;
 }
 
-async function termPump(term, key, bootLines, expectedSize = null) {
+async function termPump(term, key, bootLines, expectedSize = null, full = false) {
   if (term.busy || term.done || !key) return;
   // /api/state already stats each log. Once bootstrapped, only ask for a delta when that stat
   // changes. This keeps finished cards cheap without ever permanently disabling their terminal:
@@ -254,7 +415,9 @@ async function termPump(term, key, bootLines, expectedSize = null) {
   if (term.cursor !== null && expectedSize !== null && term.size === expectedSize) return;
   term.busy = true;
   try {
-    const query = term.cursor === null ? `?lines=${bootLines}` : `?since=${term.cursor}`;
+    const query = term.cursor === null
+      ? (full ? "?full=1" : `?lines=${bootLines}`)
+      : `?since=${term.cursor}${full ? "&full=1" : ""}`;
     const data = await (await fetch(api(key, "log") + query)).json();
     if (data.reset) termClear(term);
     const lines = data.lines || [];
@@ -280,8 +443,11 @@ const CARD_HTML = `
   <img class="frame" alt="latest frame" hidden>
   <div class="frame none">no frame yet</div>
   <pre class="term"></pre>
+  <div class="sig" hidden>
+    <div class="sig-title" data-ref="sigTitle"></div>
+    <div class="sig-summary" data-ref="sigSummary"></div>
+  </div>
   <div class="mismatch" hidden></div>
-  <div class="sig" hidden></div>
   <dl class="rows">
     <dt>leg</dt><dd data-ref="leg"></dd>
     <dt>step</dt><dd data-ref="step"></dd>
@@ -294,6 +460,7 @@ const CARD_HTML = `
   </dl>
   <div class="actions">
     <button data-act="log">fullscreen log</button>
+    <button data-act="retry">retry</button>
     <button class="danger" data-act="kill" hidden>kill</button>
   </div>
   <div class="verdict" hidden>
@@ -319,6 +486,7 @@ function buildCard(a) {
   refs.mismatch = root.querySelector(".mismatch");
   refs.sig = root.querySelector(".sig");
   refs.kill = root.querySelector('button[data-act="kill"]');
+  refs.retry = root.querySelector('button[data-act="retry"]');
   refs.verdict = root.querySelector(".verdict");
   refs.clear = root.querySelector('button[data-act="verdict-clear"]');
   refs.votes = root.querySelectorAll("button.vote");
@@ -327,13 +495,45 @@ function buildCard(a) {
   // exactly why none of this uses element ids.
   root.querySelectorAll("button[data-act]").forEach(b => { b.dataset.key = a.key; });
 
-  return { key: a.key, root, refs, frame: null, blobUrl: null, term: newTerm(root.querySelector("pre.term")) };
+  return { key: a.key, root, refs, frame: null, blobUrl: null, runId: a.run_id || "",
+           term: newTerm(root.querySelector("pre.term")) };
+}
+
+// The leg/step/action block, shared by the card and the detail overlay so the two can never drift.
+// `tokens` only exists in the overlay's copy, hence the guard.
+function setRows(refs, a) {
+  const live = isLive(a);
+  setText(refs.leg, `${a.leg ?? "—"} ${a.leg_type || ""}`);
+  setText(refs.step, `${a.step || 0}${a.max_steps ? " / " + a.max_steps : ""} ${a.mode ? "· " + a.mode : ""}`);
+  setText(refs.action, JSON.stringify(a.actions ?? "—"));
+  setText(refs.at, `${a.near_cp ?? "—"}${a.blocked ? " · BLOCKED" : ""}`);
+  setText(refs.held, a.gripped_name ?? a.gripped ?? "—");
+  setText(refs.elapsed, fmtMin(a.elapsed_seconds)
+    + (live && a.remaining_seconds !== null ? " · " + fmtMin(a.remaining_seconds) + " left" : ""));
+  if (refs.tokens) setText(refs.tokens, fmtTok(a));
+  setText(refs.sandbox, a.sandbox_id || "—");
+  refs.endLabel.hidden = refs.end.hidden = !a.end_reason;
+  if (a.end_reason) setText(refs.end, a.end_reason);
 }
 
 function patchCard(entry, a) {
   const { refs } = entry;
   const live = isLive(a);
   const lvl = (a.health && a.health.level) || "ok";
+
+  if ((a.run_id || "") !== entry.runId) {
+    entry.runId = a.run_id || "";
+    entry.frame = null;
+    if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
+    entry.blobUrl = null;
+    refs.img.removeAttribute("src");
+    refs.img.hidden = true;
+    refs.noFrame.hidden = false;
+    termClear(entry.term);
+    entry.term.cursor = null;
+    entry.term.size = null;
+    entry.term.done = false;
+  }
 
   const cls = classOf(a);
   if (entry.root.className !== cls) entry.root.className = cls;
@@ -352,26 +552,21 @@ function patchCard(entry, a) {
   const showSig = live && lvl !== "ok" && a.health.summary;
   refs.sig.hidden = !showSig;
   if (showSig) {
-    setText(refs.sig, a.health.summary);
+    setText(refs.sigTitle, lvl === "watch" ? "warn" : "alert");
+    setText(refs.sigSummary, a.health.summary);
     refs.sig.className = "sig " + lvl;
   }
 
-  setText(refs.leg, `${a.leg ?? "—"} ${a.leg_type || ""}`);
-  setText(refs.step, `${a.step || 0}${a.max_steps ? " / " + a.max_steps : ""} ${a.mode ? "· " + a.mode : ""}`);
-  setText(refs.action, JSON.stringify(a.actions ?? "—"));
-  setText(refs.at, `${a.near_cp ?? "—"}${a.blocked ? " · BLOCKED" : ""}`);
-  setText(refs.held, a.gripped_name ?? a.gripped ?? "—");
-  setText(refs.elapsed, fmtMin(a.elapsed_seconds)
-    + (live && a.remaining_seconds !== null ? " · " + fmtMin(a.remaining_seconds) + " left" : ""));
-  setText(refs.sandbox, a.sandbox_id || "—");
-  refs.endLabel.hidden = refs.end.hidden = !a.end_reason;
-  if (a.end_reason) setText(refs.end, a.end_reason);
+  setRows(refs, a);
 
   refs.kill.hidden = !live;
+  refs.retry.disabled = Boolean(a.retry_state && a.retry_state !== "error");
+  refs.retry.title = a.retry_error || "Delete this try's history and run it again";
+  setText(refs.retry, a.retry_state && a.retry_state !== "error"
+    ? `retry: ${a.retry_state}` : "retry");
 
-  // Only on attempts the agent ended by itself (halt_granted / completed_no_stop). A run the harness
-  // cut off at its step or time cap made no claim to be done, so there is nothing for a human to judge
-  // — the server refuses those too, this is not the only gate.
+  // Every finished attempt can be judged, regardless of how it ended. Live attempts remain hidden
+  // because their outcome can still change; the server repeats that state check.
   refs.verdict.hidden = !a.verifiable;
   refs.clear.hidden = !a.verified;
   refs.unreviewed.hidden = Boolean(a.verified);
@@ -426,6 +621,276 @@ function dropCard(entry) {
   cards.delete(entry.key);
 }
 
+// -- overview ------------------------------------------------------------------------------
+// One row per PROMPT, not per attempt: a prompt whose tries never got dequeued has no run dir at
+// all, so the scanner cannot see it. battery.json's `prompts` is the only honest denominator.
+//
+// P and F here are the HUMAN verdict and nothing else. The completion predicate's own `success` is
+// deliberately not consulted - several of its grants rest on state it cannot ground, and telling
+// those apart is the entire reason the review flow exists. A halt nobody has looked at yet is
+// therefore neither pass nor fail: it shows as `?`, and those cells are the review queue.
+
+const KILL_OUTCOMES = new Set(["operator_kill", "skipped", "requeued"]);
+const ovRows = new Map();        // prompt_id -> { tr, cells[], res, stime, tokens }
+const ovIndex = new Map();       // attempt key -> AttemptView, for the hover card and the overlay
+let ovShape = "";                // battery id + try count; a change rebuilds the table outright
+
+function cellState(a) {
+  if (!a) return { code: "none", glyph: "", label: "not run" };
+  // A verdict is the strongest thing anyone knows about an attempt, so it is read first - including
+  // over an operator kill, on the off chance a reviewer got to one before it was cut off.
+  if (a.verified) return a.verified_success
+    ? { code: "p", glyph: "P", label: "human: success" }
+    : { code: "f", glyph: "F", label: "human: fail" };
+  if (a.retry_state && a.retry_state !== "error")
+    return { code: "r", glyph: "R", label: `retry: ${a.retry_state}` };
+  if (isLive(a)) return { code: "r", glyph: "R", label: "running" };
+  if (a.verifiable) return { code: "q", glyph: "?", label: "awaiting review" };
+  // Requeued and orphaned attempts are not finished, so they cannot receive a verdict.
+  if (a.state === "requeued" || KILL_OUTCOMES.has(a.outcome))
+    return { code: "k", glyph: "K", label: a.outcome || "requeued" };
+  return { code: "f", glyph: "F", label: a.outcome || a.state || "fail" };
+}
+
+function ovBuildTable(tries) {
+  const table = document.getElementById("ov-table");
+  const heads = ['<th class="task">task</th>', "<th>prompt</th>"];
+  for (let t = 1; t <= tries; t++) heads.push(`<th class="num">try ${t}</th>`);
+  heads.push("<th>success?</th>", '<th class="num">success time</th>', '<th class="num">tokens in / out</th>');
+  table.innerHTML = `<thead><tr>${heads.join("")}</tr></thead><tbody></tbody><tfoot></tfoot>`;
+  ovRows.clear();
+  return table;
+}
+
+function ovBuildRow(prompt, tries) {
+  const tr = document.createElement("tr");
+  const cellHTML = '<td class="cell none"><button class="cellbtn" data-act="detail"></button></td>';
+  tr.innerHTML = `<td class="task"></td><td class="ptext"></td>`
+    + cellHTML.repeat(tries)
+    + `<td class="res"></td><td class="num stime"></td><td class="num tok"></td>`;
+  const entry = {
+    tr,
+    task: tr.children[0],
+    prompt: tr.children[1],
+    cells: [...tr.querySelectorAll("td.cell")],
+    res: tr.querySelector("td.res"),
+    stime: tr.querySelector("td.stime"),
+    tokens: tr.querySelector("td.tok"),
+  };
+  setText(entry.task, prompt.id);
+  setText(entry.prompt, prompt.prompt || "");
+  entry.prompt.title = prompt.prompt || "";
+  return entry;
+}
+
+function renderOverview(state) {
+  const battery = state.battery || {};
+  const prompts = battery.prompts || [];
+  const tries = Math.max(1, Number(battery.tries) || 1);
+  const table = document.getElementById("ov-table");
+
+  document.getElementById("ov-note").textContent = prompts.length
+    ? `${prompts.length} prompt(s) × ${tries} tr${tries === 1 ? "y" : "ies"} — P/F is the human verdict; ? is awaiting review`
+    : (state.error || "no battery loaded");
+  if (!prompts.length) { table.innerHTML = ""; ovRows.clear(); ovShape = ""; return; }
+
+  const shape = `${state.battery_id}#${tries}`;
+  if (shape !== ovShape) { ovBuildTable(tries); ovShape = shape; }
+  const body = table.querySelector("tbody");
+
+  // Attempt lookup by (prompt, try number). A requeue dir shares its number with the attempt that
+  // replaced it; the replacement wins the cell and the rotated-aside dir stays on the live tab.
+  const byTry = new Map();
+  ovIndex.clear();
+  for (const a of state.attempts || []) {
+    ovIndex.set(a.key, a);
+    const slot = `${a.prompt_id}#${a.attempt}`;
+    const held = byTry.get(slot);
+    if (!held || (held.state === "requeued" && a.state !== "requeued")) byTry.set(slot, a);
+  }
+
+  let solved = 0, reliabilitySum = 0, reliabilityN = 0, winIn = 0, winOut = 0;
+
+  prompts.forEach((prompt, index) => {
+    let entry = ovRows.get(prompt.id);
+    if (!entry) {
+      entry = ovBuildRow(prompt, tries);
+      ovRows.set(prompt.id, entry);
+    }
+    if (body.children[index] !== entry.tr) body.insertBefore(entry.tr, body.children[index] || null);
+
+    let pass = null, ran = 0, passes = 0, pending = 0, live = 0, tokIn = 0, tokOut = 0;
+    for (let t = 1; t <= tries; t++) {
+      const a = byTry.get(`${prompt.id}#${t}`);
+      const st = cellState(a);
+      const td = entry.cells[t - 1];
+      const button = td.firstElementChild;
+      const cls = `cell ${st.code}`;
+      if (td.className !== cls) td.className = cls;
+      setText(button, st.glyph);
+      button.dataset.key = a ? a.key : "";
+      button.title = a ? `${a.key} — ${st.label}` : "not run";
+      if (!a) continue;
+      ran += 1;
+      tokIn += Number(a.tokens_in) || 0;
+      tokOut += Number(a.tokens_out) || 0;
+      if (st.code === "p") { passes += 1; if (!pass) pass = a; }
+      if (st.code === "q") pending += 1;
+      if (st.code === "r") live += 1;
+    }
+
+    // FAIL is only said once there is nothing left that could still turn into a pass. A prompt
+    // nobody has dispatched, or one whose halts are still queued for review, is undecided - painting
+    // either of them red would read as a verdict the battery has not earned yet.
+    const verdict = pass ? "p" : (!ran ? "none" : (pending || live ? "q" : "f"));
+    const label = { p: "PASS", f: "FAIL", q: pending ? "?" : "…", none: "—" }[verdict];
+    entry.res.className = "res " + verdict;
+    setText(entry.res, label);
+    entry.res.title = pass ? `first pass: try ${pass.attempt}`
+      : verdict === "none" ? "no try dispatched"
+      : verdict === "q" ? `${pending} halt(s) awaiting review, ${live} still running`
+      : "every try decided, none passed";
+    setText(entry.stime, pass ? fmtMin(pass.elapsed_seconds) : "—");
+    setText(entry.tokens, ran ? `${fmtNum(tokIn)} / ${fmtNum(tokOut)}` : "—");
+
+    if (pass) { solved += 1; winIn += tokIn; winOut += tokOut; }
+    // A prompt with nothing dequeued has no reliability to average - it is absent from the mean,
+    // not a zero in it, or a battery only half dispatched would read as half broken.
+    if (ran) { reliabilitySum += passes / ran; reliabilityN += 1; }
+  });
+
+  // Any row for a prompt that vanished (battery switched under auto-discover mid-render).
+  for (const [id, entry] of [...ovRows]) {
+    if (!prompts.some(p => p.id === id)) { entry.tr.remove(); ovRows.delete(id); }
+  }
+
+  const span = tries + 2;  // task id + prompt + every try column fold into the label
+  const pct = prompts.length ? Math.round((solved / prompts.length) * 100) : 0;
+  const rel = reliabilityN ? Math.round((reliabilitySum / reliabilityN) * 100) : 0;
+  setHTML(table.querySelector("tfoot"), `
+    <tr>
+      <td class="lbl" colspan="${span}">success rate — prompts with at least one human-verified pass</td>
+      <td colspan="3">${solved} / ${prompts.length} · ${pct}%</td>
+    </tr>
+    <tr>
+      <td class="lbl" colspan="${span}">reliability — mean of (passing tries / tries run) over ${reliabilityN} dispatched prompt(s)</td>
+      <td colspan="3">${reliabilityN ? rel + "%" : "—"}</td>
+    </tr>
+    <tr>
+      <td class="lbl" colspan="${span}">avg tokens per solved prompt — all its tries, failures included</td>
+      <td colspan="3">${solved ? `${fmtNum(Math.round(winIn / solved))} in / ${fmtNum(Math.round(winOut / solved))} out` : "—"}</td>
+    </tr>`);
+}
+
+// -- hover card ----------------------------------------------------------------------------
+// Blob URLs are cached by frame path, the same cache key updateFrame uses, so re-hovering a row is
+// instant. The cap keeps a long review session from holding every frame of the battery in memory.
+
+const tip = document.getElementById("ov-tip");
+const tipCache = new Map();
+const TIP_CACHE_MAX = 40;
+let tipKey = null;
+
+async function frameURL(a) {
+  if (!a || !a.frame) return null;
+  const cached = tipCache.get(a.frame);
+  if (cached) return cached;
+  let url;
+  try {
+    const res = await fetch(api(a.key, "frame.png"));
+    if (!res.ok) return null;
+    url = URL.createObjectURL(await res.blob());
+  } catch { return null; }
+  tipCache.set(a.frame, url);
+  while (tipCache.size > TIP_CACHE_MAX) {
+    const oldest = tipCache.keys().next().value;
+    URL.revokeObjectURL(tipCache.get(oldest));
+    tipCache.delete(oldest);
+  }
+  return url;
+}
+
+// Built once and patched, for the same reason the cards are: refresh() re-renders the card of a
+// hovered live attempt every two seconds, and rewriting the markup would re-decode the frame under
+// the cursor once per tick.
+tip.innerHTML = `
+  <img alt="last frame" hidden>
+  <div class="tip-none">no frame</div>
+  <div class="tip-body">
+    <div class="tip-title" data-ref="title"></div>
+    <dl>
+      <dt>elapsed</dt><dd data-ref="elapsed"></dd>
+      <dt>step</dt><dd data-ref="step"></dd>
+      <dt>tokens</dt><dd data-ref="tokens"></dd>
+      <dt>end</dt><dd data-ref="end"></dd>
+      <dt>sandbox</dt><dd data-ref="sandbox"></dd>
+    </dl>
+  </div>`;
+const tipRefs = { img: tip.querySelector("img"), none: tip.querySelector(".tip-none") };
+tip.querySelectorAll("[data-ref]").forEach(el => { tipRefs[el.dataset.ref] = el; });
+let tipFrame = null;
+
+function showTip(key) {
+  const a = ovIndex.get(key);
+  if (!a) { hideTip(); return; }
+  tipKey = key;
+  const st = cellState(a);
+  setText(tipRefs.title, `${a.prompt_id} · try ${a.attempt} — ${st.label}`);
+  setText(tipRefs.elapsed, fmtMin(a.elapsed_seconds));
+  setText(tipRefs.step, `${a.step || 0}${a.max_steps ? " / " + a.max_steps : ""}`
+    + (a.leg === null || a.leg === undefined ? "" : ` · leg ${a.leg}`));
+  setText(tipRefs.tokens, fmtTok(a));
+  setText(tipRefs.end, a.end_reason || a.outcome || a.state || "—");
+  setText(tipRefs.sandbox, a.sandbox_id || "—");
+  tip.classList.add("on");
+
+  if (a.frame === tipFrame) return;
+  const cached = a.frame ? tipCache.get(a.frame) : null;
+  if (cached) {
+    tipFrame = a.frame;
+    tipRefs.img.src = cached;
+    tipRefs.img.hidden = false;
+    tipRefs.none.hidden = true;
+    return;
+  }
+  tipFrame = null;
+  tipRefs.img.hidden = true;
+  tipRefs.none.hidden = false;
+  setText(tipRefs.none, a.frame ? "loading frame…" : "no frame");
+  frameURL(a).then(url => {
+    if (tipKey !== key || !url) return;
+    tipFrame = a.frame;
+    tipRefs.img.src = url;
+    tipRefs.img.hidden = false;
+    tipRefs.none.hidden = true;
+  });
+}
+
+function hideTip() {
+  tipKey = null;
+  tip.classList.remove("on");
+}
+
+function moveTip(ev) {
+  const pad = 16;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  if (x + w > window.innerWidth - 8) x = Math.max(8, ev.clientX - pad - w);
+  if (y + h > window.innerHeight - 8) y = Math.max(8, ev.clientY - pad - h);
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
+}
+
+function setTab(tab) {
+  if (tab === activeTab) return;
+  activeTab = tab;
+  document.querySelectorAll("button.tab").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  document.getElementById("grid").hidden = tab !== "live";
+  document.getElementById("overview").hidden = tab !== "overview";
+  hideTip();
+  refresh();
+}
+
 async function refresh() {
   let state;
   try {
@@ -470,13 +935,20 @@ async function refresh() {
       lastOrder = "";  // force the reorder pass below to place the newcomer
     }
     patchCard(entry, a);
-    updateFrame(entry, a);
-    termPump(entry.term, a.key, INLINE_LOG_LINES, a.log_bytes ?? null);
+    // Frame decodes and log deltas are the expensive half of a tick, and none of it is visible from
+    // the overview tab. The cards themselves stay patched, so switching back is instant.
+    if (activeTab === "live") {
+      updateFrame(entry, a);
+      termPump(entry.term, a.key, INLINE_LOG_LINES, a.log_bytes ?? null);
+    }
   }
   for (const entry of [...cards.values()]) if (!seen.has(entry.key)) dropCard(entry);
 
   reorder(grid, atts);
-  if (logModalKey) termPump(logModal, logModalKey, MODAL_LOG_LINES);
+  renderOverview(state);
+  // A hovered cell on a live attempt keeps its elapsed and token counts current.
+  if (tipKey) showTip(tipKey);
+  if (logModalKey) termPump(logModal, logModalKey, MODAL_LOG_LINES, null, true);
   if (modalKey) syncModal();
 }
 
@@ -484,7 +956,7 @@ async function refresh() {
 // node can reset a scrollable descendant's scrollTop, so only the cards actually out of position are
 // touched and each one's terminal scroll is carried across its move.
 function reorder(grid, atts) {
-  const order = atts.map(a => a.key).join(" ");
+  const order = atts.map(a => a.key).join(" ");
   if (order === lastOrder) return;
   lastOrder = order;
 
@@ -501,7 +973,8 @@ function reorder(grid, atts) {
 
 // -- fullscreen log ----------------------------------------------------------------------
 
-const logModal = newTerm(document.getElementById("log-modal-body"));
+// The dedicated fullscreen reader intentionally has no client-side line cap.
+const logModal = newTerm(document.getElementById("log-modal-body"), false);
 
 function openLogModal(key) {
   logModalKey = key;
@@ -513,7 +986,7 @@ function openLogModal(key) {
   document.getElementById("log-modal-title").textContent = key;
   document.getElementById("log-modal-sub").textContent = a ? (a.end_reason || a.state || "") : "";
   document.getElementById("log-modal").classList.add("open");
-  termPump(logModal, key, MODAL_LOG_LINES);
+  termPump(logModal, key, MODAL_LOG_LINES, null, true);
 }
 
 function closeLogModal() {
@@ -522,25 +995,50 @@ function closeLogModal() {
   document.getElementById("log-modal").classList.remove("open");
 }
 
-// -- replay modal ------------------------------------------------------------------------
-// This <video> sits outside #grid so nothing in the render loop can reach it and restart playback
-// mid-review; refresh() never touches its src.
+// -- detail overlay ------------------------------------------------------------------------
+// The attempt in full: the replay, the same leg/step/action block the card shows, the log, and the
+// verdict. One overlay for both entry points — the live tab's ▶ replay button and a cell on the
+// overview — so there is a single code path for reviewing an attempt.
+//
+// It sits outside #grid so nothing in the render loop can reach the <video> and restart playback
+// mid-review; refresh() only ever patches the rows and pumps the log.
 
-function openModal(key) {
+const modalTerm = newTerm(document.getElementById("modal-log"));
+const modalRefs = {};
+document.querySelectorAll("#modal-rows [data-ref]").forEach(el => { modalRefs[el.dataset.ref] = el; });
+let modalStill = null;   // the frame path currently in <img id="modal-still">
+let modalReplayRequested = false;
+
+function openModal(key, requestReplay = false) {
   modalKey = key;
+  modalReplayRequested = false;
   const video = document.getElementById("modal-video");
   video.style.display = "none";
   video.removeAttribute("src");
   video.load();
-  document.getElementById("modal-note").style.display = "";
-  document.getElementById("modal-note").textContent = "asking for the clip…";
+  const still = document.getElementById("modal-still");
+  still.hidden = true;
+  still.removeAttribute("src");
+  modalStill = null;
+  const play = document.getElementById("modal-play");
+  play.hidden = false;
+  const note = document.getElementById("modal-note");
+  note.style.display = "";
+  note.textContent = "Click ▶ to render the replay.";
+  termClear(modalTerm);
+  modalTerm.cursor = null;
+  modalTerm.size = null;
+  modalTerm.done = false;
   document.getElementById("modal").classList.add("open");
   syncModal();
-  pollReplay(key);
+  termPump(modalTerm, key, MODAL_LOG_LINES);
+  if (requestReplay) startModalReplay(key);
 }
 
 function closeModal() {
   modalKey = null;
+  modalReplayRequested = false;
+  modalTerm.done = true;  // stop any pump already in flight from appending after the close
   const video = document.getElementById("modal-video");
   video.pause();
   video.removeAttribute("src");
@@ -549,23 +1047,64 @@ function closeModal() {
 }
 
 function syncModal() {
-  const a = latest.find(x => x.key === modalKey);
-  document.getElementById("modal-title").textContent = modalKey || "replay";
-  document.getElementById("modal-sub").textContent = a ? (a.end_reason || "") : "";
+  const key = modalKey;
+  const a = latest.find(x => x.key === key);
+  document.getElementById("modal-title").textContent = key || "attempt";
+  document.getElementById("modal-sub").textContent = a
+    ? [a.outcome || a.state, a.end_reason].filter(Boolean).join(" · ")
+    : "";
+
+  const rows = document.getElementById("modal-rows");
+  rows.hidden = !a;
+  if (a) setRows(modalRefs, a);
+  termPump(modalTerm, key, MODAL_LOG_LINES, a ? (a.log_bytes ?? null) : null);
+
+  // The still is a placeholder for the clip, not a rival to it: it carries the overlay while the
+  // encode is queued and for an attempt that will never have one, and the video hides it on arrival.
+  const video = document.getElementById("modal-video");
+  const still = document.getElementById("modal-still");
+  if (video.getAttribute("src")) {
+    still.hidden = true;
+  } else if (a && a.frame && a.frame !== modalStill) {
+    modalStill = a.frame;
+    frameURL(a).then(url => {
+      if (modalKey !== key || !url || video.getAttribute("src")) return;
+      still.src = url;
+      still.hidden = false;
+    });
+  }
+
+  // Every finished attempt is reviewable; a live attempt's outcome can still change.
+  const foot = document.getElementById("modal-foot");
+  foot.hidden = !(a && a.verifiable);
   const label = !a ? "" : a.verified
     ? `human: ${a.verified_success ? "success" : "fail"}${a.verified_by ? " · " + a.verified_by : ""}`
     : "unreviewed";
   document.getElementById("modal-verdict").textContent = label;
+  const clear = document.getElementById("modal-clear");
+  clear.hidden = !(a && a.verified);
+  clear.dataset.key = key || "";
   for (const [id, want] of [["modal-yes", true], ["modal-no", false]]) {
     const el = document.getElementById(id);
-    el.dataset.key = modalKey || "";
+    el.dataset.key = key || "";
     el.classList.toggle("on", Boolean(a && a.verified && Boolean(a.verified_success) === want));
   }
+}
+
+function startModalReplay(key) {
+  if (modalKey !== key || modalReplayRequested) return;
+  modalReplayRequested = true;
+  document.getElementById("modal-play").hidden = true;
+  const note = document.getElementById("modal-note");
+  note.style.display = "";
+  note.textContent = "asking for the clip…";
+  pollReplay(key);
 }
 
 // 202 while the render is queued on the watcher's single ffmpeg worker, 200 once it lands, 409 if it
 // never can. Only the ready transition touches the <video> src.
 async function pollReplay(key) {
+  if (modalKey !== key || !modalReplayRequested) return;
   const note = document.getElementById("modal-note");
   const video = document.getElementById("modal-video");
   let res;
@@ -573,14 +1112,18 @@ async function pollReplay(key) {
     // A one-byte range, not a HEAD: the stdlib handler only implements GET and POST, and this way
     // the probe costs a byte instead of the whole clip.
     res = await fetch(api(key, "replay.mp4"), { headers: { Range: "bytes=0-0" } });
-  } catch { if (modalKey === key) note.textContent = "(disconnected)"; return; }
-  if (modalKey !== key) return;
+  } catch {
+    if (modalKey === key && modalReplayRequested) note.textContent = "(disconnected)";
+    return;
+  }
+  if (modalKey !== key || !modalReplayRequested) return;
 
   if (res.status === 206 || res.status === 200) {
     if (!video.getAttribute("src")) {
       video.src = api(key, "replay.mp4");
       video.style.display = "";
       note.style.display = "none";
+      document.getElementById("modal-still").hidden = true;
     }
     return;
   }
@@ -589,8 +1132,10 @@ async function pollReplay(key) {
     setTimeout(() => { if (modalKey === key) pollReplay(key); }, 2000);
     return;
   }
+  // No clip, so the still syncModal put up is all there is. Say so rather than leaving the frame
+  // above an unexplained error line.
   note.textContent = res.status === 409
-    ? "no clip available — the attempt saved no frames, ffmpeg is missing, or the encode busts the size budget"
+    ? "no clip — showing the last frame (the attempt saved too few frames, or ffmpeg is missing)"
     : `replay unavailable (HTTP ${res.status})`;
 }
 
@@ -602,7 +1147,31 @@ async function sendVerdict(key, success) {
   });
   const data = await res.json();
   if (!data.ok) alert("Verdict not recorded: " + (data.error || "unknown"));
+  else if (success) {
+    const stopped = data.siblings_stopped || 0;
+    const skipped = data.siblings_skipped || 0;
+    notify(`Success recorded. ${stopped} sibling(s) stopped; ${skipped} sibling(s) will be skipped.`);
+  }
   refresh();
+}
+
+const verdictsInFlight = new Set();
+
+async function recordVerdict(key, success) {
+  if (!key || verdictsInFlight.has(key)) return;
+  // With nothing running there is no process for a successful verdict to interrupt, so the warning
+  // adds no useful protection. Queued siblings may still be skipped, which the toast reports.
+  if (success && latest.some(isLive) && !confirm(
+    `Mark ${key} successful?\n\nThis irreversibly stops or skips every other try of this prompt. ` +
+    `Changing or clearing the verdict later will not restart them.`
+  )) return;
+
+  verdictsInFlight.add(key);
+  try {
+    await sendVerdict(key, success);
+  } finally {
+    verdictsInFlight.delete(key);
+  }
 }
 
 document.addEventListener("click", async ev => {
@@ -613,15 +1182,20 @@ document.addEventListener("click", async ev => {
   const key = button.dataset.key;
   const act = button.dataset.act;
 
+  if (act === "tab") { setTab(button.dataset.tab); return; }
   if (act === "log") { openLogModal(key); return; }
   if (act === "log-modal-close") { closeLogModal(); return; }
   if (act === "modal-close") { closeModal(); return; }
-  if (act === "replay") { openModal(key); return; }
+  // An overview cell opens on its last frame without starting an encode. The live card already has
+  // an explicit ▶ replay affordance, so that entry point can request the clip immediately.
+  if (act === "replay") { if (key) openModal(key, true); return; }
+  if (act === "detail") { if (key) openModal(key); return; }
+  if (act === "replay-start") { if (modalKey) startModalReplay(modalKey); return; }
 
-  // No confirm(): unlike a kill, a verdict is correctable — press the other button, or clear it.
   if (act === "verdict") {
     if (!key) return;
-    await sendVerdict(key, button.dataset.success === "true");
+    const success = button.dataset.success === "true";
+    await recordVerdict(key, success);
     return;
   }
 
@@ -637,13 +1211,60 @@ document.addEventListener("click", async ev => {
     const res = await (await fetch(api(key, "kill"), { method: "POST" })).json();
     if (!res.ok) alert("Kill failed: " + (res.error || "unknown"));
     refresh();
+    return;
+  }
+
+  if (act === "retry") {
+    if (!key || !confirm(
+      `Retry ${key}?\n\nThis stops the current run if needed and permanently deletes every log, ` +
+      `frame, replay, verdict, and result previously recorded for this try number.`
+    )) return;
+    button.disabled = true;
+    const res = await fetch(api(key, "retry"), { method: "POST" });
+    const data = await res.json();
+    if (!data.ok) {
+      button.disabled = false;
+      alert("Retry failed: " + (data.error || "unknown"));
+    }
+    refresh();
   }
 });
 
-document.addEventListener("keydown", ev => {
-  if (ev.key !== "Escape") return;
-  if (logModalKey) closeLogModal();
-  else if (modalKey) closeModal();
+// The hover card, delegated off the section so it survives every table patch.
+{
+  const section = document.getElementById("overview");
+  section.addEventListener("mouseover", ev => {
+    const button = ev.target.closest(".cellbtn");
+    if (!button || !button.dataset.key) { hideTip(); return; }
+    if (button.dataset.key !== tipKey) showTip(button.dataset.key);
+    moveTip(ev);
+  });
+  section.addEventListener("mousemove", ev => { if (tipKey) moveTip(ev); });
+  section.addEventListener("mouseleave", hideTip);
+  // A cell that scrolls out from under a stationary cursor would otherwise keep its card pinned.
+  section.addEventListener("scroll", hideTip, true);
+}
+
+document.addEventListener("keydown", async ev => {
+  if (ev.key === "Escape") {
+    if (logModalKey) closeLogModal();
+    else if (modalKey) closeModal();
+    return;
+  }
+
+  // While an overview result cell is hovered, P/F are direct equivalents of its verdict buttons.
+  // Modifier chords and editable controls retain their normal browser behavior.
+  const key = ev.key.toLowerCase();
+  const target = ev.target;
+  const editing = target instanceof HTMLElement
+    && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+  if (activeTab !== "overview" || !tipKey || ev.repeat || editing
+      || ev.ctrlKey || ev.metaKey || ev.altKey || (key !== "p" && key !== "f")) return;
+  const attempt = ovIndex.get(tipKey);
+  const state = cellState(attempt);
+  if (!attempt || !attempt.verifiable || !["p", "f", "q"].includes(state.code)) return;
+  ev.preventDefault();
+  await recordVerdict(attempt.key, key === "p");
 });
 
 refresh();

@@ -4,9 +4,9 @@ Two files, not one. Attempts and legs are different grains - an attempt has a va
 legs, so folding them into one row either truncates or explodes, and neither pivots. They join on
 ``run_dir``.
 
-Both inputs are written incrementally (``attempts.jsonl`` as attempts finish, each attempt's own
-``summary.json`` at its exit), so this is runnable mid-battery and a battery interrupted after six
-hours still reports.
+Both inputs are written incrementally (the canonical ``attempts.jsonl`` index as attempts finish,
+each attempt's own ``summary.json`` at its exit), so this is runnable mid-battery and a battery
+interrupted after six hours still reports.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from sari_bench.storage import canonical_attempt_rows
 from sari_bench.watch import scan
 
 ATTEMPT_COLUMNS = [
@@ -32,7 +33,8 @@ ATTEMPT_COLUMNS = [
     "end_reason", "exit_code", "wall_seconds", "wall_minutes",
     "tokens_in", "tokens_out", "tokens_total", "llm_calls",
     "legs_planned", "legs_completed", "requeues", "sandbox_id", "commands_uri",
-    "arm", "killed_by", "collapse_score", "collapse_signals", "run_dir", "error",
+    "arm", "killed_by", "stop_reason", "stop_requested_at", "stop_requested_by",
+    "winning_attempt_key", "collapse_score", "collapse_signals", "run_dir", "error",
 ]
 
 LEG_COLUMNS = [
@@ -84,7 +86,7 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     battery_id = battery.name
     by_run_dir: dict[str, dict[str, Any]] = {}
 
-    for row in _read_jsonl(battery / "attempts.jsonl"):
+    for row in canonical_attempt_rows(battery):
         if row.get("run_dir"):
             by_run_dir[str(Path(row["run_dir"]))] = row
 
@@ -109,7 +111,7 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
 
         # Same fallback chain as every other field in this row - and, now that `verdict_agrees`
         # compares against it, the same answer the dashboard shows. The manifest belongs in the chain
-        # because the runner patches `success` into it at the moment it appends to attempts.jsonl, so
+        # because the runner patches `success` into it when it publishes the attempts.jsonl row, so
         # an attempt whose row never made it to the spine still reports the verdict it earned.
         success = bool(recorded.get("success") or summary.get("success") or manifest.get("success"))
         end_reason = recorded.get("end_reason") or manifest.get("end_reason", "")
@@ -150,6 +152,13 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             "commands_uri": recorded.get("commands_uri") or manifest.get("commands_uri", ""),
             "arm": manifest.get("arm") or summary.get("arm", ""),
             "killed_by": manifest.get("killed_by", ""),
+            "stop_reason": manifest.get("stop_reason", ""),
+            "stop_requested_at": manifest.get("stop_requested_at", ""),
+            "stop_requested_by": manifest.get("stop_requested_by", ""),
+            "winning_attempt_key": (
+                recorded.get("winning_attempt_key")
+                or manifest.get("winning_attempt_key", "")
+            ),
             "collapse_score": (view.health or {}).get("score", 0.0),
             "collapse_signals": (view.health or {}).get("summary", ""),
             "run_dir": str(run_dir),

@@ -1,7 +1,8 @@
-"""Turns an attempt's per-step screenshots into a watchable video: ``python -m sari_bench video``.
+"""Turns an attempt's observation frames into a watchable video: ``python -m sari_bench video``.
 
-``run_leg`` already saves one ``legNN/stepNN.png`` per timestep, zero-padded and in order, so this
-is mostly an ffmpeg invocation. Two choices worth stating:
+``run_leg`` saves one ``legNN/stepNN.png`` per timestep and the benchmark runner fills long gaps
+with timestamped ``capture/*.jpg`` frames, so this is mostly an ffmpeg invocation. Two choices worth
+stating:
 
 * **mp4, not gif.** A 150-frame 1080p gif runs to hundreds of megabytes and cannot be scrubbed;
   h264 is roughly 20x smaller and seekable. ``--gif`` is there for pasting into a chat.
@@ -27,6 +28,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from sari_bench import capture
 from sari_bench.watch import scan
 
 _STEP_PNG = re.compile(r"^step(\d+)\.png$")
@@ -38,15 +40,16 @@ BITRATE_HEADROOM = 0.95
 MIN_VIDEO_BITRATE = 120_000  # bps floor; below this h264 is unwatchable, so blow the budget instead
 RENDER_TIMEOUT_SECONDS = 600.0
 
-# Hold each captured step for about a second. Replay frames are observations rather than animation
-# frames, so a conventional video frame rate makes the run too quick to review.
-DEFAULT_FPS = 1.0
-UPLOAD_FPS = DEFAULT_FPS
+# Full replays use the dense capture stream at two observations per playback second. The bounded
+# Discord artifact remains step-only at one frame per second.
+DEFAULT_FPS = 2.0
+UPLOAD_FPS = 1.0
 UPLOAD_WIDTH = 960
 
 # Name the upload copy separately from `replay.mp4`. The CLI owns that one and renders it uncapped for
 # archive viewing; auto-render must never quietly re-encode over it at attachment quality.
 UPLOAD_NAME = "replay.discord.mp4"
+REPLAY_NAME = "replay.mp4"
 
 
 def _steps_by_index(leg_jsonl: Path) -> dict[int, dict[str, Any]]:
@@ -83,10 +86,15 @@ def _stamp_frame(source: Path, target: Path, text: str) -> None:
         frame.save(target)
 
 
-def collect_frames(run_dir: Path) -> list[tuple[Path, str]]:
-    """Every frame of an attempt in play order, with its caption. Legs concatenate in order, so one
-    video covers the whole attempt rather than one per leg."""
+def collect_frames(run_dir: Path, *, include_captures: bool = True) -> list[tuple[Path, str]]:
+    """Every frame of an attempt in play order, with its caption.
+
+    Legacy step-only runs retain their leg/step ordering. When supplementary captures exist, both
+    sources are merged by capture/publication time.
+    """
     frames: list[tuple[Path, str]] = []
+    timed: list[tuple[int, int, Path, str]] = []
+    order = 0
     leg_dirs = sorted(p for p in run_dir.iterdir() if p.is_dir() and p.name.startswith("leg"))
     for leg_dir in leg_dirs:
         records = _steps_by_index(run_dir / f"{leg_dir.name}.jsonl")
@@ -94,8 +102,29 @@ def collect_frames(run_dir: Path) -> list[tuple[Path, str]]:
             ((int(m.group(1)), p) for p in leg_dir.iterdir() if (m := _STEP_PNG.match(p.name))),
         )
         for step, path in numbered:
-            frames.append((path, _caption(records.get(step), leg_dir.name, step)))
-    return frames
+            text = _caption(records.get(step), leg_dir.name, step)
+            frames.append((path, text))
+            timed.append((capture.frame_timestamp_ns(path), order, path, text))
+            order += 1
+
+    capture_dir = run_dir / capture.CAPTURE_DIR
+    captures = (
+        [path for path in capture.observation_frames(run_dir) if path.parent == capture_dir]
+        if include_captures else []
+    )
+    if not captures:
+        return frames
+
+    manifest = scan._read_json(run_dir / scan.ATTEMPT_MANIFEST)
+    started_ns = int(float(manifest.get("started_epoch") or 0) * 1e9)
+    for path in captures:
+        timestamp_ns = capture.frame_timestamp_ns(path)
+        elapsed = max(0.0, (timestamp_ns - started_ns) / 1e9) if started_ns else 0.0
+        minutes, seconds = divmod(int(elapsed), 60)
+        text = f"live observation   +{minutes:02d}:{seconds:02d}"
+        timed.append((timestamp_ns, order, path, text))
+        order += 1
+    return [(path, text) for _, _, path, text in sorted(timed)]
 
 
 def target_bitrate(frame_count: int, fps: float, budget_bytes: int = DISCORD_BUDGET_BYTES,
@@ -112,8 +141,9 @@ def target_bitrate(frame_count: int, fps: float, budget_bytes: int = DISCORD_BUD
 
 def render(run_dir: Path, out_path: Path, *, fps: float = DEFAULT_FPS, width: int = 1280,
            gif: bool = False, caption: bool = True,
-           max_bytes: int | None = None, preset: str = "veryfast") -> Path | None:
-    frames = collect_frames(run_dir)
+           max_bytes: int | None = None, preset: str = "veryfast",
+           include_captures: bool = True) -> Path | None:
+    frames = collect_frames(run_dir, include_captures=include_captures)
     if not frames:
         print(f"[sari-bench video] no frames under {run_dir}")
         return None
@@ -179,7 +209,8 @@ def render_for_upload(run_dir: Path, *, max_bytes: int = DISCORD_BUDGET_BYTES,
             size = out_path.stat().st_size
             if 0 < size <= max_bytes:
                 return out_path
-        if render(run_dir, out_path, fps=fps, width=width, max_bytes=max_bytes) is None:
+        if render(run_dir, out_path, fps=fps, width=width, max_bytes=max_bytes,
+                  include_captures=False) is None:
             return None
         size = out_path.stat().st_size
         if size > max_bytes:

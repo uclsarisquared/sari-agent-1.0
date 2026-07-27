@@ -56,7 +56,8 @@ class ReplayNotifier(threading.Thread):
 
     def __init__(self, discord: notify.Discord, *, enabled: bool = True,
                  max_bytes: int = video.DISCORD_BUDGET_BYTES,
-                 width: int = video.UPLOAD_WIDTH, fps: float = video.UPLOAD_FPS) -> None:
+                 width: int = video.UPLOAD_WIDTH, fps: float = video.UPLOAD_FPS,
+                 review_fps: float = video.DEFAULT_FPS) -> None:
         super().__init__(name="replay-notifier")
         self.discord = discord
         # Two flags, not one. The dashboard renders clips for review whether or not a webhook is
@@ -66,6 +67,7 @@ class ReplayNotifier(threading.Thread):
         self.max_bytes = max_bytes
         self.width = width
         self.fps = fps
+        self.review_fps = review_fps
         self._queue: queue.Queue[Any] = queue.Queue(maxsize=QUEUE_MAXSIZE)
         self._claimed: set[str] = set()
         self._requested: set[str] = set()
@@ -82,6 +84,8 @@ class ReplayNotifier(threading.Thread):
         worker is off, the queue is backed up, or the key was already claimed (in which case
         `Discord.attempt_finished` will no-op on its own dedupe and nothing is sent twice).
         """
+        if attempt.get("end_reason") == "already_successful":
+            return True
         if not self.announce_enabled:
             return False
         key = attempt.get("key") or ""
@@ -103,14 +107,13 @@ class ReplayNotifier(threading.Thread):
     def request(self, key: str, run_dir: Path) -> str:
         """A reviewer asked to watch `key`. Returns READY, RENDERING or UNAVAILABLE. Never blocks.
 
-        READY means the clip is on disk and in budget right now - which is the common case once a
-        halt has already been announced to Discord, since that path leaves the same file behind.
+        READY means the full review clip is already on disk.
         """
         if not key or not run_dir.is_dir():
             return UNAVAILABLE
-        clip = run_dir / video.UPLOAD_NAME
+        clip = run_dir / video.REPLAY_NAME
         try:
-            if clip.is_file() and 0 < clip.stat().st_size <= self.max_bytes:
+            if clip.is_file() and clip.stat().st_size > 0:
                 return READY
         except OSError:
             pass
@@ -149,6 +152,14 @@ class ReplayNotifier(threading.Thread):
         self.discord.suppress_finished(keys)
         _log(f"seeded {len(keys)} finished attempt(s) as already announced")
 
+    def forget_attempt(self, key: str) -> None:
+        """Drops per-key caches before a replacement execution reuses the logical key."""
+        with self._claim_lock:
+            self._claimed.discard(key)
+            self._requested.discard(key)
+            self._failed.discard(key)
+        self.discord.forget_attempt(key)
+
     # -- worker ----------------------------------------------------------------------------
 
     def run(self) -> None:
@@ -174,8 +185,16 @@ class ReplayNotifier(threading.Thread):
 
         clip = None
         if run_dir.is_dir():
-            clip = video.render_for_upload(run_dir, max_bytes=self.max_bytes,
-                                           fps=self.fps, width=self.width)
+            if announce:
+                clip = video.render_for_upload(run_dir, max_bytes=self.max_bytes,
+                                               fps=self.fps, width=self.width)
+            else:
+                clip = video.render(
+                    run_dir,
+                    run_dir / video.REPLAY_NAME,
+                    fps=self.review_fps,
+                    width=max(self.width, 1280),
+                )
         elif announce:
             _log(f"no run dir for {key}, posting without a clip")
 

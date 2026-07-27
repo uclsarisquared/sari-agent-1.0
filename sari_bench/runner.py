@@ -2,8 +2,8 @@
 
 Work is the cross product of prompts and attempts. Each unit of work leases a sandbox, runs one
 agent subprocess against it, and hands it back - the coordinator resets it before it is used again,
-so no attempt inherits state from the one before it. Concurrency is bounded by ``--concurrency``
-workers and, above that, by how many sandboxes the pool actually has.
+so no attempt inherits state from the one before it. By default the worker pool grows with the
+coordinator's sandbox fleet; ``--concurrency`` remains available as an explicit upper bound.
 
 Failures are contained per attempt: a crashed agent, an attempt that blows its time limit, or a
 sandbox that dies mid-run all record an outcome and move on. Only a sandbox death requeues the
@@ -17,16 +17,29 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import signal
+import socket
 import sys
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sari_bench import capture
 from sari_bench.client import CoordinatorClient, Lease, SandboxLost
 from sari_bench.protocol import DEFAULT_COORDINATOR_PORT, STATE_READY
+from sari_bench.storage import (
+    RUNNER_LOCK,
+    canonical_attempt_rows,
+    edit_json_locked,
+    file_lock,
+    purge_attempt_rows,
+    upsert_attempt_row,
+    write_json_atomic,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OVERHAUL_DIR = REPO_ROOT / "overhaul"
@@ -42,10 +55,17 @@ TERMINATE_GRACE_SECONDS = 20.0
 # An attempt whose sandbox died is retried this many times before being recorded as failed. Guards
 # against a permanently sick machine turning into an infinite requeue loop.
 MAX_SANDBOX_LOST_REQUEUES = 3
+ALREADY_SUCCESSFUL = "already_successful"
+DEFAULT_CAPACITY_POLL_SECONDS = 1.0
 
 
 class SandboxStartupError(RuntimeError):
     """The configured coordinator has no usable fleet at runner startup."""
+
+
+class ResumeError(RuntimeError):
+    """The requested output-directory operation is unsafe or incompatible."""
+
 
 # Per-attempt manifest, written INTO the run dir before the agent is spawned. attempts.jsonl only
 # gains a row when an attempt finishes, so this is the only record that an attempt is in flight -
@@ -57,10 +77,7 @@ BATTERY_MANIFEST = "battery.json"
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     """Writes JSON via a temp file + rename, so a reader polling this path never sees half a file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.tmp")
-    temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-    os.replace(temp, path)
+    write_json_atomic(path, payload)
 
 
 def _patch_json(path: Path, fields: dict[str, Any]) -> None:
@@ -83,6 +100,11 @@ def _manifest_field(path: Path, key: str) -> Any:
     except (OSError, ValueError):
         return None
     return payload.get(key) if isinstance(payload, dict) else None
+
+
+def purge_attempt_records(output_dir: Path, prompt_id: str, attempt: int) -> None:
+    """Removes one logical try from the canonical result index."""
+    purge_attempt_rows(output_dir, prompt_id, attempt)
 
 
 @dataclass
@@ -109,6 +131,7 @@ class AttemptResult:
     run_dir: str = ""
     requeues: int = 0
     error: str = ""
+    winning_attempt_key: str = ""
     legs: dict[str, Any] = field(default_factory=dict)
     # Token cost of the attempt: prompt tokens in, completion tokens out, across every reasoner the
     # agent ran (agent_core.token_meter). Zero means "the agent recorded none", which for a crashed
@@ -164,7 +187,7 @@ class BenchmarkRunner:
         output_dir: Path,
         tries: int,
         time_limit_minutes: float,
-        concurrency: int,
+        concurrency: int | None,
         max_steps: int,
         arm: str,
         map_dir: str | None,
@@ -172,9 +195,14 @@ class BenchmarkRunner:
         per_leg_minutes: float | None = None,
         timeout_grace: float = DEFAULT_TIMEOUT_GRACE_SECONDS,
         sandbox_startup_timeout: float = 0.0,
+        capture_interval: float = 2.0,
+        capacity_poll_interval: float = DEFAULT_CAPACITY_POLL_SECONDS,
         python_executable: str | None = None,
         agent_entry: str = ORCHESTRATOR_ENTRY,
         agent_cwd: Path = OVERHAUL_DIR,
+        work_items: list[tuple[str, int]] | None = None,
+        initialize_battery: bool = True,
+        resume: bool = False,
     ) -> None:
         self.prompts = {prompt.id: prompt for prompt in prompts}
         self.coordinator_url = coordinator_url
@@ -196,48 +224,439 @@ class BenchmarkRunner:
         self.leg_retries = leg_retries
         self.timeout_grace = timeout_grace
         self.sandbox_startup_timeout = sandbox_startup_timeout
+        self.capture_interval = capture_interval
+        self.capacity_poll_interval = capacity_poll_interval
         self.python_executable = python_executable or sys.executable
         # Overridable so tests can drive the whole lease/spawn/release cycle against a stub agent
         # instead of the real orchestrator (which pulls the entire model stack on import).
         self.agent_entry = agent_entry
         self.agent_cwd = agent_cwd
+        self.work_items = work_items
+        self.initialize_battery = initialize_battery
+        self.resume = resume
 
         self._queue: asyncio.Queue[tuple[str, int, int]] = asyncio.Queue()
         self._results: list[AttemptResult] = []
         self._results_lock = asyncio.Lock()
         self._started_at = 0.0
+        self._peak_workers = 0
+        self._prior_wall_seconds = 0.0
 
     async def run(self) -> dict[str, Any]:
-        await self._wait_for_registered_sandbox()
+        if self.initialize_battery:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                with file_lock(self.output_dir / RUNNER_LOCK, blocking=False):
+                    return await self._run_locked()
+            except BlockingIOError as error:
+                raise ResumeError(
+                    f"another full battery runner is already using {self.output_dir}"
+                ) from error
+        return await self._run_locked()
 
-        for prompt in self.prompts.values():
-            for attempt in range(1, self.tries + 1):
-                self._queue.put_nowait((prompt.id, attempt, 0))
-
-        # Say plainly whether this battery is starting clean or landing in a directory that already
-        # holds results - a reused dir mixes old attempts into attempts.jsonl and the watcher's view.
-        reused = self.output_dir.exists() and any(self.output_dir.iterdir())
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        if reused:
-            _log(f"REUSING existing output dir {self.output_dir} (it already holds results; new "
-                 f"attempts append to attempts.jsonl and prior run dirs are rotated aside)")
-        else:
-            _log(f"new output dir {self.output_dir}")
-
+    async def _run_locked(self) -> dict[str, Any]:
+        """Validate local state, derive pending work, then touch the coordinator if needed."""
         self._started_at = time.monotonic()
-        total = self._queue.qsize()
-        _log(f"{len(self.prompts)} prompt(s) x {self.tries} attempt(s) = {total} run(s)")
-        self._write_battery_manifest(total)
 
-        workers = [asyncio.create_task(self._worker(i)) for i in range(self.concurrency)]
+        if self.initialize_battery:
+            work_items = await self._prepare_battery()
+        elif self.work_items is None:
+            work_items = [
+                (prompt.id, attempt)
+                for prompt in self.prompts.values()
+                for attempt in range(1, self.tries + 1)
+            ]
+        else:
+            work_items = list(self.work_items)
+        for prompt_id, attempt in work_items:
+            if prompt_id not in self.prompts:
+                raise ValueError(f"unknown work-item prompt: {prompt_id}")
+            self._queue.put_nowait((prompt_id, attempt, 0))
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        total = self._queue.qsize()
+        planned = len(self.prompts) * self.tries
+        _log(
+            f"{len(self.prompts)} prompt(s) x {self.tries} attempt(s) = "
+            f"{planned} planned, {total} pending"
+        )
+        if total == 0:
+            _log("battery already complete; no sandbox required")
+            return self._write_summary()
+
+        await self._wait_for_registered_sandbox()
+        if self.initialize_battery and not self.resume:
+            self._write_battery_manifest(planned)
+
+        workers: list[asyncio.Task[None]] = []
+        scaler: asyncio.Task[None] | None = None
+        if self.concurrency is None:
+            scaler = asyncio.create_task(self._scale_workers_with_fleet(workers, total))
+        else:
+            worker_count = min(self.concurrency, total)
+            workers.extend(asyncio.create_task(self._worker(i)) for i in range(worker_count))
+            self._record_worker_count(worker_count)
         try:
             await self._queue.join()
         finally:
+            if scaler is not None:
+                scaler.cancel()
+                await asyncio.gather(scaler, return_exceptions=True)
             for worker in workers:
                 worker.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
 
         return self._write_summary()
+
+    @staticmethod
+    def _payload_entries(path: Path) -> list[Path]:
+        control = {RUNNER_LOCK, ".attempts.lock", ".battery.lock"}
+        return [entry for entry in path.iterdir() if entry.name not in control]
+
+    async def _prepare_battery(self) -> list[tuple[str, int]]:
+        """Apply the fresh/resume directory contract and return only unfinished work."""
+        entries = self._payload_entries(self.output_dir)
+        if not self.resume:
+            if entries:
+                raise ResumeError(
+                    f"{self.output_dir} is not empty; pass --resume to continue its battery "
+                    "or choose a new --output-dir"
+                )
+            _log(f"new output dir {self.output_dir}")
+            return [
+                (prompt.id, attempt)
+                for prompt in self.prompts.values()
+                for attempt in range(1, self.tries + 1)
+            ]
+
+        battery_manifest_path = self.output_dir / BATTERY_MANIFEST
+        if not battery_manifest_path.is_file():
+            raise ResumeError(
+                f"--resume requires an existing battery.json in {self.output_dir}"
+            )
+        try:
+            battery = json.loads(battery_manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise ResumeError(f"cannot read {battery_manifest_path}: {error}") from error
+        if not isinstance(battery, dict):
+            raise ResumeError(f"{battery_manifest_path} is not a JSON object")
+        self._validate_resume_config(battery)
+        self._peak_workers = int(battery.get("peak_workers") or 0)
+        previous_summary = self._read_manifest(self.output_dir / "summary.json")
+        self._prior_wall_seconds = float(previous_summary.get("wall_seconds") or 0.0)
+
+        try:
+            rows = canonical_attempt_rows(self.output_dir, strict=True, rewrite=True)
+        except ValueError as error:
+            raise ResumeError(str(error)) from error
+
+        planned_keys = {
+            (prompt.id, attempt)
+            for prompt in self.prompts.values()
+            for attempt in range(1, self.tries + 1)
+        }
+        completed: set[tuple[str, int]] = set()
+        rows_by_key: dict[tuple[str, int], dict[str, Any]] = {}
+        for row in rows:
+            key = (str(row["prompt_id"]), int(row["attempt"]))
+            if key not in planned_keys:
+                raise ResumeError(
+                    f"attempts.jsonl contains out-of-plan result {key[0]} try {key[1]}"
+                )
+            completed.add(key)
+            rows_by_key[key] = row
+
+        for prompt_id, attempt in sorted(planned_keys):
+            run_dir = self.output_dir / prompt_id / f"try{attempt:02d}"
+            attempt_manifest_path = run_dir / ATTEMPT_MANIFEST
+            manifest = self._read_manifest(attempt_manifest_path)
+            key = (prompt_id, attempt)
+            if key in completed:
+                # The aggregate row is published only after the runner closes the manifest. Repair
+                # a stale copy rather than rerunning a result that is already durably recorded.
+                if manifest and manifest.get("state") != "finished":
+                    row = rows_by_key[key]
+                    _patch_json(
+                        attempt_manifest_path,
+                        {
+                            "state": "finished",
+                            "outcome": row.get("outcome", ""),
+                            "success": bool(row.get("success")),
+                            "end_reason": row.get("end_reason", ""),
+                            "exit_code": row.get("exit_code"),
+                            "wall_seconds": row.get("wall_seconds", 0.0),
+                            "tokens_in": row.get("tokens_in", 0),
+                            "tokens_out": row.get("tokens_out", 0),
+                            "finalized_at": datetime.now().isoformat(timespec="seconds"),
+                        },
+                    )
+                    _log(f"repaired stale finished manifest for {prompt_id} try {attempt}")
+                continue
+            if manifest.get("state") == "finished":
+                upsert_attempt_row(
+                    self.output_dir,
+                    asdict(self._result_from_finished_manifest(prompt_id, attempt, run_dir, manifest)),
+                )
+                completed.add(key)
+                _log(f"recovered missing result row for {prompt_id} try {attempt}")
+                continue
+            if run_dir.exists():
+                await self._discard_interrupted_run(run_dir, manifest)
+
+        now = datetime.now().isoformat(timespec="seconds")
+        with edit_json_locked(battery_manifest_path) as current:
+            current["resume_count"] = int(current.get("resume_count") or 0) + 1
+            current["last_resumed_at"] = now
+            current["coordinator"] = self.coordinator_url
+            current["concurrency"] = self.concurrency if self.concurrency is not None else "auto"
+            current["concurrency_mode"] = "fixed" if self.concurrency is not None else "auto"
+            current["concurrency_limit"] = self.concurrency
+
+        pending = [key for key in planned_keys if key not in completed]
+        _log(
+            f"resuming {self.output_dir}: {len(completed)} finished, {len(pending)} pending"
+        )
+        return sorted(pending)
+
+    def _semantic_config(self) -> dict[str, Any]:
+        return {
+            "tries": self.tries,
+            "time_limit_minutes": self.time_limit_minutes,
+            "per_leg_minutes": self.per_leg_minutes,
+            "max_steps": self.max_steps,
+            "arm": self.arm,
+            "capture_interval_seconds": self.capture_interval,
+            "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
+            "leg_retries": self.leg_retries,
+            "timeout_grace_seconds": self.timeout_grace,
+            "agent_entry": self.agent_entry,
+            "agent_cwd": str(Path(self.agent_cwd).resolve()),
+            "planned_attempts": len(self.prompts) * self.tries,
+            "prompts": [asdict(prompt) for prompt in self.prompts.values()],
+        }
+
+    def _validate_resume_config(self, battery: dict[str, Any]) -> None:
+        mismatches = [
+            f"{key}: existing={battery.get(key)!r}, requested={requested!r}"
+            for key, requested in self._semantic_config().items()
+            if battery.get(key) != requested
+        ]
+        if mismatches:
+            raise ResumeError(
+                "resume configuration does not match battery.json:\n  "
+                + "\n  ".join(mismatches)
+            )
+
+    @staticmethod
+    def _read_manifest(path: Path) -> dict[str, Any]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _result_from_finished_manifest(
+        self,
+        prompt_id: str,
+        attempt: int,
+        run_dir: Path,
+        manifest: dict[str, Any],
+    ) -> AttemptResult:
+        prompt = self.prompts[prompt_id]
+        result = self._result_from_run_dir(
+            prompt,
+            attempt,
+            run_dir,
+            exit_code=manifest.get("exit_code"),
+            outcome=str(manifest.get("outcome") or "finished"),
+        )
+        result.success = bool(manifest.get("success", result.success))
+        result.end_reason = str(manifest.get("end_reason") or result.end_reason)
+        result.sandbox_id = str(manifest.get("sandbox_id") or "")
+        result.commands_uri = str(manifest.get("commands_uri") or "")
+        result.wall_seconds = float(manifest.get("wall_seconds") or 0.0)
+        result.run_dir = str(run_dir)
+        result.requeues = int(manifest.get("requeues") or 0)
+        result.winning_attempt_key = str(manifest.get("winning_attempt_key") or "")
+        return result
+
+    async def _discard_interrupted_run(
+        self,
+        run_dir: Path,
+        manifest: dict[str, Any],
+    ) -> None:
+        """Stop a verifiable orphan, release its old lease, then remove partial artifacts."""
+        recorded_host = str(manifest.get("runner_host") or "")
+        if recorded_host and recorded_host != socket.gethostname():
+            raise ResumeError(
+                f"{run_dir} was started on host {recorded_host}; cannot safely verify or stop "
+                "its orphan process from this host"
+            )
+
+        recorded_boot = str(manifest.get("runner_boot_id") or "")
+        same_boot = not recorded_boot or recorded_boot == self._boot_id()
+        pid = int(manifest.get("pid") or 0)
+        live_pids: list[int] = []
+        if same_boot and pid and self._pid_alive(pid):
+            live_pids = [pid]
+        elif same_boot and not pid:
+            live_pids = self._matching_run_pids(run_dir)
+
+        for live_pid in live_pids:
+            if not self._pid_matches_manifest(live_pid, run_dir, manifest):
+                raise ResumeError(
+                    f"{run_dir} records live pid {live_pid}, but its process identity does not match; "
+                    "refusing to delete or rerun it"
+                )
+            await self._kill_process_group(live_pid)
+
+        lease_id = str(manifest.get("lease_id") or "")
+        if lease_id:
+            try:
+                async with CoordinatorClient(self.coordinator_url) as client:
+                    known = await client.release_lease_id(lease_id, outcome="runner_resume")
+                _log(
+                    f"resume released stale lease {lease_id} for {run_dir.name} "
+                    f"({'known' if known else 'already reaped'})"
+                )
+            except Exception as error:  # coordinator disconnect reaping and TTL remain authoritative
+                _log(f"could not defensively release stale lease {lease_id}: {error!r}")
+
+        shutil.rmtree(run_dir)
+        _log(f"removed interrupted run dir before clean rerun: {run_dir}")
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+        return True
+
+    @staticmethod
+    def _boot_id() -> str:
+        try:
+            return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def _matching_run_pids(self, run_dir: Path) -> list[int]:
+        matches: list[int] = []
+        proc = Path("/proc")
+        try:
+            entries = list(proc.iterdir())
+        except OSError:
+            return matches
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            try:
+                command = (entry / "cmdline").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            if str(run_dir).encode() in command and self.agent_entry.encode() in command:
+                matches.append(pid)
+        return matches
+
+    def _pid_matches_manifest(
+        self,
+        pid: int,
+        run_dir: Path,
+        manifest: dict[str, Any],
+    ) -> bool:
+        try:
+            command = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
+            command_text = [part.decode(errors="replace") for part in command if part]
+        except OSError:
+            return False
+        if str(run_dir) not in command_text or self.agent_entry not in command_text:
+            return False
+        recorded_start = str(manifest.get("process_start_ticks") or "")
+        return not recorded_start or recorded_start == self._process_start_ticks(pid)
+
+    @staticmethod
+    def _process_start_ticks(pid: int) -> str:
+        try:
+            stat = (Path("/proc") / str(pid) / "stat").read_text(encoding="utf-8")
+            return stat[stat.rfind(")") + 2 :].split()[19]
+        except (OSError, IndexError):
+            return ""
+
+    @staticmethod
+    async def _kill_process_group(pid: int) -> None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        deadline = time.monotonic() + TERMINATE_GRACE_SECONDS
+        while BenchmarkRunner._pid_alive(pid) and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not BenchmarkRunner._pid_alive(pid):
+            return
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        deadline = time.monotonic() + TERMINATE_GRACE_SECONDS
+        while BenchmarkRunner._pid_alive(pid) and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if BenchmarkRunner._pid_alive(pid):
+            raise ResumeError(f"orphan process group {pid} did not stop")
+
+    def _record_worker_count(self, count: int) -> None:
+        if count <= self._peak_workers:
+            return
+        self._peak_workers = count
+        if self.initialize_battery:
+            with edit_json_locked(self.output_dir / BATTERY_MANIFEST) as battery:
+                battery["peak_workers"] = max(int(battery.get("peak_workers") or 0), count)
+
+    async def _scale_workers_with_fleet(
+        self,
+        workers: list[asyncio.Task[None]],
+        planned_attempts: int,
+    ) -> None:
+        """Grow the default worker pool as store-loaded sandboxes join the coordinator.
+
+        Workers are deliberately not removed when the observed fleet shrinks. Cancelling one may
+        terminate an attempt that is still healthy, while an idle worker already blocks harmlessly
+        in either queue.get() or bench.acquire. The high-water mark also means a replacement
+        sandbox can take queued work immediately.
+        """
+        connection_error: str | None = None
+        while True:
+            try:
+                async with CoordinatorClient(self.coordinator_url) as client:
+                    while True:
+                        pool = await client.pool()
+                        if connection_error is not None:
+                            _log("automatic concurrency: coordinator connection restored")
+                            connection_error = None
+
+                        capacity = sum(
+                            1
+                            for sandbox in pool
+                            if bool(sandbox.get("store_loaded", True))
+                        )
+                        desired = min(planned_attempts, capacity)
+                        while len(workers) < desired:
+                            index = len(workers)
+                            workers.append(asyncio.create_task(self._worker(index)))
+                            _log(
+                                f"automatic concurrency: started worker {index} "
+                                f"for {capacity} registered sandbox(es)"
+                            )
+                        self._record_worker_count(len(workers))
+                        await asyncio.sleep(self.capacity_poll_interval)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - keep watching through coordinator restarts
+                current_error = f"{type(error).__name__}: {error}"
+                if current_error != connection_error:
+                    _log(f"automatic concurrency: waiting for coordinator ({current_error})")
+                    connection_error = current_error
+                await asyncio.sleep(self.capacity_poll_interval)
 
     async def _wait_for_registered_sandbox(self) -> None:
         """Fail clearly at startup instead of parking every worker against an empty pool."""
@@ -314,23 +733,35 @@ class BenchmarkRunner:
         Without this the dashboard has no denominator: it can count the attempts that have started
         but not the ones still queued, so it cannot show progress.
         """
-        _write_json_atomic(
-            self.output_dir / "battery.json",
-            {
+        with edit_json_locked(self.output_dir / BATTERY_MANIFEST) as battery:
+            battery.clear()
+            battery.update(
+                {
                 "battery_id": self.output_dir.name,
                 "output_dir": str(self.output_dir),
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "coordinator": self.coordinator_url,
                 "tries": self.tries,
-                "concurrency": self.concurrency,
+                "concurrency": self.concurrency if self.concurrency is not None else "auto",
+                "concurrency_mode": "fixed" if self.concurrency is not None else "auto",
+                "concurrency_limit": self.concurrency,
+                "peak_workers": self._peak_workers,
                 "time_limit_minutes": self.time_limit_minutes,
                 "per_leg_minutes": self.per_leg_minutes,
                 "max_steps": self.max_steps,
                 "arm": self.arm,
+                "capture_interval_seconds": self.capture_interval,
+                "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
+                "leg_retries": self.leg_retries,
+                "timeout_grace_seconds": self.timeout_grace,
+                "sandbox_startup_timeout_seconds": self.sandbox_startup_timeout,
+                "agent_entry": self.agent_entry,
+                "agent_cwd": str(Path(self.agent_cwd).resolve()),
                 "planned_attempts": planned_attempts,
                 "prompts": [asdict(prompt) for prompt in self.prompts.values()],
-            },
-        )
+                "resume_count": 0,
+                }
+            )
 
     @staticmethod
     def _rotate_run_dir(run_dir: Path) -> None:
@@ -357,6 +788,14 @@ class BenchmarkRunner:
         while True:
             prompt_id, attempt, requeues = await self._queue.get()
             try:
+                winner = self._human_verified_winner(prompt_id)
+                if winner is not None:
+                    await self._record_skipped(prompt_id, attempt, requeues, winner)
+                    _log(
+                        f"[w{index}] {prompt_id} try {attempt}: skipped; "
+                        f"{winner['winning_attempt_key']} is human-verified successful"
+                    )
+                    continue
                 await self._run_attempt(index, prompt_id, attempt, requeues)
             except asyncio.CancelledError:
                 raise
@@ -384,6 +823,19 @@ class BenchmarkRunner:
             _log(f"[w{index}] {prompt_id} try {attempt}: waiting for a sandbox")
             lease = await client.acquire()
             _log(f"[w{index}] {prompt_id} try {attempt}: leased {lease.sandbox_id} ({lease.commands_uri})")
+
+            # A winner can land while this worker is blocked in acquire(). Do not start an agent
+            # merely because the work item was dequeued before the reviewer clicked success.
+            winner = self._human_verified_winner(prompt_id)
+            if winner is not None:
+                with contextlib.suppress(Exception):
+                    await client.release(lease, outcome="done")
+                await self._record_skipped(prompt_id, attempt, requeues, winner)
+                _log(
+                    f"[w{index}] {prompt_id} try {attempt}: skipped after lease; "
+                    f"{winner['winning_attempt_key']} is human-verified successful"
+                )
+                return
 
             started = time.monotonic()
             try:
@@ -413,6 +865,11 @@ class BenchmarkRunner:
             result.wall_seconds = round(time.monotonic() - started, 1)
             result.requeues = requeues
             result.run_dir = str(run_dir)
+            if _manifest_field(run_dir / ATTEMPT_MANIFEST, "stop_reason") == ALREADY_SUCCESSFUL:
+                result.end_reason = ALREADY_SUCCESSFUL
+                result.winning_attempt_key = str(
+                    _manifest_field(run_dir / ATTEMPT_MANIFEST, "winning_attempt_key") or ""
+                )
             # Close out the manifest so the watcher stops showing this attempt as live. Every exit
             # path lands here, including SandboxLost after its requeues are exhausted.
             _patch_json(
@@ -430,6 +887,10 @@ class BenchmarkRunner:
                 },
             )
             await self._record(result)
+            _patch_json(
+                run_dir / ATTEMPT_MANIFEST,
+                {"finalized_at": datetime.now().isoformat(timespec="seconds")},
+            )
             _log(
                 f"[w{index}] {prompt_id} try {attempt}: {result.outcome} "
                 f"(success={result.success}, {result.wall_seconds}s, "
@@ -470,6 +931,7 @@ class BenchmarkRunner:
         _write_json_atomic(
             manifest_path,
             {
+                "run_id": uuid.uuid4().hex,
                 "prompt_id": prompt.id,
                 "prompt": prompt.prompt,
                 "family": prompt.family,
@@ -482,12 +944,15 @@ class BenchmarkRunner:
                 "run_dir": str(run_dir),
                 "state": "starting",
                 "pid": None,
+                "runner_host": socket.gethostname(),
+                "runner_boot_id": self._boot_id(),
                 "started_at": datetime.fromtimestamp(started_wall).isoformat(timespec="seconds"),
                 "started_epoch": round(started_wall, 3),
                 "deadline_epoch": round(started_wall + timeout, 3),
                 "time_limit_minutes": self.time_limit_minutes,
                 "per_leg_minutes": self.per_leg_minutes,
                 "max_steps": self.max_steps,
+                "capture_interval_seconds": self.capture_interval,
                 "command": command,
             },
         )
@@ -504,10 +969,36 @@ class BenchmarkRunner:
 
             # The pid is what makes an attempt killable from the dashboard: the watcher signals the
             # process group and the runner's ordinary non-zero-exit path releases the lease.
-            _patch_json(manifest_path, {"pid": process.pid, "state": "running"})
+            _patch_json(
+                manifest_path,
+                {
+                    "pid": process.pid,
+                    "state": "running",
+                    "runner_host": socket.gethostname(),
+                    "process_start_ticks": self._process_start_ticks(process.pid),
+                },
+            )
+
+            # Close the last publication race: success may have been reviewed after the pre-spawn
+            # check, or the watcher may have stamped this starting manifest before it had a PID to
+            # signal. Publishing the PID and checking immediately ensures either side stops it.
+            winner = self._human_verified_winner(prompt.id)
+            stop_requested = _manifest_field(manifest_path, "stop_reason") == ALREADY_SUCCESSFUL
+            if winner is not None or stop_requested:
+                if winner is not None:
+                    _patch_json(manifest_path, self._cancellation_fields(winner))
+                _patch_json(manifest_path, {"killed_by": ALREADY_SUCCESSFUL})
+                await self._kill(process)
 
             wait_task = asyncio.create_task(process.wait())
             lost_task = asyncio.create_task(client.wait_for_sandbox_lost(lease))
+            capture_task = (
+                asyncio.create_task(
+                    self._capture_until_exit(process, run_dir, lease.commands_uri, manifest_path)
+                )
+                if self.capture_interval > 0
+                else None
+            )
 
             try:
                 done, pending = await asyncio.wait(
@@ -515,6 +1006,24 @@ class BenchmarkRunner:
                     timeout=timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
+            except asyncio.CancelledError:
+                # Agent attempts run in their own sessions, so the terminal's Ctrl+C does not
+                # reach them when it interrupts the runner. Explicitly stop the whole agent
+                # process group before propagating cancellation; _run_attempt's finally block
+                # can then release and reset the sandbox without an orphan still commanding it.
+                await self._kill(process)
+                _patch_json(
+                    manifest_path,
+                    {
+                        "state": "finished",
+                        "outcome": "interrupted",
+                        "exit_code": process.returncode,
+                        "ended_at": datetime.now().isoformat(timespec="seconds"),
+                    },
+                )
+                if capture_task is not None:
+                    await capture_task
+                raise
             finally:
                 for task in (wait_task, lost_task):
                     if not task.done():
@@ -522,23 +1031,181 @@ class BenchmarkRunner:
 
             if lost_task in done:
                 await self._kill(process)
+                if capture_task is not None:
+                    await capture_task
                 raise lost_task.result()
 
             if wait_task not in done:
                 _log(f"{prompt.id} try {attempt}: exceeded {timeout:.0f}s; terminating")
                 await self._kill(process)
+                if capture_task is not None:
+                    await capture_task
                 return self._result_from_run_dir(
                     prompt, attempt, run_dir, exit_code=None, outcome="harness_timeout"
                 )
 
             exit_code = wait_task.result()
+            if capture_task is not None:
+                await capture_task
 
+        stopped_for_success = (
+            _manifest_field(run_dir / ATTEMPT_MANIFEST, "stop_reason") == ALREADY_SUCCESSFUL
+        )
         outcome = "completed" if exit_code == 0 else "agent_error"
-        if outcome == "agent_error" and _manifest_field(run_dir / ATTEMPT_MANIFEST, "killed_by"):
+        if stopped_for_success or (
+            outcome == "agent_error" and _manifest_field(run_dir / ATTEMPT_MANIFEST, "killed_by")
+        ):
             # An operator killing a collapsed attempt from the dashboard reaches the agent as a
             # signal, which looks exactly like a crash from here. Don't score it as one.
             outcome = "operator_kill"
-        return self._result_from_run_dir(prompt, attempt, run_dir, exit_code=exit_code, outcome=outcome)
+        result = self._result_from_run_dir(
+            prompt, attempt, run_dir, exit_code=exit_code, outcome=outcome
+        )
+        if stopped_for_success:
+            result.end_reason = ALREADY_SUCCESSFUL
+            result.winning_attempt_key = str(
+                _manifest_field(run_dir / ATTEMPT_MANIFEST, "winning_attempt_key") or ""
+            )
+        return result
+
+    def _human_verified_winner(self, prompt_id: str) -> dict[str, Any] | None:
+        """Returns durable cancellation metadata for this exact prompt ID, if one exists."""
+        try:
+            battery = json.loads(
+                (self.output_dir / BATTERY_MANIFEST).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            battery = {}
+        durable = (
+            (battery.get("human_verified_winners") or {}).get(prompt_id)
+            if isinstance(battery, dict)
+            else None
+        )
+        if isinstance(durable, dict) and durable.get("winning_attempt_key"):
+            return {
+                "winning_attempt_key": str(durable["winning_attempt_key"]),
+                "stop_requested_at": str(durable.get("stop_requested_at") or ""),
+                "stop_requested_by": str(durable.get("stop_requested_by") or ""),
+            }
+
+        prompt_dir = self.output_dir / prompt_id
+        if not prompt_dir.is_dir():
+            return None
+        for run_dir in sorted(prompt_dir.iterdir()):
+            if not run_dir.is_dir() or ".requeue" in run_dir.name:
+                continue
+            manifest = {}
+            try:
+                manifest = json.loads(
+                    (run_dir / ATTEMPT_MANIFEST).read_text(encoding="utf-8")
+                )
+            except (OSError, ValueError):
+                continue
+            if (
+                isinstance(manifest, dict)
+                and manifest.get("state") == "finished"
+                and manifest.get("verified_success") is True
+            ):
+                return {
+                    "winning_attempt_key": f"{prompt_id}/{run_dir.name}",
+                    "stop_requested_at": str(
+                        manifest.get("verified_at")
+                        or datetime.now().isoformat(timespec="seconds")
+                    ),
+                    "stop_requested_by": str(manifest.get("verified_by") or "watcher"),
+                }
+        return None
+
+    @staticmethod
+    def _cancellation_fields(winner: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "stop_reason": ALREADY_SUCCESSFUL,
+            "stop_requested_at": winner.get("stop_requested_at", ""),
+            "stop_requested_by": winner.get("stop_requested_by", ""),
+            "winning_attempt_key": winner.get("winning_attempt_key", ""),
+        }
+
+    async def _record_skipped(
+        self,
+        prompt_id: str,
+        attempt: int,
+        requeues: int,
+        winner: dict[str, Any],
+    ) -> None:
+        """Materialises a queued/non-spawned try as a real terminal attempt."""
+        prompt = self.prompts[prompt_id]
+        run_dir = self.output_dir / prompt_id / f"try{attempt:02d}"
+        self._rotate_run_dir(run_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        ended_at = datetime.now().isoformat(timespec="seconds")
+        fields = self._cancellation_fields(winner)
+        _write_json_atomic(
+            run_dir / ATTEMPT_MANIFEST,
+            {
+                "run_id": uuid.uuid4().hex,
+                "prompt_id": prompt.id,
+                "prompt": prompt.prompt,
+                "family": prompt.family,
+                "looking_for": prompt.looking_for,
+                "attempt": attempt,
+                "arm": self.arm,
+                "run_dir": str(run_dir),
+                "state": "finished",
+                "outcome": "skipped",
+                "success": False,
+                "end_reason": ALREADY_SUCCESSFUL,
+                "pid": None,
+                "wall_seconds": 0.0,
+                "started_at": ended_at,
+                "ended_at": ended_at,
+                **fields,
+            },
+        )
+        await self._record(
+            AttemptResult(
+                prompt_id=prompt.id,
+                attempt=attempt,
+                prompt=prompt.prompt,
+                family=prompt.family,
+                outcome="skipped",
+                end_reason=ALREADY_SUCCESSFUL,
+                wall_seconds=0.0,
+                run_dir=str(run_dir),
+                requeues=requeues,
+                winning_attempt_key=str(winner.get("winning_attempt_key") or ""),
+            )
+        )
+        _patch_json(run_dir / ATTEMPT_MANIFEST, {"finalized_at": ended_at})
+
+    async def _capture_until_exit(
+        self,
+        process: asyncio.subprocess.Process,
+        run_dir: Path,
+        commands_uri: str,
+        manifest_path: Path,
+    ) -> None:
+        """Own the recorder for exactly the lifetime of its agent process."""
+        stats = capture.CaptureStats()
+        recorder = asyncio.create_task(
+            capture.record_previews(
+                run_dir,
+                commands_uri,
+                self.capture_interval,
+                stats=stats,
+            )
+        )
+        try:
+            await process.wait()
+        finally:
+            recorder.cancel()
+            await asyncio.gather(recorder, return_exceptions=True)
+            _patch_json(
+                manifest_path,
+                {
+                    "capture_frames": stats.frames,
+                    "capture_failures": stats.failures,
+                },
+            )
 
     def _agent_command(self, prompt: Prompt, lease: Lease, run_dir: Path) -> list[str]:
         command = [
@@ -669,14 +1336,27 @@ class BenchmarkRunner:
     async def _record(self, result: AttemptResult) -> None:
         async with self._results_lock:
             self._results.append(result)
-            # Written incrementally so a battery interrupted after six hours still leaves usable
-            # results behind.
-            with (self.output_dir / "attempts.jsonl").open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(asdict(result), ensure_ascii=False) + "\n")
+            # Written incrementally and atomically so an interrupted battery remains usable, while
+            # one logical prompt/attempt slot always has exactly one canonical row.
+            upsert_attempt_row(self.output_dir, asdict(result))
 
     def _write_summary(self) -> dict[str, Any]:
+        # The result spine is shared by the original runner and any watcher-launched retry
+        # runners. Its latest row for a logical try is canonical; an in-memory list belongs only to
+        # one of those processes and would make a retry overwrite the battery summary with one row.
+        latest: dict[tuple[str, int], AttemptResult] = {}
+        rows = canonical_attempt_rows(self.output_dir)
+        allowed = set(AttemptResult.__dataclass_fields__)
+        for row in rows:
+            try:
+                result = AttemptResult(**{key: value for key, value in row.items() if key in allowed})
+            except (TypeError, ValueError):
+                continue
+            latest[(result.prompt_id, result.attempt)] = result
+        results = list(latest.values())
+
         by_prompt: dict[str, dict[str, Any]] = {}
-        for result in self._results:
+        for result in results:
             row = by_prompt.setdefault(
                 result.prompt_id,
                 {
@@ -709,29 +1389,35 @@ class BenchmarkRunner:
             row["tokens_in_avg"] = round(row["tokens_in"] / row["attempts"]) if row["attempts"] else 0
             row["tokens_out_avg"] = round(row["tokens_out"] / row["attempts"]) if row["attempts"] else 0
 
-        total_in = sum(result.tokens_in for result in self._results)
-        total_out = sum(result.tokens_out for result in self._results)
+        total_in = sum(result.tokens_in for result in results)
+        total_out = sum(result.tokens_out for result in results)
         summary = {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "wall_seconds": round(time.monotonic() - self._started_at, 1),
+            "wall_seconds": round(
+                self._prior_wall_seconds + time.monotonic() - self._started_at,
+                1,
+            ),
             "coordinator": self.coordinator_url,
             "tries": self.tries,
-            "concurrency": self.concurrency,
+            "concurrency": self.concurrency if self.concurrency is not None else "auto",
+            "concurrency_mode": "fixed" if self.concurrency is not None else "auto",
+            "concurrency_limit": self.concurrency,
+            "peak_workers": self._peak_workers,
             "time_limit_minutes": self.time_limit_minutes,
             "max_steps": self.max_steps,
             "arm": self.arm,
-            "total_attempts": len(self._results),
-            "total_successes": sum(1 for r in self._results if r.success),
+            "total_attempts": len(results),
+            "total_successes": sum(1 for r in results if r.success),
             "tokens_in": total_in,
             "tokens_out": total_out,
             "tokens_total": total_in + total_out,
-            "llm_calls": sum(result.llm_calls for result in self._results),
+            "llm_calls": sum(result.llm_calls for result in results),
             "prompts": sorted(by_prompt.values(), key=lambda row: row["prompt_id"]),
-            "attempts": [asdict(result) for result in self._results],
+            "attempts": [asdict(result) for result in results],
         }
 
         summary_path = self.output_dir / "summary.json"
-        summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+        _write_json_atomic(summary_path, summary)
         _log(
             f"{summary['total_successes']}/{summary['total_attempts']} attempt(s) succeeded "
             f"in {summary['wall_seconds']}s, tokens in/out {total_in}/{total_out} -> {summary_path}"
@@ -773,7 +1459,25 @@ async def async_main(argv: list[str] | None = None) -> int:
         help="Seconds to wait for a usable registered sandbox before failing (0 waits indefinitely).",
     )
     parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to bench_runs/<timestamp>.")
-    parser.add_argument("--concurrency", type=int, default=2, help="Attempts to run in parallel.")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a compatible existing --output-dir, skipping finished attempts.",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=None,
+        help="Maximum attempts to run in parallel. Defaults to all registered sandboxes and grows "
+             "automatically as new sandboxes join.",
+    )
+    parser.add_argument(
+        "--capture-interval",
+        type=float,
+        default=2.0,
+        help="Seconds between saved observations; recent agent step frames suppress redundant "
+             "captures (0 disables supplementary capture).",
+    )
     parser.add_argument("--only", default=None, help="Comma-separated prompt ids to run.")
     parser.add_argument("--max-steps", type=int, default=150, help="Per-leg step cap for the agent.")
     parser.add_argument("--arm", choices=["vlm", "graph", "graph-advised"], default="graph")
@@ -791,10 +1495,14 @@ async def async_main(argv: list[str] | None = None) -> int:
 
     if args.tries < 1:
         parser.error("--tries must be at least 1")
-    if args.concurrency < 1:
+    if args.concurrency is not None and args.concurrency < 1:
         parser.error("--concurrency must be at least 1")
     if args.sandbox_startup_timeout < 0:
         parser.error("--sandbox-startup-timeout cannot be negative")
+    if args.capture_interval < 0:
+        parser.error("--capture-interval cannot be negative")
+    if args.resume and args.output_dir is None:
+        parser.error("--resume requires an explicit --output-dir")
     if args.map_dir:
         # Check the map BEFORE leasing anything. A map dir missing its topology kills the agent on
         # its first StoreMap load, which the harness can only see as a generic agent_error - a
@@ -823,6 +1531,8 @@ async def async_main(argv: list[str] | None = None) -> int:
         map_dir=args.map_dir,
         leg_retries=max(0, args.leg_retries),
         sandbox_startup_timeout=args.sandbox_startup_timeout,
+        capture_interval=args.capture_interval,
+        resume=args.resume,
     )
     await runner.run()
     return 0
@@ -834,6 +1544,9 @@ def main(argv: list[str] | None = None) -> int:
     except SandboxStartupError as error:
         _log(f"error: {error}")
         return 1
+    except ResumeError as error:
+        _log(f"error: {error}")
+        return 2
     except KeyboardInterrupt:
         return 130
 

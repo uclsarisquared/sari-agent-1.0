@@ -239,6 +239,10 @@ def test_http_surface_and_traversal_refusal() -> None:
 
             log = json.loads(urllib.request.urlopen(f"{base}/api/attempt/p/try01/log", timeout=5).read())
             assert log["lines"][-1] == "log line 49", log["lines"][-1]
+            full_log = json.loads(urllib.request.urlopen(
+                f"{base}/api/attempt/p/try01/log?full=1", timeout=5
+            ).read())
+            assert full_log["lines"] == [f"log line {i}" for i in range(50)]
 
             page = urllib.request.urlopen(f"{base}/", timeout=5).read().decode()
             assert "Sari Bench" in page
@@ -262,6 +266,10 @@ def test_log_cursor_appends_only_what_is_new() -> None:
         assert first["offset"] == log.stat().st_size
         assert first["size"] == log.stat().st_size
         assert first["partial"] == "" and first["reset"] is False
+
+        full = state.log_tail("p/try01", full=True)
+        assert full["lines"] == [f"log line {i}" for i in range(50)], full["lines"]
+        assert full["offset"] == log.stat().st_size
 
         # Nothing written since: an empty delta, and the cursor stays put.
         quiet = state.log_tail("p/try01", since=first["offset"])
@@ -291,6 +299,22 @@ def test_log_cursor_appends_only_what_is_new() -> None:
         after = state.log_tail("p/try01", since=whole["offset"])
         assert after["reset"] is True and after["lines"] == ["restarted"], after
         print("ok  the log endpoint serves byte-cursor deltas, partial lines and truncation resets")
+
+
+def test_full_log_is_not_limited_by_tail_window() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(2), pid=os.getpid())
+        log = run_dir / "agent.log"
+        expected = [f"{i:04d} " + ("x" * 80) for i in range(3000)]
+        log.write_text("\n".join(expected) + "\n", encoding="utf-8")
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+
+        full = state.log_tail("p/try01", full=True)
+        assert full["lines"] == expected
+        assert full["offset"] == log.stat().st_size
+        print("ok  full-log reads are not limited by the tail line or byte windows")
 
 
 def test_snapshot_exposes_log_size_for_change_driven_terminals() -> None:
@@ -507,12 +531,11 @@ def test_replay_seed_suppresses_backfill() -> None:
         print("ok  a watcher restart seeds old finishes silently and still catches new ones")
 
 
-def test_only_voluntary_halts_are_reviewable() -> None:
+def test_every_finished_attempt_is_reviewable() -> None:
     """The gate on the verdict buttons.
 
-    A run the harness cut off at its step or time cap never claimed to be done, so there is nothing
-    for a human to confirm or deny. Only `halt_granted` (the agent said STOP and the predicate granted
-    it) and `completed_no_stop` (the backstop) put a claim on the record worth checking.
+    How an attempt ended does not affect whether a human can judge it. Only unfinished attempts are
+    withheld because their outcome can still change.
     """
     with tempfile.TemporaryDirectory() as temp:
         battery = Path(temp) / "b"
@@ -524,19 +547,22 @@ def test_only_voluntary_halts_are_reviewable() -> None:
                      outcome="completed", success=False, end_reason="step_cap")
         make_attempt(battery, "timedout", 1, steps=healthy_steps(3), state="finished",
                      outcome="harness_timeout", success=False, end_reason="time_cap")
+        make_attempt(battery, "forced", 1, steps=healthy_steps(3), state="finished",
+                     outcome="operator_kill", success=False, end_reason="halt_forced")
         make_attempt(battery, "live", 1, steps=healthy_steps(3), pid=os.getpid())
 
         view = scan.scan_battery(battery, time.time()).as_dict()
         by_id = {a["prompt_id"]: a for a in view["attempts"]}
         assert by_id["granted"]["verifiable"] is True
         assert by_id["backstop"]["verifiable"] is True
-        assert by_id["capped"]["verifiable"] is False, "a step-capped run offered a verdict"
-        assert by_id["timedout"]["verifiable"] is False
+        assert by_id["capped"]["verifiable"] is True
+        assert by_id["timedout"]["verifiable"] is True
+        assert by_id["forced"]["verifiable"] is True
         assert by_id["live"]["verifiable"] is False, "a running attempt offered a verdict"
         assert all(a["verified"] is False for a in view["attempts"])
         assert all(a["verified_success"] is None for a in view["attempts"])
-        assert view["counts"]["awaiting_verdict"] == 2, view["counts"]
-        print("ok  only attempts the agent halted itself are offered for human review")
+        assert view["counts"]["awaiting_verdict"] == 5, view["counts"]
+        print("ok  every finished attempt is offered for human review")
 
 
 def test_verdict_round_trip_and_refusals() -> None:
@@ -577,13 +603,128 @@ def test_verdict_round_trip_and_refusals() -> None:
         assert "verified_success" not in manifest and "verified_by" not in manifest
         assert state.clear_verdict("p/try01") == {"ok": True, "cleared": False}
 
-        # The server re-checks eligibility: the button is not the only gate.
-        for key in ("capped/try01", "live/try01"):
-            refused = state.verdict(key, True)
-            assert refused["ok"] is False and "not reviewable" in refused["error"], refused
+        # The server re-checks eligibility: capped is finished and allowed, live is not.
+        assert state.verdict("capped/try01", False)["ok"] is True
+        refused = state.verdict("live/try01", True)
+        assert refused["ok"] is False and "only finished attempts" in refused["error"], refused
         assert state.verdict("../../etc", True)["ok"] is False
         assert state.clear_verdict("../../etc")["ok"] is False
-        print("ok  verdicts round-trip beside `success`, overwrite, clear, and refuse the ineligible")
+        print("ok  verdicts round-trip beside `success`, overwrite, clear, and refuse unfinished attempts")
+
+
+def test_success_verdict_cancels_only_same_prompt_siblings() -> None:
+    """A JSON family label is grouping metadata, not a cancellation boundary."""
+    from sari_bench.watch import server as server_mod
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        _write(
+            battery / "battery.json",
+            json.dumps({
+                "tries": 4,
+                "planned_attempts": 8,
+                "prompts": [
+                    {"id": "p", "family": "pickup", "prompt": "winner"},
+                    {"id": "other", "family": "pickup", "prompt": "same family"},
+                ],
+            }),
+        )
+        make_attempt(battery, "p", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+        starting = make_attempt(battery, "p", 2, steps=[], state="starting", pid=None)
+        running = make_attempt(battery, "p", 3, steps=healthy_steps(1), pid=424242)
+        unrelated = make_attempt(
+            battery, "other", 1, steps=healthy_steps(1), pid=434343
+        )
+        state = WatchState(
+            bench_root=Path(temp),
+            fixed_battery=battery,
+            discord=Discord(enabled=False),
+            min_interval=0.0,
+        )
+
+        signalled: list[tuple[int, int]] = []
+        old_killpg, old_getpgid = server_mod.os.killpg, server_mod.os.getpgid
+        server_mod.os.getpgid = lambda pid: pid
+        server_mod.os.killpg = lambda pgid, sig: signalled.append((pgid, sig))
+        try:
+            result = state.verdict("p/try01", True, by="reviewer")
+        finally:
+            server_mod.os.killpg, server_mod.os.getpgid = old_killpg, old_getpgid
+
+        assert result["siblings_stopped"] == 1, result
+        assert result["siblings_skipped"] == 2, result  # starting try02 + queued try04
+        assert [pid for pid, _sig in signalled] == [424242], signalled
+        for path in (starting, running):
+            manifest = json.loads((path / "attempt.json").read_text())
+            assert manifest["stop_reason"] == "already_successful", manifest
+            assert manifest["stop_requested_by"] == "reviewer", manifest
+            assert manifest["winning_attempt_key"] == "p/try01", manifest
+        assert "stop_reason" not in json.loads((unrelated / "attempt.json").read_text())
+
+        durable = json.loads((battery / "battery.json").read_text())
+        assert durable["human_verified_winners"]["p"]["winning_attempt_key"] == "p/try01"
+        assert state.clear_verdict("p/try01") == {"ok": True, "cleared": True}
+        durable = json.loads((battery / "battery.json").read_text())
+        assert "p" in durable["human_verified_winners"], "clearing restored cancelled siblings"
+
+        # Failing another review is ordinary metadata and never grows the cancellation set.
+        make_attempt(battery, "other", 2, steps=healthy_steps(2), state="finished",
+                     outcome="completed", success=False, end_reason="halt_granted")
+        failed = state.verdict("other/try02", False, by="reviewer")
+        assert failed["siblings_stopped"] == 0 and failed["siblings_skipped"] == 0
+        dashboard = (
+            Path(server_mod.STATIC_DIR) / "dashboard.html"
+        ).read_text(encoding="utf-8")
+        assert "irreversibly stops or skips every other try of this prompt" in dashboard
+        assert "will not restart them" in dashboard
+
+        administrative = make_attempt(
+            battery, "p", 4, steps=[], state="finished", outcome="skipped",
+            success=False, end_reason="already_successful", frames=False,
+        )
+        admin_manifest = json.loads((administrative / "attempt.json").read_text())
+        admin_manifest["winning_attempt_key"] = "p/try01"
+        _write(administrative / "attempt.json", json.dumps(admin_manifest))
+
+        class NoReplay:
+            def request(self, *_args: Any) -> str:
+                raise AssertionError("administrative skip requested a replay render")
+
+        state.replay = NoReplay()  # type: ignore[assignment]
+        assert state.replay_status("p/try04") == ("unavailable", None)
+        discord, posts = _recording_discord()
+        discord.attempt_finished({
+            "key": "p/try04", "end_reason": "already_successful", "outcome": "skipped",
+        })
+        assert posts == [], "administrative skip emitted a Discord finish notification"
+        print("ok  successful review durably cancels only sibling tries, and fail/clear do not undo it")
+
+
+def test_response_body_ignores_client_disconnects_only() -> None:
+    """A browser abandoning a video seek is routine; other write failures remain visible."""
+    from sari_bench.watch.server import Handler
+
+    class Disconnected:
+        def __init__(self, error: OSError) -> None:
+            self.error = error
+
+        def write(self, _body: bytes) -> None:
+            raise self.error
+
+    handler = object.__new__(Handler)
+    for error in (BrokenPipeError(), ConnectionResetError(), ConnectionAbortedError()):
+        handler.wfile = Disconnected(error)  # type: ignore[assignment]
+        handler._write_body(b"response")
+
+    handler.wfile = Disconnected(OSError("disk-like write failure"))  # type: ignore[assignment]
+    try:
+        handler._write_body(b"response")
+    except OSError as error:
+        assert str(error) == "disk-like write failure"
+    else:
+        raise AssertionError("an unrelated response write error was swallowed")
+    print("ok  client disconnects do not emit handler errors; unrelated write failures still do")
 
 
 def test_verdict_and_replay_over_http() -> None:
@@ -618,7 +759,7 @@ def test_verdict_and_replay_over_http() -> None:
         run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(6), state="finished",
                                outcome="completed", success=True, end_reason="halt_granted")
         clip_bytes = b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8
-        (run_dir / video.UPLOAD_NAME).write_bytes(clip_bytes)
+        (run_dir / video.REPLAY_NAME).write_bytes(clip_bytes)
         make_attempt(battery, "bare", 1, steps=healthy_steps(3), state="finished",
                      outcome="completed", success=True, end_reason="halt_granted", frames=False)
 
@@ -691,13 +832,25 @@ def test_verdict_and_replay_over_http() -> None:
             assert code == 400, code
             code, _, _ = request("/api/attempt/p/try01/verdict", data=b"not json")
             assert code == 400, code
-            code, _, _ = request("/api/attempt/p/try01/verdict",
-                                 data=json.dumps({"success": True}).encode())
+            code, body_success, _ = request(
+                "/api/attempt/p/try01/verdict",
+                data=json.dumps({"success": True}).encode(),
+            )
+            success_payload = json.loads(body_success)
             assert code == 200, code
+            assert success_payload["sibling_cancellations"] == {"stopped": 0, "skipped": 0}
 
             # Kill still routes correctly now that do_POST dispatches on three suffixes.
             code, body, _ = request("/api/attempt/p/try01/kill", data=b"")
             assert code == 400 and "finished" in json.loads(body)["error"], body
+
+            retried: list[str] = []
+            state.retry = lambda key: (retried.append(key) or {
+                "ok": True, "key": key, "retry_state": "stopping"
+            })  # type: ignore[method-assign]
+            code, body, _ = request("/api/attempt/p/try01/retry", data=b"")
+            assert code == 202 and json.loads(body)["ok"] is True, body
+            assert retried == ["p/try01"]
 
             assert posts == [], "the dashboard review flow posted to Discord"
         finally:
@@ -754,6 +907,68 @@ def test_report_carries_the_human_verdict() -> None:
         print("ok  attempts.csv reports the human verdict beside the predicate's, blank when unreviewed")
 
 
+def test_report_csv_route_matches_the_cli() -> None:
+    """The overview tab's export button and `sari_bench report` must be the same bytes.
+
+    Two ways to get the same table is one way to get two answers, so the route is a thin wrapper
+    around report.collect rather than its own flattening. What is pinned here is that it stays thin:
+    same columns, same rows, same blank-not-False treatment of an unreviewed attempt.
+    """
+    import csv
+    import io
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from threading import Thread
+
+    from sari_bench.report import ATTEMPT_COLUMNS, collect
+    from sari_bench.watch.server import Handler
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        judged = make_attempt(battery, "judged", 1, steps=healthy_steps(3), state="finished",
+                              outcome="completed", success=True, end_reason="halt_granted")
+        _write(judged / "summary.json", json.dumps({"success": True, "legs": []}))
+        make_attempt(battery, "unseen", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+        assert state.verdict("judged/try01", False, by="tester")["ok"] is True
+
+        Handler.state = state
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{server.server_port}/api/report.csv", timeout=10
+            ) as response:
+                assert response.status == 200
+                assert response.headers["Content-Type"].startswith("text/csv")
+                # An attachment, so the browser saves it rather than rendering a wall of text.
+                assert response.headers["Content-Disposition"] == 'attachment; filename="b-attempts.csv"'
+                body = response.read().decode("utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        # Byte-for-byte what `python -m sari_bench report` would have written for this battery.
+        expected = io.StringIO(newline="")
+        writer = csv.DictWriter(expected, fieldnames=ATTEMPT_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(collect(battery)[0])
+        assert body == expected.getvalue(), "the route and the CLI produced different CSVs"
+
+    served = list(csv.DictReader(io.StringIO(body)))
+    assert list(served[0]) == ATTEMPT_COLUMNS, "the route drifted from the CLI's columns"
+    assert [row["prompt_id"] for row in served] == ["judged", "unseen"], "rows lost or reordered"
+    assert served[0]["verified"] == "True" and served[0]["verified_success"] == "False"
+    assert served[0]["success"] == "True", "the predicate's verdict was overwritten"
+    # Blank, never False: an unreviewed attempt must not read as "a human said it failed".
+    assert served[1]["verified_success"] == "", repr(served[1]["verified_success"])
+    assert served[1]["verdict_agrees"] == "", repr(served[1]["verdict_agrees"])
+    print("ok  /api/report.csv serves the CLI's attempts.csv as a named download")
+
+
 def test_multipart_upload_round_trip() -> None:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from threading import Thread
@@ -807,6 +1022,7 @@ def main() -> int:
     test_rotated_requeue_dir_stays_separate()
     test_http_surface_and_traversal_refusal()
     test_log_cursor_appends_only_what_is_new()
+    test_full_log_is_not_limited_by_tail_window()
     test_snapshot_exposes_log_size_for_change_driven_terminals()
     test_log_query_params_are_clamped()
     test_report_and_kill_stamp()
@@ -814,10 +1030,13 @@ def main() -> int:
     test_every_finish_notifies_once()
     test_finish_attaches_replay_mp4()
     test_replay_seed_suppresses_backfill()
-    test_only_voluntary_halts_are_reviewable()
+    test_every_finished_attempt_is_reviewable()
     test_verdict_round_trip_and_refusals()
+    test_success_verdict_cancels_only_same_prompt_siblings()
+    test_response_body_ignores_client_disconnects_only()
     test_verdict_and_replay_over_http()
     test_report_carries_the_human_verdict()
+    test_report_csv_route_matches_the_cli()
     test_multipart_upload_round_trip()
     print("\nAll watch tests passed.")
     return 0

@@ -164,6 +164,8 @@ class Discord:
         frame: that only renders for stills. An unreferenced video attachment shows up as a player
         under the embed, which also means a missing clip needs no change to the payload.
         """
+        if attempt.get("end_reason") == "already_successful":
+            return
         key = attempt.get("key", "")
         if key in self._seen_finished:
             return
@@ -194,6 +196,13 @@ class Discord:
         replay every finish that happened while it was down.
         """
         self._seen_finished.update(keys)
+
+    def forget_attempt(self, key: str) -> None:
+        """Lets a replacement execution of the same logical try notify normally."""
+        self._seen_finished.discard(key)
+        self._alerted.discard(key)
+        self._last_sent.pop(f"finished:{key}", None)
+        self._last_sent.pop(f"collapse:{key}", None)
 
     def battery_finished(self, view: dict[str, Any], attachments: list[Path] | None = None) -> None:
         battery_id = view.get("battery_id")
