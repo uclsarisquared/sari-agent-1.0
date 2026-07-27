@@ -69,8 +69,14 @@ class AttemptView:
     # predicate's answer; `verified_success` is a reviewer's. Where they disagree is the signal.
     # `verified_success` is None - not False - until someone actually looks, so "not reviewed" is
     # never read as "reviewed and failed".
+    #
+    # `verified_verdict` is the reviewer's full answer and has three values, because "the harness
+    # broke" is not the same finding as "the agent failed the task": an INVALID run is one nobody
+    # should count in either direction. It carries `verified_success = None` for exactly the reason
+    # an unreviewed attempt does - no reader may total it as a failure.
     verifiable: bool = False      # finished and eligible for a human verdict
     verified: bool = False
+    verified_verdict: str = ""    # "pass" | "fail" | "invalid", "" when unreviewed
     verified_success: bool | None = None
     verified_by: str = ""
     verified_at: str = ""
@@ -144,6 +150,39 @@ def _pid_alive(pid: int | None) -> bool:
     return True
 
 
+def _boot_id() -> str:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _process_start_ticks(pid: int) -> str:
+    try:
+        stat = (Path("/proc") / str(pid) / "stat").read_text(encoding="utf-8")
+        return stat[stat.rfind(")") + 2:].split()[19]
+    except (OSError, IndexError):
+        return ""
+
+
+def agent_is_alive(manifest: dict[str, Any], pid: int | None) -> bool:
+    """Whether the process this manifest recorded is still the process running under `pid`.
+
+    A pid on its own proves nothing after the fact: across a reboot, or once the number has wrapped,
+    it names a stranger's process just as readily as the agent's. That matters in both directions -
+    a tile would read as live forever, and `kill` would signal whoever inherited the number. The
+    runner stamps the boot id and the process's start ticks for exactly this, and manifests written
+    before it did are trusted as they were.
+    """
+    if not pid or not _pid_alive(pid):
+        return False
+    recorded_boot = str(manifest.get("runner_boot_id") or "")
+    if recorded_boot and recorded_boot != _boot_id():
+        return False
+    recorded_start = str(manifest.get("process_start_ticks") or "")
+    return not recorded_start or recorded_start == _process_start_ticks(int(pid))
+
+
 def is_verifiable(state: str, _end_reason: str) -> bool:
     """Whether an attempt is eligible for a human verdict.
 
@@ -151,6 +190,42 @@ def is_verifiable(state: str, _end_reason: str) -> bool:
     the button the reviewer sees and the check the POST handler makes can never drift apart.
     """
     return state == "finished"
+
+
+VERDICTS = ("pass", "fail", "invalid")
+AUTO_INVALID_OUTCOMES = frozenset({"agent_error"})
+
+
+def verdict_of(manifest: dict[str, Any]) -> str:
+    """The reviewer's verdict on one attempt: "pass", "fail", "invalid", or "" for unreviewed.
+
+    One definition, shared by the dashboard's view and the report, so the two surfaces can never
+    disagree about what a reviewer said.
+
+    `verified_verdict` is authoritative when present. Attempts judged before it existed carry only
+    `verified_success`, so that is the fallback - and an invalid verdict deliberately writes no
+    `verified_success` at all, which keeps any reader that predates this function from silently
+    totalling an excluded run as a human-confirmed failure.
+    """
+    recorded = str(manifest.get("verified_verdict") or "")
+    if recorded in VERDICTS:
+        return recorded
+    if "verified_success" in manifest:
+        return "pass" if manifest["verified_success"] else "fail"
+    return ""
+
+
+def effective_verdict(manifest: dict[str, Any]) -> str:
+    """Explicit human verdict, or the watcher's automatic classification for unscorable crashes.
+
+    An explicit verdict always wins, so a reviewer can still inspect an agent_error and deliberately
+    mark it pass or fail. Without one, agent_error behaves exactly like pressing E: it is invalid and
+    excluded from review arithmetic rather than being mistaken for a task failure.
+    """
+    explicit = verdict_of(manifest)
+    if explicit:
+        return explicit
+    return "invalid" if manifest.get("outcome") in AUTO_INVALID_OUTCOMES else ""
 
 
 def read_step_records(leg_path: Path) -> list[dict[str, Any]]:
@@ -220,6 +295,8 @@ def _latest_frame(run_dir: Path) -> Path | None:
 def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
     """Builds one tile's worth of state from a run dir."""
     manifest = _read_json(run_dir / ATTEMPT_MANIFEST)
+    outcome = str(manifest.get("outcome") or "")
+    verdict = effective_verdict(manifest)
     view = AttemptView(
         key=f"{run_dir.parent.name}/{run_dir.name}",
         run_id=str(manifest.get("run_id") or manifest.get("started_at") or ""),
@@ -230,8 +307,9 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
         looking_for=str(manifest.get("looking_for") or ""),
         run_dir=str(run_dir),
         state=str(manifest.get("state") or "unknown"),
-        outcome=str(manifest.get("outcome") or ""),
-        success=bool(manifest.get("success")),
+        outcome=outcome,
+        # Repair old affected manifests at read time as well as preventing new ones in the runner.
+        success=bool(manifest.get("success")) if outcome == "completed" else False,
         end_reason=str(manifest.get("end_reason") or ""),
         exit_code=manifest.get("exit_code"),
         sandbox_id=str(manifest.get("sandbox_id") or ""),
@@ -242,9 +320,9 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
         stop_requested_at=str(manifest.get("stop_requested_at") or ""),
         stop_requested_by=str(manifest.get("stop_requested_by") or ""),
         winning_attempt_key=str(manifest.get("winning_attempt_key") or ""),
-        verified="verified_success" in manifest,
-        verified_success=(bool(manifest["verified_success"])
-                          if "verified_success" in manifest else None),
+        verified=bool(verdict),
+        verified_verdict=verdict,
+        verified_success=({"pass": True, "fail": False}.get(verdict)),
         verified_by=str(manifest.get("verified_by") or ""),
         verified_at=str(manifest.get("verified_at") or ""),
         verified_note=str(manifest.get("verified_note") or ""),
@@ -266,7 +344,7 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
         view.remaining_seconds = round(float(deadline) - now, 1)
 
     if view.state in {"starting", "running"}:
-        view.alive = _pid_alive(view.pid)
+        view.alive = agent_is_alive(manifest, view.pid)
         if not view.alive and view.pid:
             # The manifest says live but the process is gone: the runner died before it could close
             # the attempt out. Say so rather than showing a tile frozen forever at its last step.
@@ -383,9 +461,12 @@ def scan_battery(battery: Path, now: float, *, discovered: list[Path] | None = N
             counts["success"] = counts.get("success", 0) + 1
         if attempt.verified:
             counts["verified"] = counts.get("verified", 0) + 1
-            key = "verified_success" if attempt.verified_success else "verified_fail"
+            key = {"pass": "verified_success", "fail": "verified_fail"}.get(
+                attempt.verified_verdict, "verified_invalid")
             counts[key] = counts.get(key, 0) + 1
-            if bool(attempt.verified_success) != attempt.success:
+            # An invalid run is excluded, not disagreed with: the reviewer threw the attempt out
+            # rather than ruling against the predicate, so it is no evidence either way.
+            if attempt.verified_success is not None and attempt.verified_success != attempt.success:
                 counts["disagree"] = counts.get("disagree", 0) + 1
         elif attempt.verifiable:
             counts["awaiting_verdict"] = counts.get("awaiting_verdict", 0) + 1

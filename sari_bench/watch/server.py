@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from sari_bench import video
+from sari_bench import capture, video
 from sari_bench.protocol import DEFAULT_COORDINATOR_PORT
 from sari_bench.storage import edit_json_locked
 from sari_bench.watch import health, notify, replay as replay_mod, scan
@@ -45,6 +45,16 @@ LOG_TAIL_LINES = 25
 LOG_MAX_LINES = 2000
 LOG_BOOTSTRAP_BYTES = 16_384
 ALREADY_SUCCESSFUL = "already_successful"
+# How long the watcher waits for a runner to close an attempt out before deciding nobody will.
+FINALIZE_GRACE_SECONDS = 3.0
+# The end_reason written for an attempt nobody recorded: not something the agent decided, and
+# deliberately not blank, so a row that exists only because the watcher adopted it says so.
+RUNNER_GONE = "runner_gone"
+# Every field a verdict writes, so un-reviewing an attempt leaves nothing of it behind. Listed once:
+# a clear that missed one field would leave the row looking judged by a ghost.
+VERDICT_FIELDS = (
+    "verified_verdict", "verified_success", "verified_at", "verified_by", "verified_note",
+)
 
 
 def _log(message: str) -> None:
@@ -177,19 +187,15 @@ class WatchState:
             attempts.append(placeholder)
 
     def _notify(self, view: dict[str, Any]) -> None:
-        """Diffs the fresh snapshot against what has already been announced. Outside the lock: a
-        slow webhook must not block the HTTP handlers."""
-        if not self.discord.enabled:
-            return
-        # One notifier at a time. Two concurrent /api/state polls could otherwise both clear the
-        # already-announced checks and double-post; harmless when a post was a line of text, wasteful
-        # now that it is an upload. Non-blocking, because a skipped pass costs nothing - this is a pure
-        # diff and the next poll re-derives it.
+        """Queues finished-run replays and diffs notifications outside the snapshot lock."""
+        # One completion pass at a time. Two concurrent /api/state polls could otherwise race while
+        # claiming the same render or notification. Non-blocking is safe because the next poll
+        # re-derives the same durable filesystem state.
         if not self._notify_lock.acquire(blocking=False):
             return
         try:
             attempts = view.get("attempts") or []
-            if not self._announced_start and attempts:
+            if self.discord.enabled and not self._announced_start and attempts:
                 self._announced_start = True
                 self.discord.battery_started(view, len(self._pool))
 
@@ -203,13 +209,25 @@ class WatchState:
                     if attempt.get("end_reason") == ALREADY_SUCCESSFUL:
                         # Administrative sibling cancellation is bookkeeping, not an attempt halt:
                         # do not spend encoder capacity or post one Discord message per skipped try.
-                        self.discord.suppress_finished([attempt.get("key") or ""])
+                        if self.discord.enabled:
+                            self.discord.suppress_finished([attempt.get("key") or ""])
                         continue
-                    # The worker renders the replay and posts; it only declines when it is off or
-                    # backed up, in which case announce the halt here without a clip.
-                    if self.replay is None or not self.replay.submit(attempt):
+                    # Give a time-sensitive notification first place in the serial worker's queue.
+                    # It only declines when posting is off or backed up, in which case announce the
+                    # halt here without a clip.
+                    if self.discord.enabled and (
+                        self.replay is None or not self.replay.submit(attempt)
+                    ):
                         self.discord.attempt_finished(attempt)
-                elif (attempt.get("health") or {}).get("level") == health.LEVEL_ALERT:
+                    # Full dashboard replays are prepared as soon as a run finishes, independently
+                    # of Discord. `enqueue` deduplicates repeated state polls and never blocks here.
+                    key = str(attempt.get("key") or "")
+                    run_dir_value = attempt.get("run_dir")
+                    if self.replay is not None and key and run_dir_value:
+                        self.replay.enqueue(key, Path(str(run_dir_value)))
+                elif self.discord.enabled and (
+                    (attempt.get("health") or {}).get("level") == health.LEVEL_ALERT
+                ):
                     frame = attempt.get("frame")
                     path = (self.battery / frame) if (self.battery and frame) else None
                     self.discord.collapse(attempt, path)
@@ -217,7 +235,8 @@ class WatchState:
             planned = (view.get("battery") or {}).get("planned_attempts")
             finished = sum(1 for a in attempts if a.get("state") in {"finished", "requeued"})
             live = sum(1 for a in attempts if a.get("state") in {"starting", "running"})
-            if planned and finished >= planned and not live and not self._announced_done:
+            if (self.discord.enabled and planned and finished >= planned and not live
+                    and not self._announced_done):
                 self._announced_done = True
                 self.discord.battery_finished(view)
         finally:
@@ -238,6 +257,9 @@ class WatchState:
         lease so the coordinator resets and re-pools the sandbox. No second path to maintain, and
         the watcher never has to talk to the coordinator about it. The `killed_by` stamp is what
         stops the row being scored as an agent crash.
+
+        When there is no runner left to get out of the way of - the pid in the manifest names no
+        living process - this closes the attempt out instead of failing on a signal to nobody.
         """
         battery = self.resolve_battery()
         if battery is None:
@@ -254,6 +276,13 @@ class WatchState:
         if not pid:
             return {"ok": False, "error": "no pid recorded"}
 
+        # The manifest names a process that no longer exists - exactly what the scanner calls an
+        # orphan. Signalling it is pointless, and refusing here is what used to strand the tile:
+        # kill had nothing to signal, a verdict is refused on anything unfinished, and only the
+        # runner ever writes the closing record. Adopt the attempt instead.
+        if not scan.agent_is_alive(manifest, pid):
+            return self._close_out_abandoned(battery, key, run_dir, manifest)
+
         try:
             os.killpg(os.getpgid(int(pid)), signal.SIGTERM)
         except (ProcessLookupError, PermissionError, OSError) as error:
@@ -263,6 +292,140 @@ class WatchState:
                                "killed_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
         _log(f"killed {key} (pid {pid}); the runner will release its lease")
         return {"ok": True, "pid": pid}
+
+    def _close_out_abandoned(
+        self, battery: Path, key: str, run_dir: Path, manifest: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Writes the terminal record an abandoned attempt's runner never got to write.
+
+        Only the runner that spawned an agent closes its manifest out, so an attempt whose runner
+        is gone - crashed, SIGKILLed, its terminal closed - keeps `state: running` and a dead pid
+        forever. The scanner rightly reads that as `orphaned`, but nothing could move it on: there
+        was no process left to kill and an unfinished attempt cannot be judged, so the tile was a
+        dead end whose only exit was rerunning the try. The watcher adopts it here, recording the
+        one thing that is actually knowable - it stopped, and it produced no result of its own.
+
+        A runner that is merely slow to finalize gets the first word: this waits out
+        FINALIZE_GRACE_SECONDS for its write. Even if it lands later it still wins, because both
+        paths merge into the manifest and upsert the same attempts.jsonl key.
+        """
+        from dataclasses import asdict
+
+        from sari_bench.runner import AttemptResult  # deferred: watch starts without the runner
+        from sari_bench.storage import upsert_attempt_row
+
+        prompt_id = str(manifest.get("prompt_id") or run_dir.parent.name)
+        try:
+            # The dir name is the fallback the runner itself uses: `try07` -> 7, and `try07.requeue00`
+            # -> 7 as well, since a rotated-aside dir is still that logical try.
+            attempt = int(manifest.get("attempt") or run_dir.name[3:].split(".", 1)[0])
+        except (TypeError, ValueError):
+            attempt = 0
+        if attempt < 1:
+            # attempts.jsonl is keyed on (prompt_id, attempt); without one there is nothing to record.
+            return {"ok": False, "error": "attempt has no valid try number"}
+        with self._lock:
+            job = self._retry_jobs.get(f"{prompt_id}/try{attempt:02d}")
+        if job is not None and job.get("state") != "error":
+            # A retry runs its runner inside this process and owns this try's manifest; let it finish.
+            return {"ok": False, "error": f"a retry is already {job['state']} this attempt"}
+
+        manifest_path = run_dir / scan.ATTEMPT_MANIFEST
+        deadline = time.monotonic() + FINALIZE_GRACE_SECONDS
+        while True:
+            manifest = scan._read_json(manifest_path)
+            if manifest.get("state") == "finished":
+                return {"ok": True, "closed_out": False,
+                        "note": "the runner recorded the attempt itself"}
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.25)
+
+        summary = scan._read_json(run_dir / "summary.json")
+        legs = summary.get("legs") if isinstance(summary.get("legs"), list) else []
+        end_reasons = [str(leg.get("end_reason") or "") for leg in legs if isinstance(leg, dict)]
+        # Same chain the runner uses: the agent's summary when it wrote one, else the tokens.json it
+        # rewrites as it goes - which is the only place a killed attempt's cost survives at all.
+        tokens = summary.get("tokens") if isinstance(summary.get("tokens"), dict) else (
+            summary if "tokens_in" in summary else scan._read_json(run_dir / "tokens.json"))
+        started = manifest.get("started_epoch")
+        ended = _last_sign_of_life(run_dir)
+        stamped = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+        result = AttemptResult(
+            prompt_id=prompt_id,
+            attempt=attempt,
+            prompt=str(manifest.get("prompt") or ""),
+            family=str(manifest.get("family") or ""),
+            # The outcome the runner itself would have recorded for a dashboard kill, so a killed
+            # orphan reads exactly like a killed attempt whose runner survived to say so.
+            outcome="operator_kill" if manifest.get("killed_by") else "orphaned",
+            success=bool(summary.get("success")),
+            end_reason=end_reasons[-1] if end_reasons else RUNNER_GONE,
+            sandbox_id=str(manifest.get("sandbox_id") or ""),
+            commands_uri=str(manifest.get("commands_uri") or ""),
+            exit_code=None,
+            wall_seconds=(max(0.0, round(ended - float(started), 1))
+                          if isinstance(started, (int, float)) else 0.0),
+            run_dir=str(run_dir),
+            error="its runner exited without recording this attempt",
+            winning_attempt_key=str(manifest.get("winning_attempt_key") or ""),
+            legs={"planned": summary.get("legs_planned"),
+                  "completed": summary.get("legs_completed"),
+                  "end_reasons": end_reasons} if summary else {},
+            tokens_in=int(tokens.get("tokens_in") or 0),
+            tokens_out=int(tokens.get("tokens_out") or 0),
+            llm_calls=int(summary.get("llm_calls") or 0),
+        )
+
+        _stamp(manifest_path, {
+            "state": "finished",
+            "outcome": result.outcome,
+            "success": result.success,
+            "end_reason": result.end_reason,
+            "exit_code": None,
+            "wall_seconds": result.wall_seconds,
+            "tokens_in": result.tokens_in,
+            "tokens_out": result.tokens_out,
+            "ended_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ended)),
+            "finalized_at": stamped,
+            # So the record is never mistaken for one its runner produced: the runtime is measured to
+            # the attempt's last sign of life rather than to its exit, and there is no exit code.
+            "closed_out_by": "watcher",
+            "closed_out_at": stamped,
+        })
+        upsert_attempt_row(battery, asdict(result))
+        self._release_abandoned_lease(battery, manifest)
+        with self._lock:
+            self._cached_at = 0.0
+        _log(f"closed out {key} as {result.outcome}: its runner never recorded it")
+        return {"ok": True, "closed_out": True, "outcome": result.outcome,
+                "wall_seconds": result.wall_seconds}
+
+    def _release_abandoned_lease(self, battery: Path, manifest: dict[str, Any]) -> None:
+        """Hands back the sandbox the dead runner's `finally` never released.
+
+        Best effort by design: the coordinator resets an orphaned lease when its sandbox re-registers
+        anyway, so a coordinator that is down or moved must not block closing the attempt out.
+        """
+        lease_id = str(manifest.get("lease_id") or "")
+        plan = scan._read_json(battery / scan.BATTERY_MANIFEST)
+        coordinator = str(plan.get("coordinator") or self.coordinator_url or "")
+        if not lease_id or not coordinator:
+            return
+
+        from sari_bench.client import CoordinatorClient
+
+        async def release() -> bool:
+            async with CoordinatorClient(coordinator) as client:
+                return await client.release_lease_id(lease_id, outcome="watcher_close_out")
+
+        try:
+            known = asyncio.run(asyncio.wait_for(release(), timeout=10.0))
+        except Exception as error:  # noqa: BLE001 - the sandbox is reclaimable without us
+            _log(f"could not release abandoned lease {lease_id}: {error!r}")
+            return
+        _log(f"released abandoned lease {lease_id} ({'known' if known else 'already reaped'})")
 
     def retry(self, key: str) -> dict[str, Any]:
         """Schedules a destructive replacement of one logical prompt/try."""
@@ -381,6 +544,7 @@ class WatchState:
                 arm=config["arm"],
                 map_dir=config["map_dir"],
                 leg_retries=config["leg_retries"],
+                completion_guard=config["completion_guard"],
                 timeout_grace=config["timeout_grace"],
                 sandbox_startup_timeout=config["sandbox_startup_timeout"],
                 capture_interval=config["capture_interval"],
@@ -440,6 +604,11 @@ class WatchState:
             "arm": str(source_manifest.get("arm") or plan.get("arm") or "graph"),
             "map_dir": plan.get("map_dir") or option("--output-dir", None),
             "leg_retries": int(plan.get("leg_retries") or option("--leg-retries", 1)),
+            "completion_guard": str(
+                source_manifest.get("completion_guard")
+                or plan.get("completion_guard")
+                or option("--completion-guard", "deterministic")
+            ),
             "timeout_grace": float(plan.get("timeout_grace_seconds") or 120.0),
             "sandbox_startup_timeout": max(
                 1.0, float(plan.get("sandbox_startup_timeout_seconds") or 30.0)
@@ -447,7 +616,7 @@ class WatchState:
             "capture_interval": float(
                 source_manifest.get("capture_interval_seconds")
                 if source_manifest.get("capture_interval_seconds") is not None
-                else plan.get("capture_interval_seconds", 2.0)
+                else plan.get("capture_interval_seconds", capture.DEFAULT_INTERVAL_SECONDS)
             ),
         }
 
@@ -457,7 +626,7 @@ class WatchState:
         manifest = scan._read_json(manifest_path)
         pid = manifest.get("pid")
         was_live = manifest.get("state") in {"starting", "running"}
-        was_orphaned = bool(was_live and pid and not scan._pid_alive(pid))
+        was_orphaned = bool(was_live and pid and not scan.agent_is_alive(manifest, pid))
         if was_live:
             _stamp(manifest_path, {
                 "retry_requested_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -471,7 +640,7 @@ class WatchState:
         while was_live and time.monotonic() < deadline:
             manifest = scan._read_json(manifest_path)
             pid = manifest.get("pid")
-            if pid and scan._pid_alive(pid):
+            if scan.agent_is_alive(manifest, pid):
                 if not signalled:
                     try:
                         os.killpg(os.getpgid(int(pid)), signal.SIGTERM)
@@ -483,7 +652,7 @@ class WatchState:
             if manifest.get("finalized_at") or manifest.get("state") == "finished":
                 return
             time.sleep(0.1)
-        if was_live and pid and scan._pid_alive(pid):
+        if was_live and scan.agent_is_alive(manifest, pid):
             raise RuntimeError("agent did not stop within 45 seconds")
 
     def _clear_prompt_winner(self, battery: Path, prompt_id: str) -> None:
@@ -500,7 +669,7 @@ class WatchState:
             winner_dir = _safe_run_dir(battery, winner_key)
             if winner_dir is not None:
                 manifest = scan._read_json(winner_dir / scan.ATTEMPT_MANIFEST)
-                for field in ("verified_success", "verified_at", "verified_by", "verified_note"):
+                for field in VERDICT_FIELDS:
                     manifest.pop(field, None)
                 _write_json(winner_dir / scan.ATTEMPT_MANIFEST, manifest)
         # Older batteries may have only the per-attempt verdict and no battery-level winner map.
@@ -513,7 +682,7 @@ class WatchState:
                 manifest = scan._read_json(manifest_path)
                 if manifest.get("verified_success") is not True:
                     continue
-                for field in ("verified_success", "verified_at", "verified_by", "verified_note"):
+                for field in VERDICT_FIELDS:
                     manifest.pop(field, None)
                 _write_json(manifest_path, manifest)
 
@@ -529,11 +698,17 @@ class WatchState:
                 if child.is_dir():
                     shutil.rmtree(child)
 
-    def verdict(self, key: str, success: bool, *, note: str = "", by: str = "") -> dict[str, Any]:
-        """Records a human's pass/fail for one finished attempt.
+    def verdict(self, key: str, verdict: str, *, note: str = "", by: str = "") -> dict[str, Any]:
+        """Records a human's pass / fail / invalid for one finished attempt.
 
         The verdict is stamped BESIDE `success`, never over it: a measured pass with a verified fail
         is exactly the discrepancy worth collecting, and overwriting `success` would erase it.
+
+        "invalid" writes no `verified_success` at all - the reviewer is saying the run never tested
+        anything, usually because the harness broke, so neither True nor False is an honest answer
+        and a reader with no notion of the third verdict must fall back to "unreviewed" rather than
+        to "failed". It also cancels no siblings: an excluded try leaves the prompt undecided, and
+        the remaining tries are exactly what still has to run.
 
         The eligibility check is repeated here rather than trusted from the UI: the button is only
         rendered on a finished card, but the route is reachable without the page.
@@ -544,6 +719,10 @@ class WatchState:
         run_dir = _safe_run_dir(battery, key)
         if run_dir is None:
             return {"ok": False, "error": "unknown attempt"}
+
+        if verdict not in scan.VERDICTS:
+            return {"ok": False, "error": f"unknown verdict {verdict!r}; expected one of "
+                                          f"{', '.join(scan.VERDICTS)}"}
 
         manifest_path = run_dir / scan.ATTEMPT_MANIFEST
         with self._lock:
@@ -556,14 +735,22 @@ class WatchState:
                     "error": f"not reviewable (state={state or '?'}); only finished attempts can be judged",
                 }
             fields = {
-                "verified_success": bool(success),
+                "verified_verdict": verdict,
                 "verified_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "verified_by": by or os.environ.get("USER") or "watcher",
                 "verified_note": note,
             }
-            _stamp(manifest_path, fields)
+            if verdict == "invalid":
+                # A pass or fail being downgraded to invalid has to lose its old boolean outright,
+                # or every reader of the compatibility field would keep reporting the stale verdict.
+                stale = scan._read_json(manifest_path)
+                stale.pop("verified_success", None)
+                stale.update(fields)
+                _write_json(manifest_path, stale)
+            else:
+                _stamp(manifest_path, {**fields, "verified_success": verdict == "pass"})
             cancellations = {"stopped": 0, "skipped": 0}
-            if success:
+            if verdict == "pass":
                 cancellations = self._cancel_successful_siblings(
                     battery, key, manifest, fields
                 )
@@ -571,11 +758,13 @@ class WatchState:
             # up to `min_interval`. Drop it and let the reviewer see their own click land.
             self._cached_at = 0.0
 
-        _log(f"verdict on {key}: {'SUCCESS' if success else 'FAIL'} by {fields['verified_by']}"
-             f"{' (predicate disagreed)' if bool(manifest.get('success')) != bool(success) else ''}")
+        disagrees = verdict != "invalid" and bool(manifest.get("success")) != (verdict == "pass")
+        _log(f"verdict on {key}: {verdict.upper()} by {fields['verified_by']}"
+             f"{' (predicate disagreed)' if disagrees else ''}")
         return {
             "ok": True,
             **fields,
+            "verified_success": None if verdict == "invalid" else verdict == "pass",
             "siblings_stopped": cancellations["stopped"],
             "siblings_skipped": cancellations["skipped"],
             "sibling_cancellations": cancellations,
@@ -670,9 +859,9 @@ class WatchState:
         manifest_path = run_dir / scan.ATTEMPT_MANIFEST
         with self._lock:
             manifest = scan._read_json(manifest_path)
-            if "verified_success" not in manifest:
+            if not scan.verdict_of(manifest):
                 return {"ok": True, "cleared": False}
-            for field in ("verified_success", "verified_at", "verified_by", "verified_note"):
+            for field in VERDICT_FIELDS:
                 manifest.pop(field, None)
             _write_json(manifest_path, manifest)
             self._cached_at = 0.0
@@ -680,7 +869,7 @@ class WatchState:
         return {"ok": True, "cleared": True}
 
     def replay_status(self, key: str) -> tuple[str, Path | None]:
-        """(status, clip path). Renders on demand, on the replay worker - never on this thread."""
+        """Returns the auto-rendered clip, queueing a missing older one as a fallback."""
         if self.replay is None:
             return replay_mod.UNAVAILABLE, None
         battery = self.resolve_battery()
@@ -781,6 +970,23 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
         os.replace(temp, path)
     except OSError as error:  # noqa: BLE001
         _log(f"could not write {path}: {error!r}")
+
+
+def _last_sign_of_life(run_dir: Path) -> float:
+    """When an abandoned attempt was last doing something, as an epoch time.
+
+    Its runner never wrote an end time, and "now" is not one: an orphan noticed a week later did not
+    run for a week. The newest thing in its run dir - the last step record, the last frame, the kill
+    stamp on its manifest - is the closest honest answer, so the runtime this produces is a lower
+    bound on the truth rather than an invented upper one.
+    """
+    newest = 0.0
+    for path in [run_dir, *run_dir.rglob("*")]:
+        try:
+            newest = max(newest, path.stat().st_mtime)
+        except OSError:
+            continue
+    return newest or time.time()
 
 
 def _stamp(path: Path, fields: dict[str, Any]) -> None:
@@ -1002,12 +1208,23 @@ class Handler(BaseHTTPRequestHandler):
                 if frame is None or not frame.exists():
                     self._send(404, b"no frame yet", "text/plain")
                     return
+                try:
+                    stat = frame.stat()
+                except OSError:
+                    self._send(404, b"no frame yet", "text/plain")
+                    return
                 content_type = (
                     "image/jpeg"
                     if frame.suffix.lower() in {".jpg", ".jpeg"}
                     else "image/png"
                 )
-                self._send(200, frame.read_bytes(), content_type)
+                # The live dashboard asks four times per second. A conditional response keeps that
+                # cadence cheap whenever capture is late or a recent agent step suppressed it.
+                etag = f'"{frame.name}-{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+                if self.headers.get("If-None-Match") == etag:
+                    self._send(304, b"", content_type, {"ETag": etag})
+                    return
+                self._send(200, frame.read_bytes(), content_type, {"ETag": etag})
                 return
             if action == "log":
                 query = parse_qs(parsed.query)
@@ -1043,12 +1260,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if rest.endswith("/verdict"):
                 body = self._body()
-                if not isinstance(body.get("success"), bool):
-                    self._json({"ok": False, "error": "body needs a boolean 'success'"}, code=400)
+                # `verdict` is the full three-value field; `success` remains accepted so anything
+                # scripted against the original boolean route keeps working unchanged.
+                verdict = body.get("verdict")
+                if verdict is None and isinstance(body.get("success"), bool):
+                    verdict = "pass" if body["success"] else "fail"
+                if verdict not in scan.VERDICTS:
+                    self._json({"ok": False, "error": "body needs a boolean 'success' or a "
+                                                      f"'verdict' of {', '.join(scan.VERDICTS)}"},
+                               code=400)
                     return
                 result = self.state.verdict(
                     rest[:-len("/verdict")],
-                    body["success"],
+                    verdict,
                     note=str(body.get("note") or ""),
                     by=str(body.get("by") or ""),
                 )

@@ -28,7 +28,11 @@ ATTEMPT_COLUMNS = [
     # state they cannot ground. `verified_success` is a reviewer's call after watching the replay.
     # `verdict_agrees` is the column this whole path exists to produce; `success_final` is the one to
     # group by, preferring the human where there is one.
-    "verifiable", "verified", "verified_success", "verdict_agrees", "success_final",
+    # `verified_verdict` carries the third answer the boolean cannot: "invalid", a run the reviewer
+    # threw out. Those rows leave `verified_success`, `verdict_agrees` and `success_final` blank -
+    # excluded from every total rather than counted as failures.
+    "verifiable", "verified", "verified_verdict", "verified_success", "verdict_agrees",
+    "success_final",
     "verified_by", "verified_at", "verified_note",
     "end_reason", "exit_code", "wall_seconds", "wall_minutes",
     "tokens_in", "tokens_out", "tokens_total", "llm_calls",
@@ -113,12 +117,18 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         # compares against it, the same answer the dashboard shows. The manifest belongs in the chain
         # because the runner patches `success` into it when it publishes the attempts.jsonl row, so
         # an attempt whose row never made it to the spine still reports the verdict it earned.
-        success = bool(recorded.get("success") or summary.get("success") or manifest.get("success"))
+        success = (
+            bool(recorded.get("success") or summary.get("success") or manifest.get("success"))
+            if outcome == "completed" else False
+        )
         end_reason = recorded.get("end_reason") or manifest.get("end_reason", "")
         # Blank, never False, when nobody has looked: an unreviewed attempt must not read as "a human
         # said it failed" in a pivot table.
-        verified = "verified_success" in manifest
-        verified_success = bool(manifest["verified_success"]) if verified else ""
+        verdict = scan.effective_verdict(manifest)
+        verified = bool(verdict)
+        # Blank for "invalid" as well as for unreviewed, for the same reason: neither is a human
+        # saying the attempt failed, and a pivot table must not be able to read one as that.
+        verified_success = "" if verdict in ("", "invalid") else verdict == "pass"
 
         attempt_rows.append({
             "battery_id": battery_id,
@@ -131,9 +141,13 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             "success": success,
             "verifiable": scan.is_verifiable(str(manifest.get("state") or ""), str(end_reason)),
             "verified": verified,
+            "verified_verdict": verdict,
             "verified_success": verified_success,
-            "verdict_agrees": (verified_success == success) if verified else "",
-            "success_final": verified_success if verified else success,
+            "verdict_agrees": (verified_success == success) if verified_success != "" else "",
+            # An invalid attempt has no final answer at all - it is not the predicate's `success`
+            # either, since the reviewer's whole point was that the run proved nothing.
+            "success_final": "" if verdict == "invalid" else (
+                verified_success if verified else success),
             "verified_by": manifest.get("verified_by", ""),
             "verified_at": manifest.get("verified_at", ""),
             "verified_note": manifest.get("verified_note", ""),
@@ -236,11 +250,15 @@ def main(argv: list[str] | None = None) -> int:
     # it gets its own line rather than a column nobody opens the CSV to find.
     reviewed = [row for row in attempts if row["verified"]]
     if reviewed or any(row["verifiable"] for row in attempts):
-        agree = sum(1 for row in reviewed if row["verdict_agrees"])
+        # Invalid runs are held out of the agree/disagree split entirely: the reviewer discarded
+        # them rather than ruling on them, so they are evidence about the harness, not the predicate.
+        judged = [row for row in reviewed if row["verified_verdict"] != "invalid"]
+        invalid = len(reviewed) - len(judged)
+        agree = sum(1 for row in judged if row["verdict_agrees"])
         waiting = sum(1 for row in attempts if row["verifiable"] and not row["verified"])
-        print(f"[sari-bench report] {len(reviewed)} human-verified "
-              f"({agree} agree, {len(reviewed) - agree} disagree with the predicate), "
-              f"{waiting} halt(s) awaiting review")
+        print(f"[sari-bench report] {len(judged)} human-verified "
+              f"({agree} agree, {len(judged) - agree} disagree with the predicate), "
+              f"{invalid} marked invalid, {waiting} halt(s) awaiting review")
     return 0
 
 

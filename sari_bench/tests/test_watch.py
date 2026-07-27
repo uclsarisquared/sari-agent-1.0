@@ -7,7 +7,9 @@ exercised against the real shapes rather than a mock. What is being pinned down:
   1. a healthy attempt scores clean while a looping one scores as a collapse, and tiles sort
      worst-first - the ranking IS the feature;
   2. discovery picks the newest battery, and --run-dir pins one;
-  3. an attempt whose runner died shows as orphaned rather than as a live tile frozen forever;
+  3. an attempt whose runner died shows as orphaned rather than as a live tile frozen forever, can
+     be closed out into a real recorded attempt, and is never confused with whoever inherited its
+     pid - while a runner that is only slow to finalize still gets the last word;
   4. the HTTP API serves state/frames/logs, and path traversal in an attempt key is refused;
   5. a rotated-aside requeue dir does not merge with the attempt that replaced it;
   6. every halt is announced exactly once whatever its outcome, and carries a replay clip inside the
@@ -105,6 +107,13 @@ def make_attempt(battery: Path, prompt_id: str, attempt: int, *, steps: list[dic
     return run_dir
 
 
+def _stamp(run_dir: Path, fields: dict[str, Any]) -> None:
+    """Patches an attempt manifest the way the runner and the watcher both do."""
+    manifest = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    manifest.update(fields)
+    _write(run_dir / "attempt.json", json.dumps(manifest))
+
+
 def healthy_steps(count: int = 10) -> list[dict]:
     return [{"step": i, "mode": "navigation", "actions": [f"move_forward_{i}"],
              "pos": [float(i), 0.0, float(i)], "near_cp": f"cp{i}", "blocked": False}
@@ -167,6 +176,100 @@ def test_orphaned_attempt_is_not_shown_as_live() -> None:
         assert view["attempts"][0]["state"] == "orphaned", view["attempts"][0]["state"]
         assert view["attempts"][0]["alive"] is False
         print("ok  an attempt whose runner died reads as orphaned, not live")
+
+
+def test_orphan_is_closed_out_rather_than_stranded() -> None:
+    """The dead end this exists to remove: an attempt whose runner never came back.
+
+    Nothing but the runner writes an attempt's closing record, so when the runner dies its attempt
+    keeps `state: running` and a dead pid for good. Kill had no process left to signal and a verdict
+    is refused on anything unfinished, which left the tile stuck on `orphaned` with rerunning the try
+    - throwing the run away - as its only exit.
+    """
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(6), pid=999_999_998)
+        _stamp(run_dir, {"killed_by": "watcher", "lease_id": "lease-1", "tokens_in": 0})
+        _write(run_dir / "tokens.json", json.dumps({"tokens_in": 900, "tokens_out": 40}))
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+
+        assert scan.scan_battery(battery, time.time()).as_dict()["attempts"][0]["state"] == "orphaned"
+
+        result = state.kill("p/try01")
+        assert result["ok"] and result["closed_out"] is True, result
+        # A dashboard kill, recorded exactly as the runner would have recorded it, so an orphan that
+        # was killed does not read differently from a kill whose runner survived to write it down.
+        assert result["outcome"] == "operator_kill", result
+
+        manifest = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+        assert manifest["state"] == "finished" and manifest["success"] is False
+        assert manifest["end_reason"] == "runner_gone" and manifest["exit_code"] is None
+        assert manifest["closed_out_by"] == "watcher", manifest
+        assert manifest["tokens_in"] == 900, manifest["tokens_in"]
+        # Measured to the run dir's last sign of life, not to the click: an orphan closed out a week
+        # after it was abandoned did not run for a week.
+        assert 55.0 <= manifest["wall_seconds"] <= 65.0, manifest["wall_seconds"]
+
+        # It is on the spine now, so the report and the CSV account for it.
+        rows = [json.loads(line) for line in
+                (battery / "attempts.jsonl").read_text(encoding="utf-8").splitlines() if line]
+        assert [(r["prompt_id"], r["attempt"], r["outcome"]) for r in rows] == [("p", 1, "operator_kill")]
+        assert rows[0]["tokens_in"] == 900
+
+        # And it is now an ordinary finished attempt: reviewable, and no longer killable.
+        view = scan.scan_battery(battery, time.time()).as_dict()["attempts"][0]
+        assert view["state"] == "finished" and view["verifiable"] is True
+        assert state.kill("p/try01") == {"ok": False, "error": "attempt already finished"}
+        print("ok  an orphaned attempt can be closed out, recorded, and then reviewed")
+
+
+def test_close_out_leaves_the_last_word_to_a_live_runner() -> None:
+    """A runner that is merely slow to finalize must not be overwritten by the watcher."""
+    import threading
+
+    from sari_bench.watch import server as server_mod
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(6), pid=999_999_998)
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+
+        # The agent has exited; its runner is still between process.wait() and its closing write.
+        finalize = threading.Timer(
+            0.4, lambda: _finish(run_dir, outcome="completed", success=True))
+        finalize.start()
+        try:
+            result = state.kill("p/try01")
+        finally:
+            finalize.cancel()
+
+        assert result["ok"] and result["closed_out"] is False, result
+        manifest = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+        assert manifest["outcome"] == "completed" and manifest["success"] is True, manifest
+        assert "closed_out_by" not in manifest
+        assert not (battery / "attempts.jsonl").exists(), "the runner owns the row, not the watcher"
+        assert server_mod.FINALIZE_GRACE_SECONDS >= 0.4
+        print("ok  close-out waits out a runner that is still finalizing, and defers to its record")
+
+
+def test_a_recycled_pid_is_not_mistaken_for_the_agent() -> None:
+    """A pid outlives its process. Signalling one blind is how a watcher kills a stranger."""
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        # This very process, wearing start ticks that cannot be its own: the number is live, but it
+        # is not the agent. If the identity check regresses, this test SIGTERMs the test runner.
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(4), pid=os.getpid())
+        _stamp(run_dir, {"process_start_ticks": "1"})
+        manifest = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+        assert scan.agent_is_alive(manifest, os.getpid()) is False
+        assert scan.scan_battery(battery, time.time()).as_dict()["attempts"][0]["state"] == "orphaned"
+
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+        assert state.kill("p/try01")["closed_out"] is True
+        print("ok  a recycled pid reads as orphaned and is closed out, never signalled")
 
 
 def test_discovery_prefers_newest_and_honours_pin() -> None:
@@ -235,7 +338,19 @@ def test_http_surface_and_traversal_refusal() -> None:
 
             frame = urllib.request.urlopen(f"{base}/api/attempt/p/try01/frame.png", timeout=5)
             assert frame.headers["Content-Type"] == "image/png"
+            etag = frame.headers["ETag"]
             assert frame.read()[:8] == _PNG[:8]
+            try:
+                urllib.request.urlopen(urllib.request.Request(
+                    f"{base}/api/attempt/p/try01/frame.png",
+                    headers={"If-None-Match": etag},
+                ), timeout=5)
+            except urllib.error.HTTPError as unchanged:
+                assert unchanged.code == 304
+                assert unchanged.headers["ETag"] == etag
+                assert unchanged.read() == b""
+            else:
+                raise AssertionError("an unchanged live frame was transferred again")
 
             log = json.loads(urllib.request.urlopen(f"{base}/api/attempt/p/try01/log", timeout=5).read())
             assert log["lines"][-1] == "log line 49", log["lines"][-1]
@@ -245,6 +360,7 @@ def test_http_surface_and_traversal_refusal() -> None:
             assert full_log["lines"] == [f"log line {i}" for i in range(50)]
 
             page = urllib.request.urlopen(f"{base}/", timeout=5).read().decode()
+            assert "const FRAME_POLL_MS = 250" in page
             assert "Sari Bench" in page
         finally:
             server.shutdown()
@@ -449,6 +565,35 @@ def test_every_finish_notifies_once() -> None:
         print("ok  every halt is announced exactly once, successes included")
 
 
+def test_agent_error_is_failure_and_automatic_invalid() -> None:
+    """Old contradictory manifests are repaired in the view and excluded exactly like an E vote."""
+    from sari_bench.report import collect
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        make_attempt(
+            battery, "crashed", 1, steps=healthy_steps(2), state="finished",
+            outcome="agent_error", success=True,
+        )
+
+        view = scan.scan_battery(battery, time.time()).as_dict()
+        attempt = view["attempts"][0]
+        assert attempt["outcome"] == "agent_error"
+        assert attempt["success"] is False
+        assert attempt["verified"] is True
+        assert attempt["verified_verdict"] == "invalid"
+        assert attempt["verified_success"] is None
+        assert view["counts"].get("success", 0) == 0
+        assert view["counts"]["verified_invalid"] == 1
+        assert view["counts"].get("awaiting_verdict", 0) == 0
+
+        rows, _ = collect(battery)
+        assert rows[0]["success"] is False
+        assert rows[0]["verified_verdict"] == "invalid"
+        assert rows[0]["success_final"] == ""
+    print("ok  agent_error is a failure and automatically excluded as invalid")
+
+
 def test_finish_attaches_replay_mp4() -> None:
     import shutil as _shutil
 
@@ -486,8 +631,10 @@ def test_finish_attaches_replay_mp4() -> None:
             assert clip == run_dir / video.UPLOAD_NAME, clip
             size = clip.stat().st_size
             assert 0 < size <= 8_000_000, size
-            # The CLI's uncapped artefact must be left for the CLI to write.
-            assert not (run_dir / "replay.mp4").exists(), "auto-render clobbered replay.mp4"
+            # The full dashboard replay is queued by the same finish transition, without waiting
+            # for a reviewer to open the modal.
+            replay_clip = run_dir / video.REPLAY_NAME
+            assert replay_clip.is_file() and replay_clip.stat().st_size > 0
 
             stamp = clip.stat().st_mtime_ns
             assert video.render_for_upload(run_dir, max_bytes=8_000_000, width=320) == clip
@@ -529,6 +676,38 @@ def test_replay_seed_suppresses_backfill() -> None:
         finally:
             worker.stop()
         print("ok  a watcher restart seeds old finishes silently and still catches new ones")
+
+
+def test_finished_run_queues_dashboard_replay_without_discord() -> None:
+    """Finishing is the render trigger; opening the modal is only a fallback for older runs."""
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(2), state="finished",
+                               outcome="completed", success=True)
+        discord, posts = _recording_discord()
+        discord.enabled = False
+        queued: list[tuple[str, Path]] = []
+
+        class RecordingReplay:
+            def seed(self, _attempts: list[dict[str, Any]]) -> None:
+                pass
+
+            def enqueue(self, key: str, path: Path) -> str:
+                queued.append((key, path))
+                return "rendering"
+
+        state = WatchState(
+            bench_root=Path(temp),
+            fixed_battery=battery,
+            discord=discord,
+            replay=RecordingReplay(),  # type: ignore[arg-type]
+            min_interval=0.0,
+        )
+        state.snapshot(force=True)
+
+        assert queued == [("p/try01", run_dir)], queued
+        assert posts == [], "auto-rendering unexpectedly enabled Discord notifications"
+    print("ok  a finished run queues its dashboard replay even with Discord off")
 
 
 def test_every_finished_attempt_is_reviewable() -> None:
@@ -576,7 +755,7 @@ def test_verdict_round_trip_and_refusals() -> None:
         state = WatchState(bench_root=Path(temp), fixed_battery=battery,
                            discord=Discord(enabled=False), min_interval=0.0)
 
-        result = state.verdict("p/try01", False, note="never actually grabbed it", by="tester")
+        result = state.verdict("p/try01", "fail", note="never actually grabbed it", by="tester")
         assert result["ok"] is True, result
         manifest = json.loads((battery / "p" / "try01" / "attempt.json").read_text())
         assert manifest["verified_success"] is False
@@ -593,7 +772,7 @@ def test_verdict_round_trip_and_refusals() -> None:
         assert view["counts"]["disagree"] == 1, view["counts"]
 
         # Correctable: the other button overwrites.
-        assert state.verdict("p/try01", True)["ok"] is True
+        assert state.verdict("p/try01", "pass")["ok"] is True
         manifest = json.loads((battery / "p" / "try01" / "attempt.json").read_text())
         assert manifest["verified_success"] is True
 
@@ -604,12 +783,114 @@ def test_verdict_round_trip_and_refusals() -> None:
         assert state.clear_verdict("p/try01") == {"ok": True, "cleared": False}
 
         # The server re-checks eligibility: capped is finished and allowed, live is not.
-        assert state.verdict("capped/try01", False)["ok"] is True
-        refused = state.verdict("live/try01", True)
+        assert state.verdict("capped/try01", "fail")["ok"] is True
+        refused = state.verdict("live/try01", "pass")
         assert refused["ok"] is False and "only finished attempts" in refused["error"], refused
-        assert state.verdict("../../etc", True)["ok"] is False
+        assert state.verdict("../../etc", "pass")["ok"] is False
         assert state.clear_verdict("../../etc")["ok"] is False
         print("ok  verdicts round-trip beside `success`, overwrite, clear, and refuse unfinished attempts")
+
+
+def test_invalid_verdict_is_excluded_rather_than_failed() -> None:
+    """The third verdict: a run the reviewer throws out, counted in neither column.
+
+    The load-bearing property is that `verified_success` is ABSENT, not False. Every existing
+    reader - the report's `success_final`, the runner's winner check, any pivot table someone
+    already built - treats that key as the whole answer, so a broken run left behind a False there
+    would be totalled as a human-confirmed failure by all of them at once.
+    """
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        _write(battery / "battery.json", json.dumps({"tries": 2, "prompts": [{"id": "p"}]}))
+        make_attempt(battery, "p", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+        # No pid: an unstarted sibling is still cancellable and gets its stop stamped, but nothing
+        # here can signal a real process - least of all this test's own.
+        make_attempt(battery, "p", 2, steps=healthy_steps(3))
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+
+        manifest_path = battery / "p" / "try01" / "attempt.json"
+        assert state.verdict("p/try01", "invalid", by="tester")["ok"] is True
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["verified_verdict"] == "invalid"
+        assert "verified_success" not in manifest, "an excluded run reads as a verified failure"
+        assert manifest["success"] is True, "the human verdict overwrote the measured one"
+
+        view = scan.scan_battery(battery, time.time()).as_dict()
+        judged = {a["prompt_id"]: a for a in view["attempts"] if a["attempt"] == 1}["p"]
+        assert judged["verified"] is True and judged["verified_verdict"] == "invalid"
+        assert judged["verified_success"] is None
+        assert view["counts"]["verified_invalid"] == 1, view["counts"]
+        assert "verified_fail" not in view["counts"], view["counts"]
+        # The predicate said success and the reviewer did not say fail - there is no disagreement,
+        # only an attempt nobody is willing to draw a conclusion from.
+        assert "disagree" not in view["counts"], view["counts"]
+
+        # An excluded try decides nothing, so the prompt's remaining tries must be left alone.
+        plan = json.loads((battery / "battery.json").read_text())
+        assert not plan.get("human_verified_winners"), plan
+        sibling = json.loads((battery / "p" / "try02" / "attempt.json").read_text())
+        assert "stop_reason" not in sibling, sibling
+
+        # Downgrading a pass to invalid has to take the old boolean with it.
+        assert state.verdict("p/try01", "pass", by="tester")["ok"] is True
+        assert json.loads(manifest_path.read_text())["verified_success"] is True
+        assert state.verdict("p/try01", "invalid", by="tester")["ok"] is True
+        manifest = json.loads(manifest_path.read_text())
+        assert "verified_success" not in manifest, manifest
+        assert manifest["verified_verdict"] == "invalid"
+
+        assert state.clear_verdict("p/try01") == {"ok": True, "cleared": True}
+        assert "verified_verdict" not in json.loads(manifest_path.read_text())
+
+        assert state.verdict("p/try01", "bogus")["ok"] is False
+        print("ok  an invalid verdict excludes a run instead of failing it, and cancels no siblings")
+
+
+def test_retry_config_preserves_completion_guard() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        _write(
+            battery / "battery.json",
+            json.dumps({
+                "coordinator": "ws://127.0.0.1:9000",
+                "completion_guard": "vlm",
+            }),
+        )
+        state = WatchState(
+            bench_root=Path(temp),
+            fixed_battery=battery,
+            discord=Discord(enabled=False),
+            min_interval=0.0,
+        )
+        config = state._retry_config(battery, {"command": []})
+        assert config["completion_guard"] == "vlm", config
+    print("ok  watcher retry preserves the battery completion guard")
+
+
+def test_invalid_verdict_in_the_report() -> None:
+    from sari_bench.report import ATTEMPT_COLUMNS, collect
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        make_attempt(battery, "broken", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+        assert state.verdict("broken/try01", "invalid", by="tester")["ok"] is True
+
+        rows, _ = collect(battery)
+        row = rows[0]
+        assert set(ATTEMPT_COLUMNS) >= {"verified_verdict"}
+        assert row["verified_verdict"] == "invalid"
+        assert row["verified"] is True
+        # Blank, never False: these three columns are what anyone groups by, and an excluded run
+        # must fall out of every one of those groupings rather than land in the failure bucket.
+        assert row["verified_success"] == "", repr(row["verified_success"])
+        assert row["verdict_agrees"] == "", repr(row["verdict_agrees"])
+        assert row["success_final"] == "", repr(row["success_final"])
+        print("ok  the report reports an invalid run as excluded, not as a failure")
 
 
 def test_success_verdict_cancels_only_same_prompt_siblings() -> None:
@@ -648,7 +929,7 @@ def test_success_verdict_cancels_only_same_prompt_siblings() -> None:
         server_mod.os.getpgid = lambda pid: pid
         server_mod.os.killpg = lambda pgid, sig: signalled.append((pgid, sig))
         try:
-            result = state.verdict("p/try01", True, by="reviewer")
+            result = state.verdict("p/try01", "pass", by="reviewer")
         finally:
             server_mod.os.killpg, server_mod.os.getpgid = old_killpg, old_getpgid
 
@@ -671,7 +952,7 @@ def test_success_verdict_cancels_only_same_prompt_siblings() -> None:
         # Failing another review is ordinary metadata and never grows the cancellation set.
         make_attempt(battery, "other", 2, steps=healthy_steps(2), state="finished",
                      outcome="completed", success=False, end_reason="halt_granted")
-        failed = state.verdict("other/try02", False, by="reviewer")
+        failed = state.verdict("other/try02", "fail", by="reviewer")
         assert failed["siblings_stopped"] == 0 and failed["siblings_skipped"] == 0
         dashboard = (
             Path(server_mod.STATIC_DIR) / "dashboard.html"
@@ -840,6 +1121,15 @@ def test_verdict_and_replay_over_http() -> None:
             assert code == 200, code
             assert success_payload["sibling_cancellations"] == {"stopped": 0, "skipped": 0}
 
+            # The three-value field, and a body that names no verdict the server knows.
+            code, body, _ = request("/api/attempt/p/try01/verdict",
+                                    data=json.dumps({"verdict": "invalid"}).encode())
+            assert code == 200 and json.loads(body)["ok"] is True, (code, body[:200])
+            card = {a["prompt_id"]: a for a in json.loads(request("/api/state")[1])["attempts"]}["p"]
+            assert card["verified_verdict"] == "invalid" and card["verified_success"] is None
+            code, _, _ = request("/api/attempt/p/try01/verdict", data=b'{"verdict": "maybe"}')
+            assert code == 400, code
+
             # Kill still routes correctly now that do_POST dispatches on three suffixes.
             code, body, _ = request("/api/attempt/p/try01/kill", data=b"")
             assert code == 400 and "finished" in json.loads(body)["error"], body
@@ -876,7 +1166,7 @@ def test_report_carries_the_human_verdict() -> None:
 
         state = WatchState(bench_root=Path(temp), fixed_battery=battery,
                            discord=Discord(enabled=False), min_interval=0.0)
-        assert state.verdict("judged/try01", False, by="tester")["ok"] is True
+        assert state.verdict("judged/try01", "fail", by="tester")["ok"] is True
 
         rows = {row["prompt_id"]: row for row in collect(battery)[0]}
 
@@ -933,7 +1223,7 @@ def test_report_csv_route_matches_the_cli() -> None:
 
         state = WatchState(bench_root=Path(temp), fixed_battery=battery,
                            discord=Discord(enabled=False), min_interval=0.0)
-        assert state.verdict("judged/try01", False, by="tester")["ok"] is True
+        assert state.verdict("judged/try01", "fail", by="tester")["ok"] is True
 
         Handler.state = state
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -1018,6 +1308,9 @@ def main() -> int:
     test_health_separates_healthy_from_collapsed()
     test_scan_ranks_worst_first_and_reads_step_state()
     test_orphaned_attempt_is_not_shown_as_live()
+    test_orphan_is_closed_out_rather_than_stranded()
+    test_close_out_leaves_the_last_word_to_a_live_runner()
+    test_a_recycled_pid_is_not_mistaken_for_the_agent()
     test_discovery_prefers_newest_and_honours_pin()
     test_rotated_requeue_dir_stays_separate()
     test_http_surface_and_traversal_refusal()
@@ -1028,10 +1321,15 @@ def main() -> int:
     test_report_and_kill_stamp()
     test_target_bitrate_math()
     test_every_finish_notifies_once()
+    test_agent_error_is_failure_and_automatic_invalid()
     test_finish_attaches_replay_mp4()
     test_replay_seed_suppresses_backfill()
+    test_finished_run_queues_dashboard_replay_without_discord()
     test_every_finished_attempt_is_reviewable()
     test_verdict_round_trip_and_refusals()
+    test_invalid_verdict_is_excluded_rather_than_failed()
+    test_retry_config_preserves_completion_guard()
+    test_invalid_verdict_in_the_report()
     test_success_verdict_cancels_only_same_prompt_siblings()
     test_response_body_ignores_client_disconnects_only()
     test_verdict_and_replay_over_http()

@@ -15,8 +15,8 @@ is one and without it if the render did not work out.
 Two kinds of job share the one worker, because both reasons above apply to both:
 
 * **announce** - a halt was detected, render a clip and post it. Rendering is best-effort.
-* **render** - a reviewer asked to watch an attempt on the dashboard. Nothing is posted; the clip
-  lands in the run dir and `GET /api/attempt/<key>/replay.mp4` serves it on the next poll.
+* **render** - an attempt finished (or a reviewer requested an older replay). Nothing is posted; the
+  clip lands in the run dir and `GET /api/attempt/<key>/replay.mp4` serves it on the next poll.
 
 Rendering is therefore enabled independently of Discord: the dashboard's verdict flow needs the
 encoder with no webhook configured at all.
@@ -104,8 +104,8 @@ class ReplayNotifier(threading.Thread):
             _log(f"queue full, dropping replay for {key}")
         return True
 
-    def request(self, key: str, run_dir: Path) -> str:
-        """A reviewer asked to watch `key`. Returns READY, RENDERING or UNAVAILABLE. Never blocks.
+    def enqueue(self, key: str, run_dir: Path) -> str:
+        """Queues the full dashboard replay. Returns READY, RENDERING or UNAVAILABLE. Never blocks.
 
         READY means the full review clip is already on disk.
         """
@@ -135,6 +135,10 @@ class ReplayNotifier(threading.Thread):
                 self._requested.discard(key)
             return RENDERING  # the reviewer's next poll re-queues it
         return RENDERING
+
+    def request(self, key: str, run_dir: Path) -> str:
+        """Compatibility/read-path wrapper: requesting a missing older replay also queues it."""
+        return self.enqueue(key, run_dir)
 
     def seed(self, attempts: list[dict[str, Any]]) -> None:
         """Marks the finishes already on disk as handled, without rendering or posting any of them.

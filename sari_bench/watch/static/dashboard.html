@@ -60,8 +60,10 @@
   .badge.watch { color: #e8c48d; border-color: #58472a; }
   .badge.success { color: #a8dcbb; border-color: #2c4b38; }
   .badge.fail { color: #f0a596; border-color: #57302a; }
+  .badge.invalid { color: #9aa4b2; border-color: #3a414c; background: rgba(154,164,178,.10); }
   .badge.verified.success { color: #a8dcbb; border-color: #2c4b38; background: rgba(79,169,107,.10); }
   .badge.verified.fail { color: #f0a596; border-color: #57302a; background: rgba(224,85,63,.10); }
+  .badge.verified.invalid { color: #9aa4b2; border-color: #3a414c; background: rgba(154,164,178,.10); }
 
   /* The terminal. A fixed height, not a max-height: a card must not resize as its log fills, or the
      whole grid reflows under the reader every two seconds. overflow-anchor is off because the
@@ -85,8 +87,9 @@
      action - a judgement about the run, not a thing done to it. */
   .verdict { padding: 0 12px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .verdict .spacer { margin-left: auto; }
-  button.vote.on[data-success="true"] { background: #24402f; border-color: #2c4b38; color: #a8dcbb; }
-  button.vote.on[data-success="false"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
+  button.vote.on[data-verdict="pass"] { background: #24402f; border-color: #2c4b38; color: #a8dcbb; }
+  button.vote.on[data-verdict="fail"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
+  button.vote.on[data-verdict="invalid"] { background: #2b3038; border-color: #3a414c; color: #c3cbd6; }
   button.link { background: none; border: none; color: var(--dim); padding: 5px 2px; text-decoration: underline; }
   button.link:hover { background: none; color: var(--ink); }
   .mismatch { margin: 8px 12px; padding: 6px 8px; border-radius: 6px; font-size: 12px;
@@ -129,11 +132,22 @@
              border-radius: 0; text-align: center; font-weight: 650; background: none;
              color: var(--dim); }
   .cellbtn:hover { background: none; box-shadow: inset 0 0 0 1px var(--dim); }
+  /* A P/F keystroke only repaints the cell once the verdict has round-tripped and the next poll
+     lands, which is far too late to read as a response. The cell answers the key itself: a wash of
+     light laid over whatever color it already has, decaying back on its own. */
+  @keyframes cell-ack {
+    0%, 12% { box-shadow: inset 0 0 0 1px var(--dim), inset 0 0 0 100px rgba(238,243,250,.45); }
+    100%    { box-shadow: inset 0 0 0 1px var(--dim), inset 0 0 0 100px rgba(238,243,250,0); }
+  }
+  .cellbtn.ack { animation: cell-ack .5s ease-out; }
   .cell.p .cellbtn { background: rgba(79,169,107,.22); color: #a8dcbb; }
   .cell.f .cellbtn { background: rgba(224,85,63,.20); color: #f0a596; }
   .cell.r .cellbtn { background: rgba(224,162,63,.24); color: #f0cd9b; }
   .cell.q .cellbtn { background: rgba(79,143,208,.20); color: #a9cbec; }
   .cell.k .cellbtn { background: rgba(90,100,114,.28); color: var(--dim); }
+  /* Invalid: gray on purpose, and the same gray family as the killed cells - both are runs the
+     battery does not score. It must not read as a near-miss of pass or fail. */
+  .cell.e .cellbtn { background: rgba(120,131,148,.20); color: #b3bcc9; }
   .cell.none .cellbtn { background: rgba(90,100,114,.08); color: #3f4753; pointer-events: none; }
   td.res { font-weight: 650; }
   td.res.p { background: rgba(79,169,107,.22); color: #a8dcbb; }
@@ -143,6 +157,15 @@
   table.ov tbody tr:hover td.res.p { background: rgba(79,169,107,.30); }
   table.ov tbody tr:hover td.res.f { background: rgba(224,85,63,.28); }
   table.ov tbody tr:hover td.res.q { background: rgba(79,143,208,.26); }
+
+  /* The keyboard shortcut is invisible otherwise, so it is stated both in the bar above the table
+     and again on the hover card, where a reviewer's eyes already are. */
+  kbd { display: inline-block; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 4px; background: #262b33; color: var(--ink); font: inherit;
+        font-size: .92em; font-weight: 650; line-height: 1.5; }
+  /* Inline flow, not flex: the bar is already a flex row, and the hint has to be free to wrap as
+     one sentence when the note beside it grows. */
+  .ov-hint { margin-left: auto; text-align: right; }
 
   table.ov tfoot td { border-top: 2px solid var(--line); border-bottom: 0; font-weight: 600;
                       background: #1a1d23; }
@@ -165,6 +188,26 @@
   #ov-tip dt { color: var(--dim); }
   #ov-tip dd { margin: 0; font-variant-numeric: tabular-nums; overflow: hidden;
                text-overflow: ellipsis; white-space: nowrap; }
+  #ov-tip .tip-hint { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
+                      color: var(--dim); }
+  #ov-tip .tip-hint[hidden] { display: none; }
+
+  /* The explainer tooltip. One node for the whole page, driven by [data-tip] on whatever the cursor
+     is over: the tags in the header, the status and verdict badges on a tile, the verdict buttons.
+     pointer-events off so it can never sit between the cursor and the thing it describes. */
+  #tip-help { position: fixed; z-index: 35; display: none; pointer-events: none; width: 320px;
+              padding: 9px 11px; background: var(--panel); border: 1px solid var(--line);
+              border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,.55); font-size: 12px;
+              line-height: 1.45; color: var(--ink); }
+  #tip-help.on { display: block; }
+  #tip-help .tip-term { font-weight: 650; margin-bottom: 3px; }
+  #tip-help .tip-text { color: var(--dim); }
+  #tip-help .tip-meta { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
+                        color: var(--dim); white-space: pre-wrap; }
+  #tip-help .tip-meta[hidden], #tip-help .tip-term[hidden] { display: none; }
+  /* A tag is a definition, so say so: the cursor names it as one before the card even opens. */
+  [data-tip] { cursor: help; }
+  button[data-tip], a[data-tip] { cursor: pointer; }
 
   /* Both overlays live outside #grid. The cards are patched in place now rather than rebuilt, but a
      <video> mid-playback and a log the reader has scrolled back through are still the two things
@@ -211,8 +254,8 @@
 <body>
 <header>
   <h1>Sari Bench</h1>
-  <span class="pill" id="battery">—</span>
-  <span class="pill" id="mode">—</span>
+  <span class="pill" id="battery" tabindex="0">—</span>
+  <span class="pill" id="mode" tabindex="0">—</span>
   <span class="tabs">
     <button class="tab on" data-act="tab" data-tab="live">live</button>
     <button class="tab" data-act="tab" data-tab="overview">overview</button>
@@ -227,12 +270,15 @@
   <div class="ov-bar">
     <a class="btn" href="/api/report.csv" download>export to CSV</a>
     <span class="muted" id="ov-note"></span>
+    <span class="muted ov-hint">hover a try cell and press <kbd>P</kbd> pass, <kbd>F</kbd> fail,
+      <kbd>E</kbd> invalid, <kbd>R</kbd> retry</span>
   </div>
   <div class="ov-scroll"><table class="ov" id="ov-table"></table></div>
 </section>
 
 <div id="notifications" aria-live="polite" aria-atomic="false"></div>
 <div id="ov-tip"></div>
+<div id="tip-help" role="tooltip"></div>
 
 <div id="modal" class="overlay">
   <div class="overlay-box">
@@ -246,9 +292,9 @@
         <video id="modal-video" controls preload="metadata" style="display:none"></video>
         <img id="modal-still" alt="latest frame" hidden>
         <button id="modal-play" data-act="replay-start" aria-label="Render and play replay"
-                title="Render replay">▶</button>
+                title="Play replay">▶</button>
       </div>
-      <div id="modal-note">Click ▶ to render the replay.</div>
+      <div id="modal-note">Replay is queued automatically when the run finishes. Click ▶ to play.</div>
       <dl class="rows" id="modal-rows">
         <dt>leg</dt><dd data-ref="leg"></dd>
         <dt>step</dt><dd data-ref="step"></dd>
@@ -264,8 +310,9 @@
     </div>
     <div id="modal-foot">
       <span class="muted">verdict:</span>
-      <button class="vote" data-act="verdict" data-success="true" id="modal-yes">✓ success</button>
-      <button class="vote" data-act="verdict" data-success="false" id="modal-no">✗ fail</button>
+      <button class="vote" data-act="verdict" data-verdict="pass" id="modal-yes">✓ success</button>
+      <button class="vote" data-act="verdict" data-verdict="fail" id="modal-no">✗ fail</button>
+      <button class="vote" data-act="verdict" data-verdict="invalid" id="modal-invalid">⊘ invalid</button>
       <button class="link" data-act="verdict-clear" id="modal-clear" hidden>clear</button>
       <span class="muted" id="modal-verdict" style="margin-left:auto"></span>
     </div>
@@ -285,6 +332,7 @@
 
 <script>
 const POLL_MS = 2000;
+const FRAME_POLL_MS = 250;      // 4 FPS, matching the runner's default capture cadence
 const INLINE_LOG_LINES = 40;     // bootstrap depth for a card terminal - a little scrollback above the 6 visible
 const MODAL_LOG_LINES = 800;     // the fullscreen view is for reading, so it starts much deeper
 const TERM_BUFFER_LINES = 1000;  // client-side cap; trimmed only while the reader sits at the bottom
@@ -329,8 +377,88 @@ function notify(message) {
   }, 5000);
 }
 
-// Keep the disagreement in its banner without visually reactivating the completed card.
-const disagrees = a => a.verified && Boolean(a.verified_success) !== Boolean(a.success);
+// Keep the disagreement in its banner without visually reactivating the completed card. An invalid
+// verdict carries no `verified_success` at all, so it can never read as disagreeing with anything.
+const disagrees = a => a.verified_success !== null && a.verified_success !== undefined
+  && Boolean(a.verified_success) !== Boolean(a.success);
+
+// The reviewer's verdict, one word. Attempts scanned before the third verdict existed carry only
+// the boolean, so it stays the fallback.
+const verdictOf = a => !a || !a.verified ? ""
+  : (a.verified_verdict || (a.verified_success ? "pass" : "fail"));
+const VERDICT_MARK = { pass: "✓", fail: "✗", invalid: "⊘" };
+const VERDICT_WORD = { pass: "success", fail: "fail", invalid: "invalid" };
+
+// -- glossary ------------------------------------------------------------------------------
+// Every tag on this page is shorthand for something the harness did, and none of it is guessable
+// from the word alone. The text below is what the reader gets on hover; `tipAttrs` renders it into
+// the markup the badge builders return.
+
+const TIP_BATTERY =
+  "One benchmark run: a prompt set, a fixed number of tries per prompt, and everything the harness "
+  + "recorded for them under bench_runs/. This tag is that run's directory name — usually its start "
+  + "timestamp — and every tile and row on this page belongs to it.";
+
+const TIP_MODE = {
+  auto: "This watcher follows the newest battery directory under bench_runs/ and moves to a newer "
+    + "one by itself as soon as the fleet starts it — no restart needed, which is why the page can "
+    + "change battery under you. The other mode is `pinned`: started with --run-dir, it shows that "
+    + "one battery and never switches.",
+  pinned: "This watcher was started with --run-dir, so it shows exactly one battery and stays on it "
+    + "even after a newer one begins. The other mode is `auto-discover` (the default): follow the "
+    + "newest battery under bench_runs/ and switch to it automatically.",
+};
+
+// How a finished try ended, as the runner scored it.
+const OUTCOME_TIPS = {
+  completed: "The agent exited on its own with status 0 — it decided it was done. Whether the task "
+    + "was actually accomplished is exactly what the human verdict below is for.",
+  agent_error: "The agent process exited non-zero: it crashed or raised. The traceback is at the "
+    + "end of the log.",
+  harness_error: "sari_bench itself raised while dispatching or recording this try, so the failure "
+    + "is the harness's and not necessarily the agent's. Usually a candidate for `invalid`.",
+  harness_timeout: "The try ran past the runner's wall-clock deadline and was terminated mid-task.",
+  interrupted: "The battery runner was cancelled (Ctrl+C) and stopped this agent's process group "
+    + "before the try could finish.",
+  operator_kill: "Someone stopped this try by hand with the kill button on this dashboard. The "
+    + "agent receives that as a signal, which would otherwise look identical to a crash — the "
+    + "runner labels it so it is not scored as one.",
+  skipped: "Never dispatched: another try of this prompt was already human-verified successful, so "
+    + "the battery stopped spending sandboxes on this one.",
+  sandbox_lost: "The sandbox went away mid-run and this try had already been requeued the maximum "
+    + "number of times, so it is scored as a loss instead of being re-dispatched again.",
+  requeued: "The sandbox died under this try, so the harness rotated this directory aside and "
+    + "re-dispatched the same try number. The replacement run is the one that counts; this copy is "
+    + "kept only so its log survives.",
+};
+
+const TIP_RUNNING = "The agent process is alive in its sandbox right now. The frame, the log, and "
+  + "the rows below advance as it steps.";
+const TIP_ORPHANED = "The manifest still says running, but the process id it recorded is gone: the "
+  + "runner died before it could close this try out. Nothing will ever finish it, which is why it "
+  + "takes no verdict — retry it.";
+const TIP_RETRY = "The watcher is tearing this try down and re-dispatching it: `queued` is waiting "
+  + "for a worker, `running` is the fresh run. Its previous logs, frames, replay and verdict are "
+  + "already gone.";
+const TIP_RETRY_ERROR = "The re-dispatch failed. The try is left as it was; the reason is on the "
+  + "retry button.";
+
+// The three human verdicts, in the words of what they do to the battery's arithmetic.
+const VERDICT_TIPS = {
+  pass: "A reviewer watched this run and judged the task genuinely done. It is this prompt's "
+    + "success, and recording it stops or skips every other try of the same prompt.",
+  fail: "A reviewer watched this run and judged the task not done — whatever the completion "
+    + "predicate concluded. It counts against this prompt's reliability.",
+  invalid: "A reviewer judged the run unscorable: the harness, the sandbox, or the setup broke "
+    + "rather than the agent. It leaves the battery's arithmetic entirely — it neither passes nor "
+    + "fails the prompt, and a prompt whose every try is invalid reads as undispatched.",
+};
+
+// data-tip / data-tip-term / data-tip-meta, escaped, for interpolation into a badge's markup.
+function tipAttrs(term, text, meta = "") {
+  return `data-tip-term="${esc(term)}" data-tip="${esc(text)}"`
+    + (meta ? ` data-tip-meta="${esc(meta)}"` : "");
+}
 
 function classOf(a) {
   if (a.state === "retrying") return "card watch";
@@ -342,23 +470,36 @@ function classOf(a) {
 function verdictBadge(a) {
   if (!a.verified) return "";
   const who = [a.verified_by, a.verified_at].filter(Boolean).join(" · ");
-  const mark = a.verified_success ? "✓" : "✗";
-  const cls = a.verified_success ? "success" : "fail";
-  return `<span class="badge verified ${cls}" title="human verdict${who ? " — " + esc(who) : ""}${a.verified_note ? "\n" + esc(a.verified_note) : ""}">human ${mark}</span>`;
+  const verdict = verdictOf(a);
+  const mark = VERDICT_MARK[verdict] || "?";
+  const cls = { pass: "success", fail: "fail", invalid: "invalid" }[verdict] || "";
+  const meta = [who ? "verdict by " + who : "", a.verified_note || ""].filter(Boolean).join("\n");
+  const tip = tipAttrs(`human ${mark} — ${VERDICT_WORD[verdict] || "verdict"}`,
+    VERDICT_TIPS[verdict] || "A reviewer has ruled on this run.", meta);
+  return `<span class="badge verified ${cls}" ${tip}>human ${mark}</span>`;
 }
 
 function statusBadge(a) {
   if (a.retry_state) {
-    const cls = a.retry_state === "error" ? "alert" : "watch";
-    return `<span class="badge ${cls}" title="${esc(a.retry_error || "")}">retry: ${esc(a.retry_state)}</span>`;
+    const error = a.retry_state === "error";
+    const cls = error ? "alert" : "watch";
+    const tip = tipAttrs(`retry: ${a.retry_state}`, error ? TIP_RETRY_ERROR : TIP_RETRY,
+      error ? (a.retry_error || "") : "");
+    return `<span class="badge ${cls}" ${tip}>retry: ${esc(a.retry_state)}</span>`;
   }
   if (a.state === "finished") {
-    const cls = a.success ? "success" : "fail";
-    return `<span class="badge ${cls}">${esc(a.outcome || "finished")}</span>`;
+    const outcome = a.outcome || "finished";
+    const cls = outcome === "agent_error" ? "invalid" : (a.success ? "success" : "fail");
+    const tip = tipAttrs(outcome, OUTCOME_TIPS[outcome]
+      || "How the runner scored the end of this try.",
+      a.end_reason ? "end reason: " + a.end_reason : "");
+    return `<span class="badge ${cls}" ${tip}>${esc(outcome)}</span>`;
   }
-  if (a.state === "orphaned") return `<span class="badge alert">orphaned</span>`;
-  if (a.state === "requeued") return `<span class="badge">requeued</span>`;
-  return `<span class="badge">running</span>`;
+  if (a.state === "orphaned")
+    return `<span class="badge alert" ${tipAttrs("orphaned", TIP_ORPHANED)}>orphaned</span>`;
+  if (a.state === "requeued")
+    return `<span class="badge" ${tipAttrs("requeued", OUTCOME_TIPS.requeued)}>requeued</span>`;
+  return `<span class="badge" ${tipAttrs("running", TIP_RUNNING)}>running</span>`;
 }
 
 // -- terminals ---------------------------------------------------------------------------
@@ -465,8 +606,9 @@ const CARD_HTML = `
   </div>
   <div class="verdict" hidden>
     <button data-act="replay">▶ replay</button>
-    <button class="vote" data-act="verdict" data-success="true">✓ success</button>
-    <button class="vote" data-act="verdict" data-success="false">✗ fail</button>
+    <button class="vote" data-act="verdict" data-verdict="pass">✓ success</button>
+    <button class="vote" data-act="verdict" data-verdict="fail">✗ fail</button>
+    <button class="vote" data-act="verdict" data-verdict="invalid">⊘ invalid</button>
     <button class="link" data-act="verdict-clear" hidden>clear</button>
     <span class="muted spacer" data-ref="unreviewed">unreviewed</span>
   </div>`;
@@ -494,8 +636,10 @@ function buildCard(a) {
   // The delegated click handler reads the key off the button, and a key contains a "/" - which is
   // exactly why none of this uses element ids.
   root.querySelectorAll("button[data-act]").forEach(b => { b.dataset.key = a.key; });
+  tipVotes(root);
 
-  return { key: a.key, root, refs, frame: null, blobUrl: null, runId: a.run_id || "",
+  return { key: a.key, root, refs, frame: null, frameEtag: null, frameBusy: false,
+           blobUrl: null, runId: a.run_id || "",
            term: newTerm(root.querySelector("pre.term")) };
 }
 
@@ -524,6 +668,7 @@ function patchCard(entry, a) {
   if ((a.run_id || "") !== entry.runId) {
     entry.runId = a.run_id || "";
     entry.frame = null;
+    entry.frameEtag = null;
     if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
     entry.blobUrl = null;
     refs.img.removeAttribute("src");
@@ -543,7 +688,7 @@ function patchCard(entry, a) {
   setText(refs.prompt, a.prompt);
 
   if (disagrees(a)) {
-    setText(refs.mismatch, `predicate: ${a.success ? "success" : "fail"} · human: ${a.verified_success ? "success" : "fail"}`);
+    setText(refs.mismatch, `predicate: ${a.success ? "success" : "fail"} · human: ${VERDICT_WORD[verdictOf(a)]}`);
     refs.mismatch.hidden = false;
   } else {
     refs.mismatch.hidden = true;
@@ -559,7 +704,14 @@ function patchCard(entry, a) {
 
   setRows(refs, a);
 
-  refs.kill.hidden = !live;
+  // The same button closes an orphan out. An orphan's runner is gone, so nothing will ever write
+  // its result: without this the tile has no exit but rerunning the try, which throws the run away.
+  const orphaned = a.state === "orphaned";
+  refs.kill.hidden = !live && !orphaned;
+  setText(refs.kill, orphaned ? "close out" : "kill");
+  refs.kill.title = orphaned
+    ? "Record this abandoned attempt as stopped so it can be reviewed"
+    : "Terminate the agent; the runner records the attempt";
   refs.retry.disabled = Boolean(a.retry_state && a.retry_state !== "error");
   refs.retry.title = a.retry_error || "Delete this try's history and run it again";
   setText(refs.retry, a.retry_state && a.retry_state !== "error"
@@ -571,7 +723,7 @@ function patchCard(entry, a) {
   refs.clear.hidden = !a.verified;
   refs.unreviewed.hidden = Boolean(a.verified);
   refs.votes.forEach(b => {
-    b.classList.toggle("on", Boolean(a.verified && Boolean(a.verified_success) === (b.dataset.success === "true")));
+    b.classList.toggle("on", verdictOf(a) === b.dataset.verdict);
   });
 }
 
@@ -579,40 +731,70 @@ function patchCard(entry, a) {
 // key: no request at all while the frame is unchanged, and when it does change the new PNG is fetched
 // and decoded off-screen before it is swapped in. The <img> element itself is never replaced, so
 // there is no moment where the browser has nothing to paint - which is what used to flash black.
-async function updateFrame(entry, a) {
+async function updateFrame(entry, a, force = false) {
   if (!a.frame) {
     entry.refs.img.hidden = true;
     entry.refs.noFrame.hidden = false;
     entry.frame = null;
+    entry.frameEtag = null;
     return;
   }
-  if (a.frame === entry.frame) return;
-  entry.frame = a.frame;
+  if ((!force && a.frame === entry.frame) || entry.frameBusy) return;
+  entry.frameBusy = true;
   const want = a.frame;
+  const wantRunId = entry.runId;
 
-  let url;
+  let url, nextEtag;
   try {
-    const res = await fetch(api(entry.key, "frame.png"));
+    const headers = entry.frameEtag ? { "If-None-Match": entry.frameEtag } : {};
+    const res = await fetch(api(entry.key, "frame.png"), { headers, cache: "no-store" });
+    if (res.status === 304) {
+      entry.frameBusy = false;
+      return;
+    }
     if (!res.ok) throw new Error(res.status);
+    nextEtag = res.headers.get("ETag");
     url = URL.createObjectURL(await res.blob());
   } catch {
-    if (entry.frame === want) entry.frame = null;  // retry on the next tick
+    entry.frameBusy = false;
     return;
   }
-  // A slow fetch may land after a newer frame already won, or after the card was removed.
-  if (entry.frame !== want || !entry.root.isConnected) { URL.revokeObjectURL(url); return; }
+  // A slow fetch may land after this logical try was replaced, or after the card was removed.
+  if (entry.runId !== wantRunId || !entry.root.isConnected) {
+    URL.revokeObjectURL(url);
+    entry.frameBusy = false;
+    return;
+  }
 
   const probe = new Image();
   probe.src = url;
   try { await probe.decode(); } catch { /* swap anyway; the <img> will do its own decode */ }
-  if (entry.frame !== want || !entry.root.isConnected) { URL.revokeObjectURL(url); return; }
+  if (entry.runId !== wantRunId || !entry.root.isConnected) {
+    URL.revokeObjectURL(url);
+    entry.frameBusy = false;
+    return;
+  }
 
+  entry.frame = want;
+  entry.frameEtag = nextEtag;
   const previous = entry.blobUrl;
   entry.blobUrl = url;
   entry.refs.img.src = url;
   entry.refs.img.hidden = false;
   entry.refs.noFrame.hidden = true;
   if (previous) URL.revokeObjectURL(previous);
+  entry.frameBusy = false;
+}
+
+// State, logs, health scoring and layout remain on the inexpensive 2s dashboard tick. Only the
+// currently visible live images use this 250ms loop, and ETags turn unchanged frames into empty 304s.
+function refreshLiveFrames() {
+  if (activeTab !== "live" || document.hidden) return;
+  for (const a of latest) {
+    if (!isLive(a)) continue;
+    const entry = cards.get(a.key);
+    if (entry) updateFrame(entry, a, true);
+  }
 }
 
 function dropCard(entry) {
@@ -630,7 +812,9 @@ function dropCard(entry) {
 // those apart is the entire reason the review flow exists. A halt nobody has looked at yet is
 // therefore neither pass nor fail: it shows as `?`, and those cells are the review queue.
 
-const KILL_OUTCOMES = new Set(["operator_kill", "skipped", "requeued"]);
+// `orphaned` is here for the same reason as the rest: an attempt cut off by something other than
+// the task is not evidence the task failed, and must not be totalled as one.
+const KILL_OUTCOMES = new Set(["operator_kill", "skipped", "requeued", "orphaned"]);
 const ovRows = new Map();        // prompt_id -> { tr, cells[], res, stime, tokens }
 const ovIndex = new Map();       // attempt key -> AttemptView, for the hover card and the overlay
 let ovShape = "";                // battery id + try count; a change rebuilds the table outright
@@ -639,17 +823,27 @@ function cellState(a) {
   if (!a) return { code: "none", glyph: "", label: "not run" };
   // A verdict is the strongest thing anyone knows about an attempt, so it is read first - including
   // over an operator kill, on the off chance a reviewer got to one before it was cut off.
-  if (a.verified) return a.verified_success
-    ? { code: "p", glyph: "P", label: "human: success" }
-    : { code: "f", glyph: "F", label: "human: fail" };
+  if (a.verified) return {
+    pass:    { code: "p", glyph: "P", label: "human: success" },
+    fail:    { code: "f", glyph: "F", label: "human: fail" },
+    invalid: { code: "e", glyph: "E", label: "human: invalid — excluded from the totals" },
+  }[verdictOf(a)];
   if (a.retry_state && a.retry_state !== "error")
     return { code: "r", glyph: "R", label: `retry: ${a.retry_state}` };
   if (isLive(a)) return { code: "r", glyph: "R", label: "running" };
   if (a.verifiable) return { code: "q", glyph: "?", label: "awaiting review" };
-  // Requeued and orphaned attempts are not finished, so they cannot receive a verdict.
-  if (a.state === "requeued" || KILL_OUTCOMES.has(a.outcome))
-    return { code: "k", glyph: "K", label: a.outcome || "requeued" };
+  // Requeued and orphaned attempts are not finished, so they cannot receive a verdict. An orphan is
+  // K rather than F for the same reason a kill is: nobody found out how the task would have gone.
+  if (a.state === "requeued" || a.state === "orphaned" || KILL_OUTCOMES.has(a.outcome))
+    return { code: "k", glyph: "K", label: a.state === "orphaned" ? "orphaned — runner gone"
+                                          : (a.outcome || "requeued") };
   return { code: "f", glyph: "F", label: a.outcome || a.state || "fail" };
+}
+
+// Which cells the P/F keys act on: a finished attempt whose verdict is still open to being set or
+// changed. A running or killed try has nothing to rule on, so it advertises no shortcut either.
+function canVerdict(a) {
+  return !!a && !!a.verifiable && ["p", "f", "e", "q"].includes(cellState(a).code);
 }
 
 function ovBuildTable(tries) {
@@ -690,7 +884,8 @@ function renderOverview(state) {
   const table = document.getElementById("ov-table");
 
   document.getElementById("ov-note").textContent = prompts.length
-    ? `${prompts.length} prompt(s) × ${tries} tr${tries === 1 ? "y" : "ies"} — P/F is the human verdict; ? is awaiting review`
+    ? `${prompts.length} prompt(s) × ${tries} tr${tries === 1 ? "y" : "ies"} — P/F is the human `
+      + "verdict; ? is awaiting review; E is invalid and counts for nothing"
     : (state.error || "no battery loaded");
   if (!prompts.length) { table.innerHTML = ""; ovRows.clear(); ovShape = ""; return; }
 
@@ -719,7 +914,7 @@ function renderOverview(state) {
     }
     if (body.children[index] !== entry.tr) body.insertBefore(entry.tr, body.children[index] || null);
 
-    let pass = null, ran = 0, passes = 0, pending = 0, live = 0, tokIn = 0, tokOut = 0;
+    let pass = null, ran = 0, passes = 0, pending = 0, live = 0, invalid = 0, tokIn = 0, tokOut = 0;
     for (let t = 1; t <= tries; t++) {
       const a = byTry.get(`${prompt.id}#${t}`);
       const st = cellState(a);
@@ -731,9 +926,14 @@ function renderOverview(state) {
       button.dataset.key = a ? a.key : "";
       button.title = a ? `${a.key} — ${st.label}` : "not run";
       if (!a) continue;
-      ran += 1;
+      // The tokens were spent whether or not the try counts, so cost stays honest even here.
       tokIn += Number(a.tokens_in) || 0;
       tokOut += Number(a.tokens_out) || 0;
+      // An invalid try leaves the denominator entirely - that exclusion is the whole point of the
+      // verdict. It can neither pass a prompt nor fail one, and a row of nothing but invalid tries
+      // reads as undispatched rather than as a loss the agent never actually had a chance at.
+      if (st.code === "e") { invalid += 1; continue; }
+      ran += 1;
       if (st.code === "p") { passes += 1; if (!pass) pass = a; }
       if (st.code === "q") pending += 1;
       if (st.code === "r") live += 1;
@@ -746,10 +946,11 @@ function renderOverview(state) {
     const label = { p: "PASS", f: "FAIL", q: pending ? "?" : "…", none: "—" }[verdict];
     entry.res.className = "res " + verdict;
     setText(entry.res, label);
-    entry.res.title = pass ? `first pass: try ${pass.attempt}`
-      : verdict === "none" ? "no try dispatched"
+    const excluded = invalid ? ` · ${invalid} try(s) marked invalid and excluded` : "";
+    entry.res.title = (pass ? `first pass: try ${pass.attempt}`
+      : verdict === "none" ? (invalid ? "every dispatched try was marked invalid" : "no try dispatched")
       : verdict === "q" ? `${pending} halt(s) awaiting review, ${live} still running`
-      : "every try decided, none passed";
+      : "every counted try decided, none passed") + excluded;
     setText(entry.stime, pass ? fmtMin(pass.elapsed_seconds) : "—");
     setText(entry.tokens, ran ? `${fmtNum(tokIn)} / ${fmtNum(tokOut)}` : "—");
 
@@ -773,11 +974,11 @@ function renderOverview(state) {
       <td colspan="3">${solved} / ${prompts.length} · ${pct}%</td>
     </tr>
     <tr>
-      <td class="lbl" colspan="${span}">reliability — mean of (passing tries / tries run) over ${reliabilityN} dispatched prompt(s)</td>
+      <td class="lbl" colspan="${span}">reliability — mean of (passing tries / tries counted, invalid excluded) over ${reliabilityN} dispatched prompt(s)</td>
       <td colspan="3">${reliabilityN ? rel + "%" : "—"}</td>
     </tr>
     <tr>
-      <td class="lbl" colspan="${span}">avg tokens per solved prompt — all its tries, failures included</td>
+      <td class="lbl" colspan="${span}">avg tokens per solved prompt — all its tries, failed and invalid ones included</td>
       <td colspan="3">${solved ? `${fmtNum(Math.round(winIn / solved))} in / ${fmtNum(Math.round(winOut / solved))} out` : "—"}</td>
     </tr>`);
 }
@@ -825,6 +1026,7 @@ tip.innerHTML = `
       <dt>end</dt><dd data-ref="end"></dd>
       <dt>sandbox</dt><dd data-ref="sandbox"></dd>
     </dl>
+    <div class="tip-hint" data-ref="hint" hidden></div>
   </div>`;
 const tipRefs = { img: tip.querySelector("img"), none: tip.querySelector(".tip-none") };
 tip.querySelectorAll("[data-ref]").forEach(el => { tipRefs[el.dataset.ref] = el; });
@@ -842,6 +1044,11 @@ function showTip(key) {
   setText(tipRefs.tokens, fmtTok(a));
   setText(tipRefs.end, a.end_reason || a.outcome || a.state || "—");
   setText(tipRefs.sandbox, a.sandbox_id || "—");
+  const hints = [];
+  if (canVerdict(a)) hints.push("<kbd>P</kbd> pass · <kbd>F</kbd> fail · <kbd>E</kbd> invalid");
+  if (canRetry(a)) hints.push("<kbd>R</kbd> retry");
+  setHTML(tipRefs.hint, hints.join(" · "));
+  tipRefs.hint.hidden = !hints.length;
   tip.classList.add("on");
 
   if (a.frame === tipFrame) return;
@@ -881,6 +1088,74 @@ function moveTip(ev) {
   tip.style.top = y + "px";
 }
 
+// -- explainer tooltip -----------------------------------------------------------------------
+// Anything carrying data-tip explains itself on hover or keyboard focus. One node, delegated off
+// the document, so badges rewritten by the render loop need no re-binding: the handler reads the
+// text out of whatever element is under the cursor at the time.
+
+const help = document.getElementById("tip-help");
+help.innerHTML = `<div class="tip-term" data-ref="term"></div>`
+  + `<div class="tip-text" data-ref="text"></div>`
+  + `<div class="tip-meta" data-ref="meta" hidden></div>`;
+const helpRefs = {};
+help.querySelectorAll("[data-ref]").forEach(el => { helpRefs[el.dataset.ref] = el; });
+let helpTarget = null;
+
+// The three vote buttons say the same thing as the verdict badge, on a card and in the overlay both.
+function tipVotes(root) {
+  root.querySelectorAll("button.vote").forEach(b => {
+    const verdict = b.dataset.verdict;
+    if (!VERDICT_TIPS[verdict]) return;
+    b.dataset.tipTerm = `${VERDICT_MARK[verdict]} ${VERDICT_WORD[verdict]}`;
+    b.dataset.tip = VERDICT_TIPS[verdict];
+  });
+}
+
+function showHelp(el) {
+  const text = el.dataset.tip;
+  if (!text) { hideHelp(); return; }
+  helpTarget = el;
+  setText(helpRefs.term, el.dataset.tipTerm || "");
+  helpRefs.term.hidden = !el.dataset.tipTerm;
+  setText(helpRefs.text, text);
+  setText(helpRefs.meta, el.dataset.tipMeta || "");
+  helpRefs.meta.hidden = !el.dataset.tipMeta;
+  help.classList.add("on");
+  placeHelp(el);
+}
+
+// Anchored under the tag, not to the cursor: these read as definitions of a fixed thing on the
+// page, and one that jitters with the mouse is harder to read than one that simply appears.
+function placeHelp(el) {
+  const box = el.getBoundingClientRect();
+  const w = help.offsetWidth, h = help.offsetHeight;
+  const x = Math.min(Math.max(8, box.left), Math.max(8, window.innerWidth - w - 8));
+  const below = box.bottom + 8;
+  const y = below + h > window.innerHeight - 8 ? Math.max(8, box.top - 8 - h) : below;
+  help.style.left = x + "px";
+  help.style.top = y + "px";
+}
+
+function hideHelp() {
+  helpTarget = null;
+  help.classList.remove("on");
+}
+
+document.addEventListener("mouseover", ev => {
+  const el = ev.target.closest("[data-tip]");
+  if (el === helpTarget) return;
+  if (el) showHelp(el); else hideHelp();
+});
+document.addEventListener("focusin", ev => {
+  const el = ev.target.closest("[data-tip]");
+  if (el) showHelp(el);
+});
+document.addEventListener("focusout", () => hideHelp());
+// A tag scrolling out from under a stationary cursor would otherwise keep its card pinned, and a
+// click on a vote button has already been read by the time it lands.
+document.addEventListener("scroll", () => { if (helpTarget) hideHelp(); }, true);
+document.addEventListener("click", ev => { if (!ev.target.closest("[data-tip]")) hideHelp(); }, true);
+
 function setTab(tab) {
   if (tab === activeTab) return;
   activeTab = tab;
@@ -900,15 +1175,25 @@ async function refresh() {
     return;
   }
 
-  document.getElementById("battery").textContent = state.battery_id || "no battery";
-  document.getElementById("mode").textContent = state.mode === "pinned" ? "pinned" : "auto-discover";
+  const batteryTag = document.getElementById("battery");
+  batteryTag.textContent = state.battery_id || "no battery";
+  batteryTag.dataset.tipTerm = "bench run (battery)";
+  batteryTag.dataset.tip = TIP_BATTERY;
+  batteryTag.dataset.tipMeta = state.bench_root ? "under " + state.bench_root : "";
+  const pinned = state.mode === "pinned";
+  const modeTag = document.getElementById("mode");
+  modeTag.textContent = pinned ? "pinned" : "auto-discover";
+  modeTag.dataset.tipTerm = pinned ? "pinned" : "auto-discover";
+  modeTag.dataset.tip = pinned ? TIP_MODE.pinned : TIP_MODE.auto;
   const b = state.battery || {}, atts = state.attempts || [];
   latest = atts;
   const done = atts.filter(a => a.state === "finished").length;
   const live = atts.filter(isLive).length;
   const c = state.counts || {};
   const review = c.verified
-    ? ` · ${c.verified} reviewed (${c.verified_success || 0}✓/${c.verified_fail || 0}✗${c.disagree ? ", " + c.disagree + " disagree" : ""})`
+    ? ` · ${c.verified} reviewed (${c.verified_success || 0}✓/${c.verified_fail || 0}✗`
+      + `${c.verified_invalid ? "/" + c.verified_invalid + "⊘" : ""}`
+      + `${c.disagree ? ", " + c.disagree + " disagree" : ""})`
     : "";
   const waiting = c.awaiting_verdict ? ` · ${c.awaiting_verdict} awaiting review` : "";
   document.getElementById("progress").textContent =
@@ -946,6 +1231,9 @@ async function refresh() {
 
   reorder(grid, atts);
   renderOverview(state);
+  // A badge whose text changed was rewritten out from under the cursor; its explainer would
+  // otherwise hang there describing an element no longer on the page.
+  if (helpTarget && !helpTarget.isConnected) hideHelp();
   // A hovered cell on a live attempt keeps its elapsed and token counts current.
   if (tipKey) showTip(tipKey);
   if (logModalKey) termPump(logModal, logModalKey, MODAL_LOG_LINES, null, true);
@@ -1003,7 +1291,10 @@ function closeLogModal() {
 // It sits outside #grid so nothing in the render loop can reach the <video> and restart playback
 // mid-review; refresh() only ever patches the rows and pumps the log.
 
-const modalTerm = newTerm(document.getElementById("modal-log"));
+// The whole log, not a tail: this is the review surface, and the step that broke a run is as often
+// near its start as its end. Trimming is off for the same reason it is off in the fullscreen view -
+// a reviewer scrolled back into the early steps must not have them collected out from under them.
+const modalTerm = newTerm(document.getElementById("modal-log"), false);
 const modalRefs = {};
 document.querySelectorAll("#modal-rows [data-ref]").forEach(el => { modalRefs[el.dataset.ref] = el; });
 let modalStill = null;   // the frame path currently in <img id="modal-still">
@@ -1024,14 +1315,14 @@ function openModal(key, requestReplay = false) {
   play.hidden = false;
   const note = document.getElementById("modal-note");
   note.style.display = "";
-  note.textContent = "Click ▶ to render the replay.";
+  note.textContent = "Replay is queued automatically when the run finishes. Click ▶ to play.";
   termClear(modalTerm);
   modalTerm.cursor = null;
   modalTerm.size = null;
   modalTerm.done = false;
   document.getElementById("modal").classList.add("open");
   syncModal();
-  termPump(modalTerm, key, MODAL_LOG_LINES);
+  termPump(modalTerm, key, MODAL_LOG_LINES, null, true);
   if (requestReplay) startModalReplay(key);
 }
 
@@ -1057,7 +1348,7 @@ function syncModal() {
   const rows = document.getElementById("modal-rows");
   rows.hidden = !a;
   if (a) setRows(modalRefs, a);
-  termPump(modalTerm, key, MODAL_LOG_LINES, a ? (a.log_bytes ?? null) : null);
+  termPump(modalTerm, key, MODAL_LOG_LINES, a ? (a.log_bytes ?? null) : null, true);
 
   // The still is a placeholder for the clip, not a rival to it: it carries the overlay while the
   // encode is queued and for an attempt that will never have one, and the video hides it on arrival.
@@ -1078,16 +1369,16 @@ function syncModal() {
   const foot = document.getElementById("modal-foot");
   foot.hidden = !(a && a.verifiable);
   const label = !a ? "" : a.verified
-    ? `human: ${a.verified_success ? "success" : "fail"}${a.verified_by ? " · " + a.verified_by : ""}`
+    ? `human: ${VERDICT_WORD[verdictOf(a)]}${a.verified_by ? " · " + a.verified_by : ""}`
     : "unreviewed";
   document.getElementById("modal-verdict").textContent = label;
   const clear = document.getElementById("modal-clear");
   clear.hidden = !(a && a.verified);
   clear.dataset.key = key || "";
-  for (const [id, want] of [["modal-yes", true], ["modal-no", false]]) {
+  for (const id of ["modal-yes", "modal-no", "modal-invalid"]) {
     const el = document.getElementById(id);
     el.dataset.key = key || "";
-    el.classList.toggle("on", Boolean(a && a.verified && Boolean(a.verified_success) === want));
+    el.classList.toggle("on", Boolean(a) && verdictOf(a) === el.dataset.verdict);
   }
 }
 
@@ -1139,15 +1430,15 @@ async function pollReplay(key) {
     : `replay unavailable (HTTP ${res.status})`;
 }
 
-async function sendVerdict(key, success) {
+async function sendVerdict(key, verdict) {
   const res = await fetch(api(key, "verdict"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ success }),
+    body: JSON.stringify({ verdict }),
   });
   const data = await res.json();
   if (!data.ok) alert("Verdict not recorded: " + (data.error || "unknown"));
-  else if (success) {
+  else if (verdict === "pass") {
     const stopped = data.siblings_stopped || 0;
     const skipped = data.siblings_skipped || 0;
     notify(`Success recorded. ${stopped} sibling(s) stopped; ${skipped} sibling(s) will be skipped.`);
@@ -1155,20 +1446,32 @@ async function sendVerdict(key, success) {
   refresh();
 }
 
+// The cell the keystroke was aimed at, lit immediately so the reader knows the key landed. The
+// class is dropped and re-added around a forced reflow, or a second verdict on the same cell would
+// find the animation already finished and play nothing.
+function flashCell(key) {
+  const button = document.querySelector(`.cellbtn[data-key="${CSS.escape(key)}"]`);
+  if (!button) return;
+  button.classList.remove("ack");
+  void button.offsetWidth;
+  button.classList.add("ack");
+}
+
 const verdictsInFlight = new Set();
 
-async function recordVerdict(key, success) {
+async function recordVerdict(key, verdict) {
   if (!key || verdictsInFlight.has(key)) return;
   // With nothing running there is no process for a successful verdict to interrupt, so the warning
   // adds no useful protection. Queued siblings may still be skipped, which the toast reports.
-  if (success && latest.some(isLive) && !confirm(
+  // Only a pass cancels anything: an invalid try decides nothing, so its siblings must keep going.
+  if (verdict === "pass" && latest.some(isLive) && !confirm(
     `Mark ${key} successful?\n\nThis irreversibly stops or skips every other try of this prompt. ` +
     `Changing or clearing the verdict later will not restart them.`
   )) return;
 
   verdictsInFlight.add(key);
   try {
-    await sendVerdict(key, success);
+    await sendVerdict(key, verdict);
   } finally {
     verdictsInFlight.delete(key);
   }
@@ -1194,8 +1497,7 @@ document.addEventListener("click", async ev => {
 
   if (act === "verdict") {
     if (!key) return;
-    const success = button.dataset.success === "true";
-    await recordVerdict(key, success);
+    await recordVerdict(key, button.dataset.verdict);
     return;
   }
 
@@ -1206,29 +1508,47 @@ document.addEventListener("click", async ev => {
   }
 
   if (act === "kill") {
-    if (!confirm(`Kill ${key}?\n\nThe agent is terminated; the runner records the attempt and the coordinator resets and re-pools its sandbox.`)) return;
+    // Same route either way: the server decides which of the two it is from the recorded pid, since
+    // an attempt can be orphaned between the poll that drew this button and the click on it.
+    const closing = latest.some(a => a.key === key && a.state === "orphaned");
+    if (!confirm(closing
+      ? `Close out ${key}?\n\nIts runner is gone, so nothing will ever record this attempt. It is written down as stopped with no result, its sandbox is released, and it becomes reviewable.`
+      : `Kill ${key}?\n\nThe agent is terminated; the runner records the attempt and the coordinator resets and re-pools its sandbox.`)) return;
     button.disabled = true;
     const res = await (await fetch(api(key, "kill"), { method: "POST" })).json();
-    if (!res.ok) alert("Kill failed: " + (res.error || "unknown"));
+    if (!res.ok) alert((closing ? "Close out failed: " : "Kill failed: ") + (res.error || "unknown"));
+    else if (res.closed_out === false) notify("Its runner recorded the attempt after all.");
     refresh();
     return;
   }
 
   if (act === "retry") {
-    if (!key || !confirm(
-      `Retry ${key}?\n\nThis stops the current run if needed and permanently deletes every log, ` +
-      `frame, replay, verdict, and result previously recorded for this try number.`
-    )) return;
+    if (!key) return;
     button.disabled = true;
-    const res = await fetch(api(key, "retry"), { method: "POST" });
-    const data = await res.json();
-    if (!data.ok) {
-      button.disabled = false;
-      alert("Retry failed: " + (data.error || "unknown"));
-    }
-    refresh();
+    const ok = await retryAttempt(key);
+    if (!ok) button.disabled = false;
   }
 });
+
+// Shared by the card's retry button and the overview's R shortcut, so there is a single code path
+// for tearing down a try and re-queueing it.
+async function retryAttempt(key) {
+  if (!confirm(
+    `Retry ${key}?\n\nThis stops the current run if needed and permanently deletes every log, ` +
+    `frame, replay, verdict, and result previously recorded for this try number.`
+  )) return false;
+  const res = await fetch(api(key, "retry"), { method: "POST" });
+  const data = await res.json();
+  if (!data.ok) alert("Retry failed: " + (data.error || "unknown"));
+  refresh();
+  return data.ok;
+}
+
+// Which attempts the R shortcut and retry button act on: anything not already mid-retry. Unlike
+// canVerdict this allows a live attempt — retrying stops the current run if one is going.
+function canRetry(a) {
+  return !!a && !(a.retry_state && a.retry_state !== "error");
+}
 
 // The hover card, delegated off the section so it survives every table patch.
 {
@@ -1247,28 +1567,39 @@ document.addEventListener("click", async ev => {
 
 document.addEventListener("keydown", async ev => {
   if (ev.key === "Escape") {
+    hideHelp();
     if (logModalKey) closeLogModal();
     else if (modalKey) closeModal();
     return;
   }
 
-  // While an overview result cell is hovered, P/F are direct equivalents of its verdict buttons.
-  // Modifier chords and editable controls retain their normal browser behavior.
+  // While an overview result cell is hovered, P/F/E are direct equivalents of its verdict buttons,
+  // and R is the equivalent of its retry button. Modifier chords and editable controls retain
+  // their normal browser behavior.
   const key = ev.key.toLowerCase();
   const target = ev.target;
   const editing = target instanceof HTMLElement
     && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+  const verdict = { p: "pass", f: "fail", e: "invalid" }[key];
   if (activeTab !== "overview" || !tipKey || ev.repeat || editing
-      || ev.ctrlKey || ev.metaKey || ev.altKey || (key !== "p" && key !== "f")) return;
+      || ev.ctrlKey || ev.metaKey || ev.altKey || !(verdict || key === "r")) return;
   const attempt = ovIndex.get(tipKey);
-  const state = cellState(attempt);
-  if (!attempt || !attempt.verifiable || !["p", "f", "q"].includes(state.code)) return;
+  if (key === "r") {
+    if (!canRetry(attempt)) return;
+    ev.preventDefault();
+    await retryAttempt(attempt.key);
+    return;
+  }
+  if (!canVerdict(attempt)) return;
   ev.preventDefault();
-  await recordVerdict(attempt.key, key === "p");
+  flashCell(attempt.key);
+  await recordVerdict(attempt.key, verdict);
 });
 
+tipVotes(document.getElementById("modal-foot"));
 refresh();
 setInterval(refresh, POLL_MS);
+setInterval(refreshLiveFrames, FRAME_POLL_MS);
 </script>
 </body>
 </html>
