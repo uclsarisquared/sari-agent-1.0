@@ -37,9 +37,11 @@ them with `uv run poe <task>`:
 
 | Task | Runs | What |
 |---|---|---|
-| `uv run poe coordinator` | `python -m sari_bench coordinator --port 9000` | Sandbox registry the runner and sim instances register with |
-| `uv run poe watch` | `python -m sari_bench watch` | Live dashboard web server for a running battery |
-| `uv run poe dbench` | `python -m sari_bench run ...` | Runs the `sari_bench_v2_prompts.json` battery against the coordinator (see `pyproject.toml` for the full flag set) |
+| `uv run poe dbench-coordinator` | `python -m sari_bench coordinator --port 9000` | Sandbox registry the runner and sim instances register with |
+| `uv run poe dbench-watch` | `python -m sari_bench watch` | Live dashboard web server for a running battery |
+| `uv run poe dbench-status` | `python -m sari_bench status --coordinator ws://127.0.0.1:9000` | Print the current sandbox pool |
+| `uv run poe dbench-easy` | `python -m sari_bench run ...` | Runs the full easy-prompt battery against the coordinator (see `pyproject.toml` for the full flag set) |
+| `uv run poe debug-grab <item>` | `python orchestrator/subtask_agents.py --task "Pick up <item>" ...` | Repro a single grab task standalone, without a coordinator/fleet (default item: Choco Mallows) |
 
 These are convenience wrappers around the same `python -m sari_bench` commands documented in
 [Distributed Sari Bench](#distributed-sari-bench) — use whichever form you prefer.
@@ -138,6 +140,27 @@ Before a run, sanity-check that the map artifacts are present:
 ```bash
 ls overhaul/slamtest/output
 ```
+
+#### `subtask_agents.py` flags
+
+Run `uv run python orchestrator/subtask_agents.py --help` from `overhaul/` for the authoritative
+list; summarized here:
+
+| Flag | Default | What |
+|---|---|---|
+| `task` (positional) | — | The long-horizon task, e.g. `"find and pick up Pepero"` (or use `--task`). Prompted interactively if neither is given. |
+| `--task` | — | Same as the positional arg; takes precedence if both are given. |
+| `--arm` | `graph` | Navigation arm: `graph` (measured-better deterministic navigator), `vlm`, or `graph-advised` (drives each graph hop through a per-hop advisor VLM). |
+| `--max-steps` | `150` | Per-leg step cap. |
+| `--max-minutes` | `40.0` | Per-leg wall-clock cap. |
+| `--out` | `<run-dir>/summary.json` | Where to write the run summary. |
+| `--run-dir` | — | Run directory for logs/screenshots. |
+| `--resolver-backend` | `qwen` | Backend for subtask resolution: `qwen` or `claude-cli`. |
+| `--output-dir` | `$SARI_MAP_DIR`, else `slamtest/output` | slamtest output dir to load the map from (topology/annotations/grid). |
+| `--leg-retries` | `1` | How many times to retry a failed leg with the failure reason in context before aborting the task. `0` restores abort-on-first-failure. |
+| `--reset-start` | off | Drive to the fixed spawn pose once before starting (eval-reproducibility). A plain run starts from the agent's current pose. |
+| `--restart-env` | off | Hard-reset the store to its initial state before starting (items back on shelves, checkouts undone, agent to spawn) so a fresh task doesn't inherit the last run's grabbed/checked-out items. Unlike `--reset-start`, which only moves the agent. |
+| `--ws-uri` | `$SARI_WS_URI`, else `ws://localhost:8080/commands` | Sandbox command endpoint. Sets `SARI_WS_URI` for this process. Distributed Sari Bench passes the URI of the sandbox it leased for the attempt, which is how several agents run against one machine at once. |
 
 ### Distributed Sari Bench
 
