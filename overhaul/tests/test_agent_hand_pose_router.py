@@ -14,6 +14,7 @@ built with object.__new__ so no VLM/model clients are constructed.
     python tests/test_agent_hand_pose_router.py   # or: pytest tests/test_agent_hand_pose_router.py
 """
 import os
+import re
 import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # overhaul/
@@ -23,6 +24,7 @@ if _ROOT not in sys.path:
 from sim import env
 from manip import manipulation as M
 from agent_core import agent as A
+from agent_core.sys_inst import SYS_INST_ASSOCIATIVE_SEMANTIC
 
 _ORIG = {"SetHandsActive": env.SetHandsActive, "set_hand_pose": M.set_hand_pose}
 
@@ -120,6 +122,40 @@ def test_non_convergence_still_tracks_and_does_not_raise():
     a = _agent()
     a._set_hand_pose("rest")            # must log a warning, not crash
     assert a._hand_pose == "rest", "tracker still advances (best-effort) after a warned non-convergence"
+
+
+def test_semantic_response_preserves_structured_reported_answer():
+    parsed = A._parse_semantic_response(
+        re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL),
+        "{'new_semantic_memory': 'counted', 'recall': 'done', 'next_action': 'stop', "
+        "'reported_answer': '14 unique products', 'mode': 'STOP'}",
+    )
+    assert parsed["reported_answer"] == "14 unique products"
+
+
+def test_semantic_response_defaults_missing_reported_answer_to_empty():
+    parsed = A._parse_semantic_response(
+        re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL),
+        "{'new_semantic_memory': '', 'recall': '', 'next_action': 'stop', 'mode': 'STOP'}",
+    )
+    assert parsed["reported_answer"] == ""
+
+
+def test_stop_response_carries_reported_answer_separately_from_placeholder():
+    response = A._stop_response(
+        {"mode": "STOP", "reported_answer": "14 unique products"},
+        "{'mode': 'STOP', 'reported_answer': '14 unique products'}",
+    )
+    assert response["halt"] is True and response["agent_mode"] == "STOP"
+    assert response["reported_answer"] == "14 unique products"
+    assert "14 unique products" not in response["text"]
+
+
+def test_semantic_prompt_requires_exact_reported_answer_on_stop():
+    prompt = SYS_INST_ASSOCIATIVE_SEMANTIC
+    assert "'reported_answer':" in prompt
+    assert "exact concise answer" in prompt
+    assert "Never put 'STOP'" in prompt
 
 
 def _run():

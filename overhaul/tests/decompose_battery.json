@@ -22,6 +22,15 @@
     {"id": "anti-kw-2", "family": "anti-keyword", "prompt": "Fetch a bottle of water and leave it at the self-checkout.",
      "looking_for": "pickup(bottle of water) -> checkout. 'fetch' is not a pickup keyword; 'self-checkout' is the counter."},
     {"id": "bare-pickup", "family": "1 fetch-to-counter", "prompt": "Pick up the milk.",
-     "looking_for": "a SINGLE-element array: one pickup(milk). No spurious checkout."}
+     "looking_for": "a SINGLE-element array: one pickup(milk). No spurious checkout."},
+    {"id": "inspect-count", "family": "5 inspection", "prompt": "Count the Piattos on this shelf.",
+     "looking_for": "a SINGLE inspect(query=count Piattos) leg with no manipulation.",
+     "expected_types": ["inspect"]},
+    {"id": "inspect-expiration", "family": "5 inspection", "prompt": "Read and report the expiration date printed on the milk.",
+     "looking_for": "a SINGLE inspect(query=expiration date) leg with no manipulation.",
+     "expected_types": ["inspect"]},
+    {"id": "inspect-then-pickup", "family": "5 inspection", "prompt": "Read the expiration dates and pick up the one that is not expired.",
+     "looking_for": "inspect(query=which is not expired) followed by a separate pickup leg.",
+     "expected_types": ["inspect", "pickup"]}
   ]
 }

@@ -26,6 +26,10 @@ from orchestrator.subtask_completion import (
     completion_predicate,
     name_overlap,
     mismatched_hands,
+    predicate_inspect,
+    reported_inspection_answer,
+    planned_subtask_metrics,
+    inspect_scope_violation,
     SUBTASK_TYPES,
     HALT_REFUSAL_CAP,
     WRONG_ITEM_RELEASE_AFTER,
@@ -100,10 +104,134 @@ def test_parse_count_garbage_dropped_and_zero_clamped():
     assert out[1]["count"] == 1         # clamped to at least 1
 
 
+def test_parse_inspect_retains_required_query():
+    raw = ('[{"type":"inspect","query":"How many Piattos are visible?",'
+           '"text":"Count and report the Piattos without touching them."}]')
+    out = parse_decomposition(raw, "orig")
+    assert out == [{"type": "inspect",
+                    "query": "How many Piattos are visible?",
+                    "text": "Count and report the Piattos without touching them."}]
+
+
+def test_parse_inspect_without_query_degrades_safely():
+    out = parse_decomposition(
+        '[{"type":"inspect","text":"Look at the shelf and report."}]', "orig")
+    assert out == [{"type": "unknown", "text": "Look at the shelf and report."}]
+
+
 def test_parse_never_emits_type_outside_vocab():
     raw = '[{"type":"pickup","text":"a"},{"type":"weird","text":"b"},"c"]'
     out = parse_decomposition(raw, "orig")
     assert all(s["type"] in SUBTASK_TYPES or s["type"] == "unknown" for s in out)
+    assert "inspect" in SUBTASK_TYPES
+
+
+def test_decomposer_prompt_defines_read_only_inspection_and_separate_pickup():
+    prompt = sc.TYPED_DECOMPOSER_SYSTEM.lower()
+    assert "inspect" in prompt and "read-only observation" in prompt
+    assert "must not pick up" in prompt
+    assert "pick up the one that is not expired" in prompt
+    assert '"type": "inspect"' in prompt and '"type": "pickup"' in prompt
+
+
+def test_inspection_answer_uses_only_structured_report_not_stop_placeholder():
+    response = {
+        "halt": True,
+        "text": "STOP action received, terminating execution...",
+        "reported_answer": "14 unique products",
+    }
+    assert reported_inspection_answer(response) == "14 unique products"
+    assert reported_inspection_answer({
+        "halt": True, "text": "STOP action received, terminating execution..."
+    }) == ""
+    assert reported_inspection_answer({"reported_answer": 14}) == ""
+
+
+# --- inspect predicate -----------------------------------------------------
+
+def test_inspect_blank_answer_refuses_without_calling_guard():
+    calls = []
+    guard = lambda *args: calls.append(args)  # noqa: E731
+    for answer in ("", "   \n"):
+        assert predicate_inspect(
+            {"type": "inspect", "query": "How many?"}, _state(), answer, guard)[0] is False
+    assert calls == []
+
+
+def test_inspect_positive_and_negative_verdicts_receive_auxiliary_context():
+    seen = []
+
+    def guard(query, answer, auxiliary_context):
+        seen.append((query, answer, auxiliary_context))
+        return {"match": answer == "Three.", "reason": "visible count", "conclusive": True}
+
+    st = _state(gripped_name="COKE", gripped_names={"left": "COKE", "right": None},
+                nearest_checkpoint=32)
+    sub = {"type": "inspect", "query": "How many Piattos?"}
+    assert predicate_inspect(sub, st, "Three.", guard)[0] is True
+    assert predicate_inspect(sub, st, "Four.", guard)[0] is False
+    assert seen[0][2] == {
+        "gripped_name": "COKE",
+        "gripped_names": {"left": "COKE", "right": None},
+        "nearest_checkpoint": 32,
+    }
+
+
+def test_inspect_missing_inputs_guard_failures_and_bad_verdicts_fail_closed():
+    sub = {"type": "inspect", "query": "What date?"}
+    assert predicate_inspect(sub, _state(), "2027-01-01", None)[0] is False
+    assert predicate_inspect({"type": "inspect"}, _state(), "answer", lambda *_: {})[0] is False
+
+    def boom(*_):
+        raise TimeoutError("late")
+
+    assert predicate_inspect(sub, _state(), "answer", boom)[0] is False
+    malformed = [
+        None, True, {}, {"match": True}, {"match": 1, "reason": "x", "conclusive": True},
+        {"match": True, "reason": "", "conclusive": True},
+        {"match": True, "reason": "maybe", "conclusive": False},
+    ]
+    for verdict in malformed:
+        assert predicate_inspect(sub, _state(), "answer", lambda *_, v=verdict: v)[0] is False
+
+
+def test_completion_dispatch_routes_inspect_without_changing_other_types():
+    called = []
+
+    def guard(*args):
+        called.append(args)
+        return {"match": True, "reason": "visible", "conclusive": True}
+
+    assert completion_predicate(
+        {"type": "inspect", "query": "Count them"}, _state(), "There are two.",
+        inspect_guard=guard)[0] is True
+    assert called
+    assert completion_predicate({"type": "goto"}, _state())[0] is True
+    assert completion_predicate(
+        {"type": "checkout"}, _state(last_checkout={"scanned": True, "placed": True}))[0] is True
+
+
+def test_planned_subtask_metrics_count_inspect_unknown_and_rate():
+    metrics = planned_subtask_metrics([
+        {"type": "inspect"}, {"type": "pickup"}, {"type": "unknown"}, {"type": "bogus"},
+    ])
+    assert metrics["planned_leg_type_counts"]["inspect"] == 1
+    assert metrics["planned_leg_type_counts"]["pickup"] == 1
+    assert metrics["planned_leg_type_counts"]["unknown"] == 2
+    assert metrics["unknown_subtask_rate"] == 0.5
+
+
+def test_inspect_scope_violation_audits_grab_release_and_checkout_without_blocking():
+    empty = _state()
+    held = _state(leftGrippedState=True)
+    grab = inspect_scope_violation("extend_arm_until_grabbed", 3, empty, {})
+    release = inspect_scope_violation("grip_left", 4, held, {})
+    checkout = inspect_scope_violation("checkout_held_item", 5, held, {"blocked": True})
+    assert grab["kind"] == "grip_or_grab" and grab["executed"] is True
+    assert release["kind"] == "grip_toggle_release"
+    assert release["pre_action_grip_state"]["left"] is True
+    assert checkout["kind"] == "checkout_macro" and checkout["blocked"] is True
+    assert inspect_scope_violation("turn_left", 6, empty, {}) is None
 
 
 # --- name_overlap ----------------------------------------------------------
@@ -163,6 +291,88 @@ def test_pickup_refused_wrong_item():
 def test_pickup_no_target_grants_on_any_grip():
     st = _state(rightGrippedState=True, rightHoveredObject="WHATEVER")
     assert _granted({"type": "pickup"}, st) is True
+
+
+# --- pluggable VLM pickup guard (injected verdicts; never network) ----------
+
+def _verdict(match, reason="test verdict", conclusive=True):
+    return {"match": match, "reason": reason, "conclusive": conclusive}
+
+
+def test_default_completion_guard_remains_deterministic():
+    st = _state(leftGrippedState=True, gripped_name="PIATTOS_CHEESE_40G")
+    assert completion_predicate({"type": "pickup", "target": "Piattos"}, st)[0] is True
+
+
+def test_vlm_backend_leaves_untargeted_and_nonpickup_predicates_deterministic():
+    untargeted = _state(leftGrippedState=True, new_grip_this_leg=True)
+    assert completion_predicate(
+        {"type": "pickup"}, untargeted, guard_backend="vlm")[0] is True
+    checkout = _state(last_checkout={"scanned": True, "placed": True, "reason": "ok"})
+    assert completion_predicate(
+        {"type": "checkout"}, checkout, guard_backend="vlm")[0] is True
+
+
+def test_vlm_attribute_target_match_and_mismatch():
+    st = _state(leftGrippedState=True,
+                gripped_names={"left": "CDO_HOME_STYLE_CORNED_BEEF_150G", "right": None})
+    sub = {"type": "pickup", "target": "can of food that is good for breakfast"}
+    assert completion_predicate(
+        sub, st, guard_backend="vlm",
+        guard_verdicts={"left": _verdict(True, "Corned beef is a canned breakfast food.")})[0] is True
+    assert completion_predicate(
+        sub, st, guard_backend="vlm",
+        guard_verdicts={"left": _verdict(False, "This held item does not fit the description.")})[0] is False
+
+
+def test_vlm_refusal_overrides_deterministic_name_match():
+    st = _state(leftGrippedState=True,
+                gripped_name="PIATTOS_CHEESE_40G",
+                gripped_names={"left": "PIATTOS_CHEESE_40G", "right": None})
+    ok, reason = completion_predicate(
+        {"type": "pickup", "target": "Piattos"}, st, guard_backend="vlm",
+        guard_verdicts={"left": _verdict(False, "visual evidence is inconsistent")})
+    assert ok is False and "visual evidence" in reason
+
+
+def test_vlm_missing_or_failed_verdict_fails_closed_without_name_fallback():
+    st = _state(leftGrippedState=True,
+                gripped_name="PIATTOS_CHEESE_40G",
+                gripped_names={"left": "PIATTOS_CHEESE_40G", "right": None})
+    sub = {"type": "pickup", "target": "Piattos"}
+    assert completion_predicate(sub, st, guard_backend="vlm")[0] is False
+    assert completion_predicate(
+        sub, st, guard_backend="vlm",
+        guard_verdicts={"left": _verdict(False, "timeout", conclusive=False)})[0] is False
+
+
+def test_vlm_failed_verdict_does_not_drive_corrective_release():
+    st = _state(leftGrippedState=True,
+                gripped_names={"left": "COKE_ZERO_330", "right": None})
+    assert mismatched_hands(
+        {"type": "pickup", "target": "Piattos"}, st, guard_backend="vlm",
+        guard_verdicts={"left": _verdict(False, "API timeout", conclusive=False)}) == []
+
+
+def test_vlm_conclusive_wrong_item_drives_corrective_release():
+    st = _state(leftGrippedState=True,
+                gripped_names={"left": "COKE_ZERO_330", "right": None})
+    assert mismatched_hands(
+        {"type": "pickup", "target": "Piattos"}, st, guard_backend="vlm",
+        guard_verdicts={"left": _verdict(False, "Coke is not Piattos")}) == ["left"]
+
+
+def test_vlm_quantity_two_is_matched_per_hand():
+    st = _state(leftGrippedState=True, rightGrippedState=True,
+                gripped_names={"left": "JIN_RAMEN_MILD_120G", "right": "COKE_ZERO_330"})
+    sub = {"type": "pickup", "target": "Jin Ramen", "count": 2}
+    verdicts = {"left": _verdict(True), "right": _verdict(False, "wrong product")}
+    ok, reason = completion_predicate(
+        sub, st, guard_backend="vlm", guard_verdicts=verdicts)
+    assert ok is False and "1 of 2" in reason
+    verdicts["right"] = _verdict(True)
+    assert completion_predicate(
+        sub, st, guard_backend="vlm", guard_verdicts=verdicts)[0] is True
 
 
 # --- pickup predicate: count (dual-hand quantity, 2026-07-23) ---------------

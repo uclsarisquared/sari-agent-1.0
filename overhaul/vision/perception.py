@@ -21,12 +21,13 @@ GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to gr
 # Agent runtime = UCL qwen (user directive 2026-07-19; OpenRouter retired on 402). This is
 # the bounding-box/centering client - qwen-VL replaces Gemini here, identically in BOTH A/B
 # arms; bbox quality vs Gemini is unmeasured and shared, so it cannot skew the arms.
-from agent_core.agent import _ucl_creds
+from agent_core.agent import _ucl_creds, call_with_api_retries
 _UCL_HOST, _UCL_KEY = _ucl_creds()
 MODEL_NAME = "Qwen/Qwen3.6-27B"
 CLIENT = OpenAI(
     base_url=f"http://{_UCL_HOST}:8000/v1",
     api_key=_UCL_KEY,
+    max_retries=0,
 )
 ORIGINAL_WIDTH = 1920
 ORIGINAL_HEIGHT = 1080
@@ -131,12 +132,14 @@ def extract_text_from_image(image_path):
 
 def find_most_similar_bbox_to_target_name(target_name, ocr_result):
     bboxes = '\n'.join([f'* {box}' for box in ocr_result])
-    resp = CLIENT.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": f"{FIND_MOST_SIMILAR_OCR_BBOX_PROMPT}\n\ntarget_name={target_name}\n\n{bboxes}"}],
-        temperature=0.5,
-        max_tokens=400,
-        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+    resp = call_with_api_retries(
+        lambda: CLIENT.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": f"{FIND_MOST_SIMILAR_OCR_BBOX_PROMPT}\n\ntarget_name={target_name}\n\n{bboxes}"}],
+            temperature=0.5,
+            max_tokens=400,
+            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+        )
     )
     annotated_bbox = resp.choices[0].message.content
 
@@ -237,15 +240,17 @@ def _detect_bbox_px(image, target_info, temperature=0.0):
     closed centring loop would chase as if the object itself were moving. Deterministic box
     in, deterministic correction out. Pulled out of center_object_on_screen so it (and the
     projection math) can be exercised offline on saved PNGs - see center_offline_check.py."""
-    resp = CLIENT.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": [
-            _encode_image(image),
-            {"type": "text", "text": f"{PERCEPTION_PROMPT}\n\ntarget_info={target_info}\n\n"},
-        ]}],
-        temperature=temperature,
-        max_tokens=400,
-        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+    resp = call_with_api_retries(
+        lambda: CLIENT.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": [
+                _encode_image(image),
+                {"type": "text", "text": f"{PERCEPTION_PROMPT}\n\ntarget_info={target_info}\n\n"},
+            ]}],
+            temperature=temperature,
+            max_tokens=400,
+            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+        )
     )
     annotated_bbox = resp.choices[0].message.content
     print(f"[DETECT OBJECT IN FRAME] Response: {annotated_bbox}")
@@ -278,15 +283,17 @@ def _detect_boxes_px(image, target_info, temperature=0.0):
     single box the model happens to return - the fix for the loop hopping between identical
     items on a dense shelf (measured 2026-07-21). temperature 0.0 for the same reason as
     _detect_bbox_px: a stable candidate set look to look."""
-    resp = CLIENT.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": [
-            _encode_image(image),
-            {"type": "text", "text": f"{PERCEPTION_PROMPT_MULTI}\n\ntarget_info={target_info}\n\n"},
-        ]}],
-        temperature=temperature,
-        max_tokens=1500,
-        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+    resp = call_with_api_retries(
+        lambda: CLIENT.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": [
+                _encode_image(image),
+                {"type": "text", "text": f"{PERCEPTION_PROMPT_MULTI}\n\ntarget_info={target_info}\n\n"},
+            ]}],
+            temperature=temperature,
+            max_tokens=1500,
+            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+        )
     )
     content = resp.choices[0].message.content
     # Tolerant parse: pull each {...} object out on its own rather than literal_eval-ing the whole
@@ -999,15 +1006,17 @@ def detect_object_via_gemini(target_name):
               "{'box_2d': box_2d, 'label': label_name}\n"
               "```\n\n")
 
-    resp = client.chat.completions.create(
-        model=model_name,
-        messages=[{"role": "user", "content": [
-            _encode_image(im),
-            {"type": "text", "text": prompt},
-        ]}],
-        temperature=0.5,
-        max_tokens=400,
-        extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+    resp = call_with_api_retries(
+        lambda: client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": [
+                _encode_image(im),
+                {"type": "text", "text": prompt},
+            ]}],
+            temperature=0.5,
+            max_tokens=400,
+            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+        )
     )
     annotated_bbox = resp.choices[0].message.content
 

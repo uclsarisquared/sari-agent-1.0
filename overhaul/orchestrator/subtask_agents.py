@@ -28,6 +28,7 @@ Usage:
     python subtask_agents.py --task "..." --arm graph --max-steps 150 --max-minutes 40
     python subtask_agents.py --task "..." --arm vlm      # control arm (old VLM navigation)
     python subtask_agents.py --task "..." --arm graph-advised  # per-hop advisor-VLM drive
+    python subtask_agents.py --task "..." --completion-guard vlm  # VLM pickup grounding
     python subtask_agents.py --task "..." --reset-start   # eval-reproducibility: start from spawn
 
 Self-correction (2026-07-23, two levels - added after run 0723_061651_graph spun a pickup leg's
@@ -93,7 +94,7 @@ from toolset.actions import (
     PERCEPTION_ACTIONS_REF,
     MANIPULATION_ACTIONS_REF,
 )
-from agent_core.agent import EmbodiedAgent, ucl_qwen_config
+from agent_core.agent import EmbodiedAgent, call_with_api_retries, ucl_qwen_config
 # Token accounting. Patches the OpenAI SDK once (see token_meter's docstring for why it is done
 # there and not per call site), so every reasoner's tokens land in summary.json / tokens.json.
 from agent_core import token_meter
@@ -103,11 +104,17 @@ from orchestrator.subtask_completion import (
     TYPED_DECOMPOSER_SYSTEM,
     parse_decomposition,
     completion_predicate,
+    blob_matches_target,
     mismatched_hands,
+    pickup_has_target,
+    reported_inspection_answer,
+    planned_subtask_metrics,
+    inspect_scope_violation,
     HALT_REFUSAL_CAP,
     COMPLETION_BACKSTOP,
     WRONG_ITEM_RELEASE_AFTER,
 )
+from orchestrator.pickup_vlm_guard import evaluate_hands, make_inspect_guard
 # Plan-time map planning (also sim-free, so it stays offline-unit-testable - test_subtask_planning.py).
 from orchestrator.subtask_planning import (
     SPAWN_XZ,
@@ -133,18 +140,20 @@ ASSOCIATIVE_CONFIG = ucl_qwen_config(temperature=0.3)
 def _llm_client() -> OpenAI:
     from agent_core.agent import _ucl_creds
     host, key = _ucl_creds()
-    return OpenAI(base_url=f"http://{host}:8000/v1", api_key=key)
+    return OpenAI(base_url=f"http://{host}:8000/v1", api_key=key, max_retries=0)
 
 
 def _llm_call(client: OpenAI, system: str, user: str) -> str:
-    resp = client.chat.completions.create(
-        model=ORCHESTRATOR_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-        temperature=0.3,
-        timeout=120,
+    resp = call_with_api_retries(
+        lambda: client.chat.completions.create(
+            model=ORCHESTRATOR_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+            temperature=0.3,
+            timeout=120,
+        )
     )
     return resp.choices[0].message.content
 
@@ -536,6 +545,33 @@ _AT_TARGET_HOP_MARGIN = 1
 _LOCATION_GATED_TYPES = {"pickup", "goto"}
 
 
+def _deterministic_guard_details(leg, state):
+    """Per-hand diagnostic detail for deterministic targeted-pickup evaluations."""
+    if leg.get("type") != "pickup" or not pickup_has_target(leg):
+        return None
+    names = state.get("gripped_names")
+    names = names if isinstance(names, dict) else {}
+    out = {}
+    for side in ("left", "right"):
+        if not state.get(f"{side}GrippedState"):
+            continue
+        sku = names.get(side)
+        if not sku:
+            hovered = state.get(f"{side}HoveredObject")
+            sku = hovered if hovered and str(hovered).lower() not in ("none", "null") else None
+        match = bool(sku and blob_matches_target(sku, leg.get("target") or ""))
+        out[side] = {
+            "match": match,
+            "reason": ("deterministic SKU/target match" if match else
+                       "deterministic SKU/target mismatch or unidentified held item"),
+            "conclusive": bool(sku),
+            "latency_ms": 0.0,
+            "sku": sku,
+            "reused": False,
+        }
+    return out
+
+
 def _off_target(sm, leg, near_cp) -> bool:
     """True iff this leg's work must happen AT its resolved candidate checkpoints and the agent is not
     there yet — more than `_AT_TARGET_HOP_MARGIN` hops from EVERY candidate. Lets the graph, not the
@@ -558,7 +594,7 @@ def _off_target(sm, leg, near_cp) -> bool:
 
 
 def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
-            visited=None, leg_idx=0):
+            visited=None, leg_idx=0, completion_guard="deterministic"):
     """Run ONE typed subtask leg as a self-contained embodied-agent loop - eval_pickup.run_one
     generalised for a leg of a long-horizon task (see the module docstring for the three differences).
 
@@ -593,7 +629,7 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
 
     print(f"\n[LEG {leg_idx}] ({leg.get('type')}) {leg_text}")
     if context:
-        print(f"[CONTEXT] {context[:120]}{'...' if len(context) > 120 else ''}")
+        print(f"[CONTEXT] {context}")
 
     # Per-leg agent setup: reset CONVERSATION history only (semantic + episodic persist across legs -
     # the orchestrator's shared-memory contract), and seed the graph navigator with THIS leg's
@@ -622,10 +658,12 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
 
     log({"event": "leg_start", "leg": leg_idx, "type": leg.get("type"), "text": leg_text,
          "candidates": leg.get("candidates"), "arm": agent.nav_mode,
+         "completion_guard": completion_guard,
          "ts": datetime.now().isoformat(timespec="seconds")})
 
     m = {"type": leg.get("type"), "text": leg_text, "t_manip": None, "t_grip": None,
          "t_checkout": None, "success": False, "timesteps": 0, "llm_calls": 0, "errors": 0,
+         "completion_guard": completion_guard,
          "halts_refused": 0, "halt_forced": False, "corrective_release": None, "end_reason": None}
 
     state = _fresh_agent_state()
@@ -651,6 +689,10 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
     # grip - without this, an item carried in from a previous leg would satisfy an untargeted pickup
     # predicate the moment the leg begins (any-hand _gripping is True the whole time).
     start_grips = {side for side in ("left", "right") if state.get(f"{side}GrippedState")}
+    state["gripped_names"] = dict(gripped_names)
+    state["gripped_name"] = None
+    last_guard_skus = None
+    step_guard_verdicts = None
 
     for step in range(1, max_steps + 1):
         if (time.time() - t0) / 60 > max_minutes:
@@ -665,6 +707,87 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
                 fh.write(downscale_for_storage(img_bytes))
         imageb64 = base64.b64encode(img_bytes).decode("utf-8")
         state["visited_checkpoints"] = set(visited)   # compare predicate reads the task visit trace (code only)
+        step_inspect_guard = None
+        if leg.get("type") == "inspect":
+            # This closure is bound to the exact frame passed to execute_lean below. Its cache makes
+            # identical STOP/backstop checks within this step one VLM call, and inspection ignores
+            # --completion-guard (that option remains pickup-grounding-only).
+            def _log_inspect_verdict(query, auxiliary_context, verdict, reused):
+                if not reused:
+                    m["llm_calls"] += 1
+                row = verdict if isinstance(verdict, dict) else {}
+                log({"event": "completion_guard", "step": step, "backend": "vlm",
+                     "guard": "inspect", "match": row.get("match"),
+                     "reason": row.get("reason"), "conclusive": row.get("conclusive"),
+                     "latency_ms": row.get("latency_ms"), "query": query,
+                     "auxiliary_context": auxiliary_context, "reused": reused})
+
+            step_inspect_guard = make_inspect_guard(
+                agent.vlm_agent.client,
+                agent.vlm_agent.config.model_id,
+                agent.vlm_agent.config,
+                imageb64,
+                on_verdict=_log_inspect_verdict,
+            )
+        # VLM completion guard (pickup grounding only): evaluate the CURRENT screenshot against the
+        # held state produced by the preceding action. The direct client helper is stateless and does
+        # not touch actor history. Untargeted/empty/unidentified grips make no call and fail closed.
+        targeted_vlm_pickup = (
+            completion_guard == "vlm"
+            and leg.get("type") == "pickup"
+            and pickup_has_target(leg)
+        )
+        step_guard_verdicts = (_deterministic_guard_details(leg, state)
+                               if completion_guard == "deterministic" else None)
+        if targeted_vlm_pickup:
+            held_skus = {
+                side: gripped_names.get(side)
+                for side in ("left", "right")
+                if state.get(f"{side}GrippedState") and gripped_names.get(side)
+            }
+            guard_skus = tuple((side, held_skus.get(side)) for side in ("left", "right")
+                               if held_skus.get(side))
+            if guard_skus != last_guard_skus:
+                goal_met_streak = 0
+                last_guard_skus = guard_skus
+            if held_skus:
+                step_guard_verdicts, guard_calls = evaluate_hands(
+                    agent.vlm_agent.client,
+                    agent.vlm_agent.config.model_id,
+                    agent.vlm_agent.config,
+                    imageb64,
+                    leg.get("target") or "",
+                    held_skus,
+                )
+                m["llm_calls"] += guard_calls
+                for side, verdict in step_guard_verdicts.items():
+                    log({"event": "completion_guard", "step": step, "backend": "vlm",
+                         "side": side, "sku": verdict.get("sku"),
+                         "match": verdict.get("match"), "reason": verdict.get("reason"),
+                         "conclusive": verdict.get("conclusive"),
+                         "latency_ms": verdict.get("latency_ms"),
+                         "reused": verdict.get("reused", False)})
+            early_met, early_reason = completion_predicate(
+                leg, state, final_text=last_actor_text, guard_backend=completion_guard,
+                guard_verdicts=step_guard_verdicts)
+            if early_met:
+                goal_met_streak += 1
+                state["goal_check"] = (
+                    f"MEASURED: your CURRENT GOAL appears complete — {early_reason}. "
+                    "Emit STOP to finish THIS subtask; a fresh agent handles any future goals. "
+                    "Do NOT keep going.")
+            else:
+                goal_met_streak = 0
+                state["goal_check"] = None
+            if goal_met_streak >= COMPLETION_BACKSTOP:
+                m["success"] = True
+                m["end_reason"] = "completed_no_stop"
+                print(f"[LEG {leg_idx} DONE] VLM completion backstop: positive guard held for "
+                      f"{goal_met_streak} steps — ending leg (success). {early_reason}")
+                log({"event": "completed_no_stop", "step": step, "streak": goal_met_streak,
+                     "reason": early_reason, "backend": completion_guard,
+                     "guard_verdicts": step_guard_verdicts})
+                break
         # The LLM gets a LEAN view (drops code-only bookkeeping like the growing visit set); the FULL
         # `state` still backs every predicate call, so no halt check is weakened.
         # nav_goal = the BARE per-leg goal (pre-augmentation), handed to the advised navigator's per-hop
@@ -719,9 +842,17 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
 
         # ---- STOP is a REQUEST: the typed predicate grants or refuses (6.3) --------------------
         if response.get("halt"):
-            final_text = last_actor_text or response.get("text") or ""
-            granted, reason = completion_predicate(leg, state, final_text=final_text)
-            log({"event": "halt_request", "step": step, "granted": granted, "reason": reason})
+            # Inspection consumes ONLY the structured answer emitted with this frame's STOP. Never
+            # feed the termination placeholder or a previous action reply to the verifier.
+            final_text = (reported_inspection_answer(response)
+                          if leg.get("type") == "inspect"
+                          else (last_actor_text or response.get("text") or ""))
+            granted, reason = completion_predicate(
+                leg, state, final_text=final_text, guard_backend=completion_guard,
+                guard_verdicts=step_guard_verdicts, inspect_guard=step_inspect_guard)
+            log({"event": "halt_request", "step": step, "granted": granted, "reason": reason,
+                 "completion_guard": completion_guard, "guard_verdicts": step_guard_verdicts,
+                 "reported_answer": (final_text if leg.get("type") == "inspect" else None)})
             if granted:
                 m["success"] = True
                 m["end_reason"] = "halt_granted"
@@ -747,7 +878,9 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             if (leg.get("type") == "pickup" and not corrective_release_done
                     and halt_refusals >= WRONG_ITEM_RELEASE_AFTER):
                 released = []
-                for side in mismatched_hands(leg, state, start_grips):
+                for side in mismatched_hands(
+                        leg, state, start_grips, guard_backend=completion_guard,
+                        guard_verdicts=step_guard_verdicts):
                     try:
                         (_GRIP_LEFT_ if side == "left" else _GRIP_RIGHT_)()  # toggle: gripping -> open
                         released.append(f"{side}:{gripped_names.get(side)}")
@@ -831,8 +964,20 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             eff_mode, promoted = mode, False
             if raw_action in _GRAB_ACTIONS and mode not in (None, "manipulation") and _grab_ready(state):
                 eff_mode, promoted = "manipulation", True
+            scope_pre_state = None
+            if leg.get("type") == "inspect":
+                if (raw_action in _GRAB_ACTIONS or raw_action in ("grip_left", "grip_right")
+                        or raw_action in _MACRO_ACTIONS):
+                    try:
+                        scope_pre_state = _fresh_agent_state()
+                    except Exception:  # noqa: BLE001 - auditing must never block normal dispatch
+                        scope_pre_state = state
             res = dispatch_action(raw_action, int(tt), notes, inline_arg=inline, mode=eff_mode,
                                   debug_dir=step_center, agent=agent, leg_type=leg.get("type")) or {}
+            if scope_pre_state is not None:
+                scope_event = inspect_scope_violation(raw_action, step, scope_pre_state, res)
+                if scope_event:
+                    log(scope_event)
             if promoted and not res.get("blocked"):
                 if m["t_manip"] is None:
                     m["t_manip"] = round(time.time() - t0, 1)
@@ -907,15 +1052,32 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
         # (the leg-overrun failure). The agent still chooses STOP - this is a nudge, not an auto-end. But
         # if it stays satisfied for COMPLETION_BACKSTOP steps without ever proposing STOP, end the leg
         # anyway (success=True, the goal holds) - the symmetric twin of the refusal cap.
-        met, met_reason = completion_predicate(leg, state, final_text=last_actor_text)
-        if met:
-            goal_met_streak += 1
-            state["goal_check"] = (f"MEASURED: your CURRENT GOAL appears complete — {met_reason}. "
-                                   "Emit STOP to finish THIS subtask; a fresh agent handles any "
-                                   "future goals. Do NOT keep going.")
+        if targeted_vlm_pickup:
+            # The step guard describes the screenshot/held state from BEFORE this step's action.
+            # Do not reuse it against a newly changed grip here; the next fresh screenshot evaluates
+            # that state. Its result already drove this step's nudge/streak above.
+            met, met_reason = early_met, early_reason
         else:
-            goal_met_streak = 0
-            state["goal_check"] = None
+            predicate_started = time.monotonic()
+            met, met_reason = completion_predicate(
+                leg, state, final_text=last_actor_text, guard_backend=completion_guard,
+                inspect_guard=step_inspect_guard)
+            predicate_latency = round((time.monotonic() - predicate_started) * 1000, 1)
+            step_guard_verdicts = _deterministic_guard_details(leg, state)
+            for side, verdict in (step_guard_verdicts or {}).items():
+                verdict["latency_ms"] = predicate_latency
+                log({"event": "completion_guard", "step": step, "backend": "deterministic",
+                     "side": side, "sku": verdict.get("sku"), "match": verdict.get("match"),
+                     "reason": verdict.get("reason"), "conclusive": verdict.get("conclusive"),
+                     "latency_ms": verdict.get("latency_ms"), "reused": False})
+            if met:
+                goal_met_streak += 1
+                state["goal_check"] = (f"MEASURED: your CURRENT GOAL appears complete — {met_reason}. "
+                                       "Emit STOP to finish THIS subtask; a fresh agent handles any "
+                                       "future goals. Do NOT keep going.")
+            else:
+                goal_met_streak = 0
+                state["goal_check"] = None
 
         log({"event": "step", "step": step, "mode": mode,
              "nav_note": (response.get("nav_note") or "")[:200] or None,
@@ -926,7 +1088,7 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
              "gripped_names": dict(gripped_names), "off_target": off_target or None,
              "checkout": checkout_result, "goal_met": met, "status": notes.get("status")})
 
-        if goal_met_streak >= COMPLETION_BACKSTOP:
+        if not targeted_vlm_pickup and goal_met_streak >= COMPLETION_BACKSTOP:
             m["success"] = True
             m["end_reason"] = "completed_no_stop"
             print(f"[LEG {leg_idx} DONE] completion backstop: goal measurably held for "
@@ -986,7 +1148,7 @@ def _resolve_run_dir(run_dir, arm):
 
 def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                 resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1,
-                output_dir=None):
+                output_dir=None, completion_guard="deterministic"):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then
     run each with run_leg until the AGENT stops (predicate-granted) or a per-leg cap fires. Shared
     semantic/episodic memory + a between-leg findings summary carry context forward. A failed leg is
@@ -1000,6 +1162,10 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     (control), or 'graph-advised' (graph targets, per-hop advisor-VLM drive - see
     agent._advised_goto; adds one advisor call per graph hop, counted in llm_calls).
     caps: (max_steps, max_minutes) PER LEG.
+
+    completion_guard: 'deterministic' (default, unchanged baseline) or 'vlm'. The latter affects only
+    targeted pickup grounding. Inspect legs always use their image-bound VLM verifier; checkout,
+    goto, compare, unknown, and physical grip/count checks otherwise keep deterministic predicates.
 
     reset_start (default FALSE): drive to the fixed spawn checkpoint ONCE before the first leg
     (return_to_start; pose-only, never between legs - it stows hands, which would drop a carry). This
@@ -1049,7 +1215,8 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     token_meter.dump(run_dir)
     t0 = time.time()
     print(f"[ORCHESTRATOR] task: {task!r}")
-    print(f"[ORCHESTRATOR] arm={arm}  caps={caps[0]} steps / {caps[1]} min per leg  run dir: {run_dir}")
+    print(f"[ORCHESTRATOR] arm={arm}  completion_guard={completion_guard}  "
+          f"caps={caps[0]} steps / {caps[1]} min per leg  run dir: {run_dir}")
 
     # -- decompose (1 LLM) + resolve each leg on the map (N LLM, plan time) --
     subtasks = decompose_task(client, task)
@@ -1127,7 +1294,8 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                 m = run_leg(agent, leg, sm, caps,
                             log_path=os.path.join(run_dir, f"leg{i:02d}{suffix}.jsonl"),
                             context=leg_context, future_legs=future,
-                            visited=visited, leg_idx=i + 1)
+                            visited=visited, leg_idx=i + 1,
+                            completion_guard=completion_guard)
                 task_llm += m["llm_calls"]
                 # Per-leg token cost, so a leg that spun to its cap is visibly the expensive one.
                 # A retried leg's rows are separate, exactly like its llm_calls.
@@ -1164,7 +1332,8 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
         # legs' own deltas, which miss the between-leg work. by_model splits actor from advisor when
         # they ever stop being the same model.
         token_totals = token_meter.totals()
-        summary = {"task": task, "arm": arm, "success": task_success,
+        summary = {"task": task, "arm": arm, "completion_guard": completion_guard,
+                   "success": task_success,
                    "legs_planned": len(legs),
                    "legs_completed": sum(1 for r in leg_rows if r.get("success")),
                    "resolver_calls": n_resolves, "llm_calls": task_llm,
@@ -1172,6 +1341,7 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                    "tokens_out": token_totals["tokens_out"],
                    "tokens": token_totals,
                    "wall_s": round(time.time() - t0, 1), "legs": leg_rows}
+        summary.update(planned_subtask_metrics(legs))
         if arm == "graph-advised":
             # Whole-task advisor attribution (per-hop detail rides the agent's logger lines):
             # agree ~= hops means the graph arm with a per-hop tax; deviations/stops are the
@@ -1213,6 +1383,9 @@ def main():
     ap.add_argument("--out", default=None, help="summary.json path (default: <run-dir>/summary.json)")
     ap.add_argument("--run-dir", default=None)
     ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"], default="qwen")
+    ap.add_argument("--completion-guard", choices=["deterministic", "vlm"],
+                    default="deterministic",
+                    help="pickup target completion backend (default deterministic)")
     ap.add_argument("--output-dir", default=None,
                     help="slamtest output dir to load the map from (topology/annotations/grid). "
                          "Default: $SARI_MAP_DIR, else slamtest/output (StoreMap's "
@@ -1246,7 +1419,8 @@ def main():
     orchestrate(task, arm=args.arm, caps=(args.max_steps, args.max_minutes), out=args.out,
                 run_dir=args.run_dir, resolver_backend=args.resolver_backend,
                 reset_start=args.reset_start, restart_env=args.restart_env,
-                leg_retries=max(0, args.leg_retries), output_dir=args.output_dir)
+                leg_retries=max(0, args.leg_retries), output_dir=args.output_dir,
+                completion_guard=args.completion_guard)
 
 
 if __name__ == "__main__":

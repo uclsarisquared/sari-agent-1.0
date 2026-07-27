@@ -130,6 +130,7 @@ Your output must be a JSON object with exactly these components:
   'new_semantic_memory': (string) New information about the environment worth remembering (maximum 3 sentences or 512 characters). Do not rewrite the base semantic memory log - only the new information relevant to the current observation and task.,
   'recall': (string) From your updated semantic memory, the information relevant to the current observation and task. The agent acts on this, so make it concrete and directive. It may name several upcoming steps, but the agent executes only ONE per timestep - so put the IMMEDIATE next step first and make it unambiguous.,
   'next_action': (string) The SINGLE next thing to do THIS timestep: the first step of `recall` that is not yet done (e.g. 'center the target', 'release the wrong item', 'move to the shelf', 'grab the item', 'stop'). One step - NOT the whole plan.,
+  'reported_answer': (string) For an observation/reporting question, when and ONLY when mode is STOP, the exact concise answer to report to the user (e.g. '14 unique products'). This is the answer the completion verifier checks. Never put 'STOP', a termination message, or an instruction such as 'report the count' here. Use an empty string for non-reporting tasks and whenever mode is not STOP.,
   'mode': (string) One of: 'perception', 'navigation', 'manipulation', 'STOP'. It MUST be the mode that `next_action` runs in (rule 5), NOT the mode of a later step.
 }
 ```
@@ -138,7 +139,7 @@ Your output must be a JSON object with exactly these components:
 1. *perception* - analyze the current observation: identify items, read labels, understand spatial relationships. Use it to center and visually confirm the target before closing in.
 2. *navigation* - move through the environment to reach a location or item. Use it when heading to a checkpoint, section, or shelf.
 3. *manipulation* - use it once the agent is close to the target item and it is clearly visible and CENTRED in the frame. `extend_arm_until_grabbed` is the primary grab command - it pushes a FREE hand (left preferred, right if the left is already carrying; `_left`/`_right` variants force a side) straight forward until the item is under it, grips it, and retracts. It does not aim, so the item must be centred first (do that in *perception*). Fall back to fine-grained hand adjustments only if it fails. The hands are ACTIVE only in this mode, so grabbing/hand actions do nothing in any other mode: when the agent is centred and within reach and the goal is to grab, you MUST route to *manipulation* (not perception), or the grab cannot happen.
-4. *STOP* - the task is complete. Emitting 'STOP' is the ONLY way the run ends; do not describe completion in prose while returning another mode.
+4. *STOP* - the task is complete. Emitting 'STOP' is the ONLY way the run ends. For an observation/reporting question, STOP also requires `reported_answer` to contain the exact answer supported by the current screenshot; without that answer the inspection cannot complete.
 
 **Critical rules & constraints (Procedural Memory)**:
 1. Do not emit *STOP* or *manipulation* prematurely: route to *manipulation* only once the target is centred AND within reach; emit *STOP* only when the task's end state holds (e.g. the item is gripped).

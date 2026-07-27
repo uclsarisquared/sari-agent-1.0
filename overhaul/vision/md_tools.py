@@ -28,16 +28,19 @@ _URI = "ws://localhost:8080/commands"
 
 def _point_via_qwen(image: Image.Image, name: str):
     """Fallback pointer: qwen bbox -> center, normalized 0-1 like moondream's points."""
+    from agent_core.agent import call_with_api_retries
     from vision.perception import CLIENT, MODEL_NAME, _encode_image
     prompt = (f"Detect the {name} in the image. Reply with ONLY a JSON object "
               '{"box_2d": [ymin, xmin, ymax, xmax]} normalized to 0-1000. '
               "If the item is not visible, reply {\"box_2d\": null}.")
-    resp = CLIENT.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": [_encode_image(image),
-                                               {"type": "text", "text": prompt}]}],
-        temperature=0.0, max_tokens=200,
-        extra_body={'chat_template_kwargs': {'enable_thinking': False}})
+    resp = call_with_api_retries(
+        lambda: CLIENT.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": [_encode_image(image),
+                                                   {"type": "text", "text": prompt}]}],
+            temperature=0.0, max_tokens=200,
+            extra_body={'chat_template_kwargs': {'enable_thinking': False}})
+    )
     text = resp.choices[0].message.content
     mt = _re.search(r"\{[\s\S]*\}", text)
     box = _json.loads(mt.group(0)).get("box_2d") if mt else None

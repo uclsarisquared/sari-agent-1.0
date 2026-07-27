@@ -1,16 +1,16 @@
-"""subtask_completion.py - Phase 6.3 typed-subtask contract + deterministic completion predicates.
+"""subtask_completion.py - typed-subtask contract + pluggable pickup completion predicates.
 
 Lightweight and sim-free BY DESIGN: no torch/agent/env/openai imports, so the offline predicate
 tests and the decomposer A/B harness load in milliseconds (importing subtask_agents pulls the whole
 model stack, ~25 s). subtask_agents.py imports the prompt, the parser, and the predicates FROM HERE
 so there is ONE home for the task-completion truth table.
 
-The principle (phase6.3 plan): the sim state and the measured tool verdicts own the truth about
-completion; the VLM only PROPOSES it. A VLM `STOP` becomes a *request* these predicates grant or
-refuse - exactly what the pre-6.3 keyword guards gestured at, minus the fragility of grepping the
-subtask's free text.
+The default pickup guard remains deterministic. An optional VLM backend may inject per-hand verdicts
+for targeted pickup grounding, while every inspect leg requires its own image-bound VLM verdict.
+Other subtasks and all physical grip/count checks remain deterministic. A VLM `STOP` is still only a
+*request* these predicates grant or refuse.
 
-Type vocabulary is CLOSED: pickup | checkout | compare | goto. An untypeable decomposition degrades
+Type vocabulary is CLOSED: pickup | checkout | compare | goto | inspect. An untypeable decomposition degrades
 to `unknown`, which falls back to the pre-6.3 keyword guards (behaviour preserved, logged as
 `untyped`). `checkout` REPLACES the master plan's `place`: 6.2 collapsed scan-then-bag into the one
 deterministic macro `store_map.checkout_held_item`, whose measured `{scanned, placed}` verdict the
@@ -22,7 +22,7 @@ import os
 import re
 
 # Closed type vocabulary. `checkout` (not `place`) - see the module docstring.
-SUBTASK_TYPES = ("pickup", "checkout", "compare", "goto")
+SUBTASK_TYPES = ("pickup", "checkout", "compare", "goto", "inspect")
 
 # A leg whose halt is refused this many times force-continues the LOOP (never a fake grant) with the
 # last refusal reason left in state, so a confused agent can't spin forever on STOP. The leg is
@@ -55,7 +55,7 @@ TYPED_DECOMPOSER_SYSTEM = (
     "and bag them.\n\n"
     "Decompose the given task into a short ordered list of self-contained subtasks. Return ONLY a "
     "JSON array of subtask OBJECTS - no prose, no markdown fences around anything else.\n\n"
-    "Each object MUST have a \"type\" (one of exactly: pickup, checkout, compare, goto) and a \"text\" "
+    "Each object MUST have a \"type\" (one of exactly: pickup, checkout, compare, goto, inspect) and a \"text\" "
     "(the natural-language instruction the agent will act on). Type-specific fields:\n"
     "  - pickup:   \"target\"   = the product to grab, as specifically as the task names it. Optional "
     "\"count\" = how many to hold at once (default 1, max 2 - the agent has two hands, one item per "
@@ -68,8 +68,18 @@ TYPED_DECOMPOSER_SYSTEM = (
     "any list.\n"
     "  - goto:     \"location\" = where to go, named ONLY as the task or store memory names it "
     "(e.g. 'Checkpoint 32', 'the checkout counter'). Never invent shelf numbers or location names.\n\n"
+    "  - inspect:  \"query\" = the exact observation question to answer from the current view "
+    "(for example, a count or an expiration date). An inspect subtask is READ-ONLY observation and "
+    "reporting: it MUST NOT pick up, grip, release, scan, bag, check out, or claim that any physical "
+    "state was changed. It covers only small in-place repositioning to get a better look (stepping "
+    "closer, panning, crouching) - NOT travelling to a named location. If the task names a location "
+    "the agent must first get to (an aisle, a checkpoint, a shelf it is not already at), emit a "
+    "separate goto subtask for that location BEFORE the inspect subtask - never fold real navigation "
+    "into inspect's own text. If the task also requests manipulation, emit a separate pickup and/or "
+    "checkout subtask after the inspect subtask.\n\n"
     "Rules:\n"
-    "  - Each subtask ends in a clear, verifiable physical state change.\n"
+    "  - Each manipulation/navigation subtask ends in a clear, verifiable physical state change; "
+    "an inspect subtask ends with a concrete answer to its query that can be verified from the view.\n"
     "  - Plan ONLY what the task asks for. Add a checkout subtask ONLY when the task says to "
     "bring/buy/scan/check out the item. A bare 'pick up X' produces pickup subtask(s) ONLY - never "
     "an invented checkout or goto.\n"
@@ -81,7 +91,9 @@ TYPED_DECOMPOSER_SYSTEM = (
     "pickups, and then only with somewhere the task says to put items down in between (e.g. a "
     "checkout after each pair).\n"
     "  - For a comparison ('the larger of...', 'the cheaper...'), route the agent to the candidates "
-    "with goto/pickup as needed and use a compare subtask to make the visual decision.\n\n"
+    "with goto/pickup as needed and use a compare subtask to make the visual decision.\n"
+    "  - 'Navigate/go to X and observe/count/read Y' is a goto subtask (get to X) followed by a "
+    "separate inspect subtask (observe Y) - never one inspect subtask whose text does the travelling.\n\n"
     "Example input: \"pick up the milk and bring it to the counter\"\n"
     "Example output: "
     "[{\"type\": \"pickup\", \"target\": \"milk\", \"text\": \"Pick up the milk.\"}, "
@@ -93,6 +105,26 @@ TYPED_DECOMPOSER_SYSTEM = (
     "Example output: "
     "[{\"type\": \"pickup\", \"target\": \"Jin Ramen\", \"count\": 2, "
     "\"text\": \"Pick up 2 Jin Ramen - one in each hand.\"}]"
+    "\n\nExample input: \"count the Piattos on this shelf\"\n"
+    "Example output: "
+    "[{\"type\": \"inspect\", \"query\": \"How many Piattos are on this shelf?\", "
+    "\"text\": \"Look at the shelf, count the Piattos, and report the count without touching them.\"}]"
+    "\n\nExample input: \"read the expiration date on the milk\"\n"
+    "Example output: "
+    "[{\"type\": \"inspect\", \"query\": \"What expiration date is printed on the milk?\", "
+    "\"text\": \"Look closely at the milk and report its printed expiration date without touching it.\"}]"
+    "\n\nExample input: \"pick up the one that is not expired\"\n"
+    "Example output: "
+    "[{\"type\": \"inspect\", \"query\": \"Which candidate item is not expired?\", "
+    "\"text\": \"Read the candidates' expiration dates and report which one is not expired without "
+    "touching either item.\"}, "
+    "{\"type\": \"pickup\", \"target\": \"the item identified as not expired\", "
+    "\"text\": \"Pick up the item identified by the inspection as not expired.\"}]"
+    "\n\nExample input: \"Navigate to Aisle 1 and count how many unique products are there\"\n"
+    "Example output: "
+    "[{\"type\": \"goto\", \"location\": \"Aisle 1\", \"text\": \"Navigate to Aisle 1.\"}, "
+    "{\"type\": \"inspect\", \"query\": \"How many unique products are in Aisle 1?\", "
+    "\"text\": \"Look at the shelves and count the unique products without touching them.\"}]"
 )
 
 
@@ -128,11 +160,18 @@ def parse_decomposition(raw: str, original_task: str) -> list:
             # Untypeable element: preserve its instruction, fall back to keyword guards.
             out.append({"type": "unknown", "text": text or original_task})
             continue
+        if t == "inspect" and not str(item.get("query") or "").strip():
+            # An inspection without its verification question cannot be guarded. Degrade safely
+            # instead of emitting a malformed member of the closed typed contract.
+            out.append({"type": "unknown", "text": text or original_task})
+            continue
         norm = {"type": t, "text": text or original_task}
         # Carry the type-specific structured fields through untouched when present.
         for field in ("target", "location", "targets", "criterion"):
             if item.get(field) is not None:
                 norm[field] = item[field]
+        if t == "inspect":
+            norm["query"] = str(item["query"]).strip()
         # `count` is normalized here (int, >=1) so every downstream reader gets a clean value; an
         # unparseable count is dropped (default-1 behaviour) rather than poisoning the leg.
         if item.get("count") is not None:
@@ -399,7 +438,28 @@ def name_overlap(state: dict, target: str) -> bool:
     return blob_matches_target(" ".join(str(f) for f in fields), target)
 
 
-def mismatched_hands(sub: dict, state: dict, start_grips=()) -> list:
+def pickup_has_target(sub: dict) -> bool:
+    """Whether a pickup has enough target content to invoke a grounding backend."""
+    return bool(_tokens((sub or {}).get("target") or ""))
+
+
+def _validate_guard_backend(guard_backend):
+    if guard_backend not in ("deterministic", "vlm"):
+        raise ValueError(f"unknown completion guard backend: {guard_backend!r}")
+
+
+def _guard_verdict(guard_verdicts, side):
+    """Return one normalized injected verdict, or None (strict bools only)."""
+    if not isinstance(guard_verdicts, dict):
+        return None
+    verdict = guard_verdicts.get(side)
+    if not isinstance(verdict, dict) or type(verdict.get("match")) is not bool:
+        return None
+    return verdict
+
+
+def mismatched_hands(sub: dict, state: dict, start_grips=(),
+                     guard_backend="deterministic", guard_verdicts=None) -> list:
     """The sides currently gripping an item that measurably ISN'T this pickup leg's target - the
     hands run_leg's mid-leg self-correction may auto-release (2026-07-23). Conservative by
     construction; a hand is listed only when ALL of:
@@ -408,7 +468,10 @@ def mismatched_hands(sub: dict, state: dict, start_grips=()) -> list:
           leg; that item belongs to an earlier subtask's outcome,
       (c) its grip-time recorded name (state['gripped_names']) exists AND fails the target match -
           a hand with NO recorded name is never released (we don't drop what we can't identify).
-    An untargeted pickup (no content tokens) mismatches nothing."""
+    An untargeted pickup (no content tokens) mismatches nothing. Under the VLM backend, only an
+    injected conclusive negative is actionable: missing/failed verdicts refuse completion but never
+    cause a corrective release, and deterministic matching is not used as a silent fallback."""
+    _validate_guard_backend(guard_backend)
     target = (sub or {}).get("target") or ""
     if not _tokens(target):
         return []
@@ -418,8 +481,13 @@ def mismatched_hands(sub: dict, state: dict, start_grips=()) -> list:
     out = []
     for side in ("left", "right"):
         name = names.get(side)
-        if (state.get(f"{side}GrippedState") and side not in start
-                and name and not blob_matches_target(name, target)):
+        if not (state.get(f"{side}GrippedState") and side not in start and name):
+            continue
+        if guard_backend == "vlm":
+            verdict = _guard_verdict(guard_verdicts, side)
+            if verdict and verdict["match"] is False and verdict.get("conclusive") is True:
+                out.append(side)
+        elif not blob_matches_target(name, target):
             out.append(side)
     return out
 
@@ -438,7 +506,8 @@ _PICKUP_KW = ("pick up", "grab", "get", "take", "lift")
 _DROP_KW = ("drop", "place", "put down", "set down", "release", "leave")
 
 
-def predicate_pickup(sub: dict, state: dict) -> tuple:
+def predicate_pickup(sub: dict, state: dict, guard_backend="deterministic",
+                     guard_verdicts=None) -> tuple:
     """Grant iff a hand grips AND (when a target names a product) the gripped/hovered name overlaps
     it. Refuses the exact failure the old drop-agnostic guard could not see on a paraphrase, and the
     wrong-item grab a bare grip-check would pass.
@@ -447,7 +516,11 @@ def predicate_pickup(sub: dict, state: dict) -> tuple:
     'pick up 2 X' is one leg with count=2, not two legs (a second same-SKU pickup leg would grant
     instantly on the first leg's carry). Counting needs run_leg's per-hand `gripped_names`; a runner
     without it (eval_pickup's flat loop) degrades to the single-item check, flagged [unverified
-    count] - honest, never a silent block the wiring can't feed."""
+    count] - honest, never a silent block the wiring can't feed.
+
+    `guard_backend="vlm"` replaces targeted name matching with injected per-hand verdicts. Missing,
+    malformed, and failed verdicts fail closed; deterministic matching is never a VLM fallback."""
+    _validate_guard_backend(guard_backend)
     try:
         count = max(1, int(sub.get("count") or 1))
     except (TypeError, ValueError):
@@ -455,6 +528,27 @@ def predicate_pickup(sub: dict, state: dict) -> tuple:
     if not _gripping(state):
         return False, "pickup not complete: no hand is gripping anything yet"
     target = sub.get("target") or ""
+    if guard_backend == "vlm" and _tokens(target):
+        names = state.get("gripped_names")
+        names = names if isinstance(names, dict) else {}
+        held = [side for side in ("left", "right") if state.get(f"{side}GrippedState")]
+        matched, match_reasons, failures = [], [], []
+        for side in held:
+            verdict = _guard_verdict(guard_verdicts, side)
+            if verdict is None:
+                failures.append(f"{side}: no valid VLM guard verdict")
+            elif verdict["match"]:
+                matched.append(side)
+                match_reasons.append(f"{side}: {verdict.get('reason') or 'matched'}")
+            else:
+                failures.append(f"{side}: {verdict.get('reason') or 'VLM guard refused the match'}")
+        if len(matched) >= count:
+            return True, (f"pickup complete: VLM guard matched {len(matched)} held item(s) "
+                          f"to {target!r} ({count} required); {'; '.join(match_reasons)}")
+        held_desc = {side: names.get(side) for side in held}
+        return False, (f"pickup not complete: VLM guard matched {len(matched)} of {count} "
+                       f"{target!r} (hands: {held_desc}); "
+                       f"{'; '.join(failures) or 'not enough matching held items'}")
     if count > 1:
         names = state.get("gripped_names")
         if not isinstance(names, dict):
@@ -607,17 +701,114 @@ def predicate_unknown(sub: dict, state: dict) -> tuple:
     return True, "halt granted (untyped): no keyword guard blocks it"
 
 
-def completion_predicate(sub: dict, state: dict, final_text: str = "") -> tuple:
+def predicate_inspect(sub: dict, state: dict, final_text: str = "",
+                      inspect_guard=None) -> tuple:
+    """Grant an observation/reporting leg only on a conclusive positive injected VLM verdict.
+
+    The callback is deliberately image-agnostic here: the runtime binds it to the exact screenshot
+    used by the actor. Missing inputs, callback failures, and malformed/inconclusive results all
+    refuse completion. A blank answer is rejected before the callback is touched.
+    """
+    answer = str(final_text or "").strip()
+    if not answer:
+        return False, "inspection not complete: no answer was reported"
+    query = str((sub or {}).get("query") or "").strip()
+    if not query:
+        return False, "inspection not complete: no inspection query is available"
+    if not callable(inspect_guard):
+        return False, "inspection not complete: VLM inspection guard is unavailable"
+    names = state.get("gripped_names")
+    aux = {
+        "gripped_name": state.get("gripped_name"),
+        "gripped_names": dict(names) if isinstance(names, dict) else names,
+        "nearest_checkpoint": state.get("nearest_checkpoint"),
+    }
+    try:
+        verdict = inspect_guard(query, answer, aux)
+    except Exception as exc:  # noqa: BLE001 - guards must fail closed
+        return False, (f"inspection not complete: VLM inspection guard failed "
+                       f"({type(exc).__name__}: {exc})")
+    if (not isinstance(verdict, dict)
+            or type(verdict.get("match")) is not bool
+            or verdict.get("conclusive") is not True
+            or not isinstance(verdict.get("reason"), str)
+            or not verdict["reason"].strip()):
+        return False, "inspection not complete: VLM inspection guard returned no conclusive verdict"
+    if verdict["match"]:
+        return True, f"inspection complete: VLM verified the reported answer ({verdict['reason'].strip()})"
+    return False, f"inspection not complete: VLM rejected the reported answer ({verdict['reason'].strip()})"
+
+
+def reported_inspection_answer(response: dict) -> str:
+    """Extract only the structured inspection answer; never fall back to STOP/actor text."""
+    if not isinstance(response, dict):
+        return ""
+    answer = response.get("reported_answer")
+    return answer.strip() if isinstance(answer, str) else ""
+
+
+def planned_subtask_metrics(legs) -> dict:
+    """Stable planned-leg vocabulary counts plus the unknown-leg adoption rate."""
+    counts = {t: 0 for t in (*SUBTASK_TYPES, "unknown")}
+    rows = list(legs or [])
+    for leg in rows:
+        t = leg.get("type") if isinstance(leg, dict) else "unknown"
+        counts[t if t in counts else "unknown"] += 1
+    return {
+        "planned_leg_type_counts": counts,
+        "unknown_subtask_rate": (counts["unknown"] / len(rows)) if rows else 0.0,
+    }
+
+
+def inspect_scope_violation(action: str, step: int, pre_action_state: dict,
+                            dispatch_result: dict) -> dict:
+    """Build the audit event for an inspect-leg manipulation attempt, or return ``None``."""
+    action = str(action or "")
+    grabs = {"extend_arm_until_grabbed", "extend_arm_until_grabbed_left",
+             "extend_arm_until_grabbed_right"}
+    macros = {"checkout_held_item", "checkout_held_item_left", "checkout_held_item_right"}
+    if action in grabs:
+        kind = "grip_or_grab"
+    elif action in ("grip_left", "grip_right"):
+        side = action.split("_", 1)[1]
+        kind = ("grip_toggle_release"
+                if pre_action_state.get(f"{side}GrippedState") else "grip_or_grab")
+    elif action in macros:
+        kind = "checkout_macro"
+    else:
+        return None
+    blocked = bool((dispatch_result or {}).get("blocked"))
+    return {
+        "event": "inspect_scope_violation",
+        "step": step,
+        "action": action,
+        "kind": kind,
+        "blocked": blocked,
+        "executed": not blocked,
+        "pre_action_grip_state": {
+            "left": bool(pre_action_state.get("leftGrippedState")),
+            "right": bool(pre_action_state.get("rightGrippedState")),
+        },
+    }
+
+
+def completion_predicate(sub: dict, state: dict, final_text: str = "",
+                         guard_backend="deterministic", guard_verdicts=None,
+                         inspect_guard=None) -> tuple:
     """Dispatch a subtask's halt request to its typed predicate. Returns (granted, reason). Any
     unrecognized type routes to the `unknown` keyword fallback, so this never raises on a malformed
     subtask."""
+    _validate_guard_backend(guard_backend)
     t = (sub or {}).get("type")
     if t == "pickup":
-        return predicate_pickup(sub, state)
+        return predicate_pickup(sub, state, guard_backend=guard_backend,
+                                guard_verdicts=guard_verdicts)
     if t == "checkout":
         return predicate_checkout(sub, state)
     if t == "goto":
         return predicate_goto(sub, state)
     if t == "compare":
         return predicate_compare(sub, state, final_text)
+    if t == "inspect":
+        return predicate_inspect(sub, state, final_text, inspect_guard=inspect_guard)
     return predicate_unknown(sub, state)

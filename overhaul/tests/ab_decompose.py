@@ -66,6 +66,16 @@ def _summarize_typed(parsed):
             "n": len(parsed)}
 
 
+def _inspect_adoption(prompt, parsed):
+    """Report the explicit inspection battery expectation without guessing for older rows."""
+    expected = prompt.get("expected_types")
+    if expected is None:
+        return None
+    actual = [s.get("type") for s in parsed]
+    return {"expected_types": expected, "actual_types": actual, "passed": actual == expected,
+            "became_inspect_not_unknown": "inspect" in actual and "unknown" not in actual}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", choices=["old", "new", "both"], default="both")
@@ -106,14 +116,20 @@ def main():
             if new["raw"] is not None:
                 parsed = parse_decomposition(new["raw"], p["prompt"])
                 summ = _summarize_typed(parsed)
+                adoption = _inspect_adoption(p, parsed)
                 row["new_parsed"] = parsed
                 row["new_summary"] = summ
+                if adoption is not None:
+                    row["inspect_adoption"] = adoption
                 clean = not summ["has_unknown"]
                 clean_typed += int(clean)
                 print("\n  --- NEW (typed) ---")
                 print("  " + (new["raw"] or "").strip().replace("\n", "\n  "))
                 print(f"  PARSED types: {summ['types']}  "
                       f"{'[CLEAN]' if clean else '[HAS UNKNOWN - inspect]'}")
+                if adoption is not None:
+                    print(f"  INSPECT ADOPTION: {'PASS' if adoption['passed'] else 'FAIL'} "
+                          f"expected={adoption['expected_types']} actual={adoption['actual_types']}")
             else:
                 print("\n  --- NEW (typed) ---")
                 print("  " + new["error"])

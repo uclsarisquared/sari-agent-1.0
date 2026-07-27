@@ -1,7 +1,7 @@
 # Running `subtask_agents.py`
 
 Long-horizon task orchestrator: decomposes a natural-language store task into typed
-subtask legs (`pickup` / `goto` / `compare` / `checkout`) and runs each leg as its own
+subtask legs (`pickup` / `goto` / `compare` / `checkout` / `inspect`) and runs each leg as its own
 self-contained embodied-agent loop, with shared semantic/episodic memory and a findings
 summary carried forward between legs.
 
@@ -36,6 +36,7 @@ All arguments are optional except the task itself.
 | `--max-minutes M` | `40` | Wall-clock cap per leg, in minutes |
 | `--leg-retries N` | `1` | How many times a failed leg is retried (with the failure reason fed into the retry's context) before the whole task aborts; `0` restores abort-on-first-failure |
 | `--resolver-backend {qwen, claude-cli}` | `qwen` | Backend for the plan-time map target resolver |
+| `--completion-guard {deterministic,vlm}` | `deterministic` | Pickup target-grounding backend. `inspect` completion is VLM-verified in both modes |
 | `--output-dir DIR` | `slamtest/output` | Which slamtest map (topology / annotations / grid) to load — defaults to the frozen baseline map |
 | `--run-dir DIR` | auto | Directory for this run's logs and per-step screenshots |
 | `--out PATH` | `<run-dir>/summary.json` | Where the summary JSON is written |
@@ -70,5 +71,9 @@ python orchestrator/subtask_agents.py --task "..." --reset-start
 - **Self-correction:** a pickup leg holding a verifiably wrong item auto-releases it once
   per leg and resets the refusal budget; a failed leg is retried per `--leg-retries` with
   the failure reason in context.
+- **Inspection is read-only and fail-closed:** an `inspect` leg must report a non-empty
+  answer that the image-bound VLM guard conclusively verifies against the actor's frame.
+  Grip/grab, release-toggle, and checkout attempts are logged as scope violations.
 - **Outputs:** per-leg JSONL logs, per-step screenshots and full agent output under the
-  run dir, plus `summary.json` with per-leg metrics (`end_reason`, timings, LLM calls).
+  run dir, plus `summary.json` with per-leg metrics (`end_reason`, timings, LLM calls),
+  planned type counts, and `unknown_subtask_rate`.

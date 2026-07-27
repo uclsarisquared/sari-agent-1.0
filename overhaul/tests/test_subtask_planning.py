@@ -109,6 +109,15 @@ def test_plan_legs_goto_literal_no_llm():
     assert out[0]["candidates"] == [40] and out[0]["target_checkpoint"] == [40]
 
 
+def test_plan_legs_inspect_is_feasible_without_checkpoint_resolution():
+    leg = {"type": "inspect", "query": "How many Piattos?", "text": "Count the Piattos."}
+    out, n = plan_legs(FakeSM(), None, [leg])
+    assert n == 0
+    assert out[0]["feasible"] is True
+    assert "candidates" not in out[0]
+    assert out[0]["text"] == "Count the Piattos."
+
+
 # ---- order_legs (#3): reorder clean pickup/checkout pairs, else no-op ------
 
 def _pair(pickup_cands):

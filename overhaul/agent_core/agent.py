@@ -9,7 +9,7 @@ import time
 from io import BytesIO
 from pathlib import Path
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, OpenAI, RateLimitError
 import re
 from PIL import Image
 from loguru import logger
@@ -47,14 +47,20 @@ def _extract_json(pattern, text: str) -> str:
 # step (recovered only on the next). Navigation is the correct recovery: the overflow happens ONLY
 # while the learner is route-planning, and the deterministic graph navigator (_graph_navigate, A*
 # over the store map) - not this discarded reply - actually computes the path.
-_SEMANTIC_FALLBACK = {'new_semantic_memory': '', 'recall': '', 'mode': 'navigation', 'next_action': None}
+_SEMANTIC_FALLBACK = {
+    'new_semantic_memory': '',
+    'recall': '',
+    'mode': 'navigation',
+    'next_action': None,
+    'reported_answer': '',
+}
 
 
 def _parse_semantic_response(pattern, text: str) -> dict:
     """ast.literal_eval the learner's JSON, degrading to _SEMANTIC_FALLBACK on a truncated/malformed
     reply instead of raising (an unguarded raise aborts the whole step). The returned dict always
-    carries new_semantic_memory / recall / mode / next_action, so the callers' direct indexing is
-    safe even when the model omitted a field."""
+    carries new_semantic_memory / recall / mode / next_action / reported_answer, so the callers'
+    direct indexing is safe even when the model omitted a field."""
     raw = _extract_json(pattern, text)
     try:
         parsed = ast.literal_eval(raw)
@@ -65,6 +71,18 @@ def _parse_semantic_response(pattern, text: str) -> dict:
         logger.warning(f"[learner] unparseable reply ({type(e).__name__}: {e}); "
                        "using navigation fallback")
     return dict(_SEMANTIC_FALLBACK)
+
+
+def _stop_response(semantic_response: dict, semantic_response_text: str) -> dict:
+    """Build the one STOP payload contract shared by both execute_lean branches."""
+    answer = semantic_response.get("reported_answer") if isinstance(semantic_response, dict) else ""
+    return {
+        "halt": True,
+        "text": "STOP action received, terminating execution...",
+        "agent_mode": "STOP",
+        "reported_answer": answer if isinstance(answer, str) else "",
+        "semantic": semantic_response_text,
+    }
 
 
 # The episodic reflector emits the same single-quoted Python-literal dict as the learner, so it has
@@ -192,10 +210,30 @@ def _build_content(*parts) -> list:
     return content
 
 
-class BaseAgent(ABC):
-    _MAX_RETRIES = 5
-    _RETRY_DELAYS = [5, 10, 20, 40, 60]  # seconds between attempts
+API_MAX_ATTEMPTS = 10
+API_RETRY_DELAYS = (1, 2, 4, 8, 15, 30, 30, 30, 30)
 
+
+def _is_transient_api_error(error: Exception) -> bool:
+    if isinstance(error, (APIConnectionError, RateLimitError, TimeoutError, ConnectionError)):
+        return True
+    if isinstance(error, APIStatusError):
+        return error.status_code in (408, 409, 429) or error.status_code >= 500
+    return False
+
+
+def call_with_api_retries(operation):
+    """Quietly retry transient OpenAI failures, re-raising the final error after ten attempts."""
+    for attempt in range(API_MAX_ATTEMPTS):
+        try:
+            return operation()
+        except Exception as error:
+            if not _is_transient_api_error(error) or attempt + 1 == API_MAX_ATTEMPTS:
+                raise
+            time.sleep(API_RETRY_DELAYS[attempt])
+
+
+class BaseAgent(ABC):
     @abstractmethod
     def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
         self.config = config or OpenRouterConfig()
@@ -205,29 +243,18 @@ class BaseAgent(ABC):
         return re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
     def _api_call_with_retry(self, client: OpenAI, messages: list) -> str:
-        """Call the OpenRouter API with exponential-ish backoff on transient failures."""
-        last_err = None
-        for attempt in range(self._MAX_RETRIES):
-            try:
-                resp = client.chat.completions.create(
-                    model=self.config.model_id,
-                    messages=messages,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens,
-                    extra_body=self.config.extra_body,
-                )
-                return resp.choices[0].message.content
-            except (json.JSONDecodeError, Exception) as e:
-                last_err = e
-                delay = self._RETRY_DELAYS[min(attempt, len(self._RETRY_DELAYS) - 1)]
-                logger.warning(
-                    f"[API] Attempt {attempt + 1}/{self._MAX_RETRIES} failed "
-                    f"({type(e).__name__}: {e}). Retrying in {delay}s..."
-                )
-                time.sleep(delay)
-        raise RuntimeError(
-            f"[API] All {self._MAX_RETRIES} attempts failed. Last error: {last_err}"
-        )
+        """Make up to ten quiet attempts, then preserve and raise the final API failure."""
+        def request():
+            resp = client.chat.completions.create(
+                model=self.config.model_id,
+                messages=messages,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+                extra_body=self.config.extra_body,
+            )
+            return resp.choices[0].message.content
+
+        return call_with_api_retries(request)
 
 
 class SemanticEpisodicAssociativeLearner(BaseAgent):
@@ -236,6 +263,7 @@ class SemanticEpisodicAssociativeLearner(BaseAgent):
         self.client = OpenAI(
             base_url=self.config.base_url,
             api_key=self.config.api_key,
+            max_retries=0,
         )
 
     def generate_content(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
@@ -253,6 +281,7 @@ class VLMAgent(BaseAgent):
         self.client = OpenAI(
             base_url=self.config.base_url,
             api_key=self.config.api_key,
+            max_retries=0,
         )
         self.history: List[Dict[str, Any]] = []
         self.episodic_memory: str = ""
@@ -770,30 +799,22 @@ class EmbodiedAgent:
 
     def _call_associative(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
         content = _build_content(image, "## CURRENT OBSERVATION\n", text)
-        resp = self.associative_learner.client.chat.completions.create(
-            model=self.associative_learner.config.model_id,
-            messages=[
+        return self.associative_learner._api_call_with_retry(
+            self.associative_learner.client,
+            [
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": content},
             ],
-            temperature=self.associative_learner.config.temperature,
-            max_tokens=self.associative_learner.config.max_tokens,
-            extra_body=self.associative_learner.config.extra_body,
         )
-        return resp.choices[0].message.content
 
     def _call_episodic(self, history_text: str) -> str:
-        resp = self.associative_learner.client.chat.completions.create(
-            model=self.associative_learner.config.model_id,
-            messages=[
+        return self.associative_learner._api_call_with_retry(
+            self.associative_learner.client,
+            [
                 {"role": "system", "content": SYS_INST_ASSOCIATIVE_EPISODIC},
                 {"role": "user", "content": history_text},
             ],
-            temperature=self.associative_learner.config.temperature,
-            max_tokens=self.associative_learner.config.max_tokens,
-            extra_body=self.associative_learner.config.extra_body,
         )
-        return resp.choices[0].message.content
 
     def execute_lean(self, request, timestep):
         main_task = request['task']
@@ -888,11 +909,7 @@ class EmbodiedAgent:
             elif agent_mode == "manipulation":
                 available_actions = f"{MANIPULATION_ACTIONS}\n\n"
             elif agent_mode == "STOP":
-                return {
-                    'halt': True,
-                    'text': "STOP action received, terminating execution...",
-                    'agent_mode': agent_mode
-                }
+                return _stop_response(semantic_response, semantic_response_text)
 
             self.vlm_agent.base_semantic_memory += f"{self._semantic_tag(timestep)}: {new_semantic_memory}\n"
 
@@ -994,10 +1011,7 @@ class EmbodiedAgent:
             elif agent_mode == "manipulation":
                 available_actions = f"{MANIPULATION_ACTIONS}\n\n"
             elif agent_mode == "STOP":
-                return {
-                    'halt': True,
-                    'text': "STOP action received, terminating execution..."
-                }
+                return _stop_response(semantic_response, semantic_response_text)
 
             next_action_line = (f"## THIS STEP'S INTENDED ACTION: {next_action}\n"
                                 if next_action and not nav_note else "")

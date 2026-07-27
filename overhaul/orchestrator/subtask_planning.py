@@ -79,6 +79,8 @@ def plan_legs(sm, resolve_call, legs):
                  leg would make the runtime resolver re-resolve the leg's augmented text, which names
                  the CARRIED product, driving the agent back to the shelf it just left. Seeding pins
                  navigation-mode steps to the counter.
+      - inspect: no plan-time resolution. It remains feasible and its natural-language instruction
+                 is available to the runtime navigator, which can resolve what it needs from view.
       - unknown: nothing (no target to resolve; the runtime resolver is its documented fallback).
     Also sets `feasible=False` on a leg whose target resolved to zero candidates - a doomed plan the
     orchestrator surfaces instead of discovering twenty sim-steps in."""
@@ -111,8 +113,10 @@ def plan_legs(sm, resolve_call, legs):
             leg["candidate_sets"] = sets
             leg["candidates"] = [c for s in sets for c in s]  # union, for nav seeding only
             leg["feasible"] = all(bool(s) for s in sets) if sets else True
+        elif t == "inspect":
+            leg["feasible"] = True
         else:
-            leg.setdefault("feasible", True)  # checkout / unknown: nothing to resolve
+            leg.setdefault("feasible", True)  # unknown: nothing to resolve
     return legs, n_calls
 
 
