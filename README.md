@@ -69,24 +69,9 @@ Runs on macOS, Linux, and Windows. The run-completion chime is platform-dispatch
 ### Dependency notes
 
 `pyproject.toml` is derived from actual imports, not from the two `requirements.txt` files — those
-are whole-environment `pip freeze` dumps. `overhaul/requirements.txt` alone lists 100+ packages
-including `torch==2.2.1+cu121`, `transformers`, `opencv`, `scipy`, and `scikit-image`, **none of
-which are imported anywhere in this repo**, and the `+cu121` torch pin cannot resolve off
-Windows/CUDA at all. The requirements files are kept for reference; `pyproject.toml` is the source
+are whole-environment `pip freeze` dumps. `overhaul/requirements.txt` alone lists 100+ packages **none of
+which are imported anywhere in this repo**. The requirements files are kept for reference; `pyproject.toml` is the source
 of truth.
-
-Two things worth knowing about the resolution:
-
-- **`pillow` is held at `<11`.** Both requirements files pin `pillow==11.2.1`, but moondream —
-  every published version, including the latest 1.3.0 — requires `pillow<11.0.0`. moondream is in
-  neither requirements file, so that environment carried an unresolved conflict pip never
-  surfaced. moondream is measured-working and deliberately retained (see `md_tools.py`), so pillow
-  yields; the repo only uses stable `Image` open/save/crop/draw APIs.
-- **`torch` still gets installed**, transitively via `moondream → kestrel → torch`, even though
-  nothing here imports it and `md_tools.py` uses moondream's *cloud* API. It is a hard dependency
-  of the package; the download is large.
-- `from dotenv import load_dotenv` comes from **`python-dotenv`**, not the unrelated `dotenv`
-  distribution on PyPI. Both appear in the old requirements files. Don't add `dotenv`.
 
 ## Configuration
 
