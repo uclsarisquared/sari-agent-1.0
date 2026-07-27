@@ -62,20 +62,27 @@ dev = [
 ]
 
 [tool.poe.tasks]
-dbench-watch = { cmd = "python -m sari_bench watch", help = "Live dashboard for a running battery (run beside the runner)" }
+dbench-watch = { cmd = "python -m sari_bench watch --host 0.0.0.0", help = "Live dashboard for a running battery (run beside the runner)" }
 dbench-coordinator = { cmd = "python -m sari_bench coordinator --port 9000", help = "Run the sandbox registry" }
 dbench-status = { cmd = "python -m sari_bench status --coordinator ws://127.0.0.1:9000", help = "Print the current sandbox pool" }
-dbench-easy = { cmd = """
+dbench-run = { cmd = """
     python -m sari_bench run
-        --prompts sari_bench/prompts/easy_prompts.json
+        --prompts sari_bench/prompts/${difficulty}_prompts.json
         --tries 5
         --time-limit 120
         --per-leg-minutes 40
+	--completion-guard vlm
         --coordinator ws://127.0.0.1:9000
         --sandbox-startup-timeout 30
         --arm graph
         --map-dir overhaul/slamtest/output_runs/run_0724_164652
-""", help = "Run the full easy-prompt battery across the fleet (needs a coordinator running)" }
+""", help = "Run a prompt-difficulty battery across the fleet (needs a coordinator running)", args = [
+    { name = "difficulty", positional = true, default = "easy", choices = [
+        "easy",
+        "medium",
+        "hard",
+    ], help = "Prompt difficulty battery to run" },
+] }
 debug-grab = { cmd = """
     python orchestrator/subtask_agents.py
     --task "Pick up ${item}"

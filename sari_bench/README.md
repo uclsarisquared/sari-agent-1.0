@@ -77,6 +77,7 @@ Reusing a non-empty `--output-dir` is rejected unless resume is explicit:
 python -m sari_bench run \
     --prompts sari_bench/prompts/example_battery.json \
     --tries 3 --time-limit 120 --per-leg-minutes 40 \
+    --completion-guard vlm \
     --coordinator ws://coordinator-host:9000 \
     --output-dir bench_runs/20260727_120000 \
     --resume
@@ -92,6 +93,10 @@ Legacy duplicate rows in `attempts.jsonl` are compacted to the latest row for ea
 and a finished `attempt.json` whose aggregate row was never published is recovered during resume.
 Human-verified winners in `battery.json` are preserved, so their remaining siblings stay skipped.
 A fully completed battery resumes without needing a live coordinator or sandbox.
+
+`--completion-guard {deterministic,vlm}` is passed to every orchestrator subprocess and recorded in
+`battery.json` plus each `attempt.json`. It defaults to `deterministic`; watcher-triggered retries
+preserve the original battery setting.
 
 The watcher is independent of this scheduler behavior: `python -m sari_bench watch --run-dir
 <battery>` can visualize a completed battery without running or resuming anything.
@@ -163,13 +168,14 @@ retries the connection itself for a sandbox that is not listening yet.
 | What happened | Recorded outcome | Sandbox |
 |---|---|---|
 | Agent exited 0 | `completed` (success read from its summary.json) | reset, re-pooled |
-| Agent exited non-zero | `agent_error` | reset, re-pooled |
+| Agent exited non-zero | `agent_error`, always `success: false`; automatically invalid/excluded in watch UI | reset, re-pooled |
 | Attempt overran `--time-limit` | `harness_timeout` (SIGTERM then SIGKILL to the process group) | reset, re-pooled |
 | Killed from the dashboard | `operator_kill` | reset, re-pooled |
 | Sibling stopped after a human-verified success | `operator_kill`, end reason `already_successful` | reset, re-pooled |
 | Sibling not yet spawned after a human-verified success | `skipped`, end reason `already_successful` | unchanged |
 | Sandbox stopped heartbeating | attempt **requeued** (up to 3x), then `sandbox_lost` | hung up on, rejoins when the sim reconnects |
 | Runner died holding a lease | — | lease reaped, reset, re-pooled |
+| Runner died mid-attempt | shown `orphaned`; `orphaned`/`operator_kill` once closed out from the dashboard | released on close-out |
 
 A sandbox-loss requeue reuses its `<prompt_id>/try<NN>` path, so the dead attempt's dir is **rotated
 aside** to `try<NN>.requeue<KK>` before the replacement starts. Without that the orchestrator's
@@ -180,14 +186,17 @@ frames overwrite each other, which misreports timesteps for both.
 
 `python -m sari_bench watch` serves a live dashboard. It coordinates with the runner through durable
 filesystem stamps and never sends sandbox commands itself. Kill requests and successful human
-verdicts can stop work; ordinary observation, replay, and fail verdicts do not perturb the battery.
+verdicts can stop work; ordinary observation, replay, and fail/invalid verdicts do not perturb the
+battery.
 The watcher can be restarted mid-run freely.
 
 The runner keeps each live tile fresh during long model calls by filling gaps between the agent's
-own step screenshots. `--capture-interval 2` is the default; a recent step frame suppresses the
+own step screenshots. `--capture-interval 0.25` is the default (4 frames/second); a recent step frame suppresses the
 extra request, and `--capture-interval 0` disables supplementary capture. These frames are stored as
 960px JPEGs under each attempt's `capture/` directory and are included in full dashboard/CLI
-replays. Discord's size-bounded clip remains step-only.
+replays. The dashboard's visible live cards also refresh at 4 FPS; its heavier state and log polling
+remains every 2 seconds, and hidden/overview tabs do not poll live frames. Discord's size-bounded
+clip remains step-only.
 
 Run it **beside the runner**. Screenshots and step logs are written by the agent subprocesses the
 runner spawns, so they are on the runner's local disk; the coordinator is allowed to be a third
@@ -219,6 +228,17 @@ records `run_leg` already flushes, so there is no new agent-side instrumentation
 so the coordinator resets and re-pools the sandbox. There is no second code path, and the watcher
 never has to talk to the coordinator about it.
 
+That relies on the runner still being there. When it is not - it crashed, was SIGKILLed, its terminal
+closed - its attempt keeps `state: running` and a pid that no longer exists, which the dashboard shows
+as **orphaned**. On those tiles the kill button reads **close out**: since nothing will ever write the
+attempt's closing record, the watcher writes it instead, recording only what is knowable - it stopped,
+with no result of its own (`orphaned`, or `operator_kill` if a kill was what stranded it), end reason
+`runner_gone`, no exit code, and `closed_out_by: watcher` so the row is never mistaken for the
+runner's. Tokens come from the agent's last `tokens.json`, the lease is released best-effort, and the
+attempt becomes an ordinary finished one: on the spine in `attempts.jsonl`, and reviewable - usually
+as `invalid`. A runner that is merely slow to finalize keeps the last word; close-out waits for it
+first and defers to whatever it writes.
+
 **Retry** replaces one logical prompt/try in place. It stops a live agent through that same cleanup
 path, deletes `tryNN` and all of its `tryNN.requeue*` history, removes the old aggregate result, and
 leases a fresh sandbox for the same prompt and try number. The watcher owns the replacement runner,
@@ -235,16 +255,28 @@ they cannot ground — they say so themselves, in reasons like `goto granted [un
 info unavailable`. `predicate_unknown` is a keyword guard. So the headline success rate is a number
 the harness cannot fully stand behind.
 
-A halted attempt's tile therefore carries **▶ replay · ✓ success · ✗ fail**. Press ▶ and the watcher
-renders that attempt's frames into the same ≤8 MB clip Discord gets, plays it in a modal, and you
-judge the run against what you just watched.
+A halted attempt's tile therefore carries **▶ replay · ✓ success · ✗ fail · ⊘ invalid**. The watcher
+queues its full replay as soon as the run finishes; press ▶ to play it in a modal and judge the run
+against what you just watched. Discord's separate, size-bounded attachment is rendered by the same
+one-at-a-time worker.
 
 * **Every finished attempt is judgeable.** Verdict controls are available regardless of end reason,
   including forced halts, caps, errors, and administrative skips. A still-running attempt remains
   ineligible because its outcome can change. The server re-checks this; the button is not the only
   gate.
-* **Stored beside `success`, never over it.** The stamp is `verified_success` / `verified_by` /
-  `verified_at` / `verified_note` in `attempt.json`. This is the same honest-scoring rule
+* **⊘ invalid is a third answer, not a soft fail.** It is for a run the harness broke rather than one
+  the agent lost: a sandbox that never came up, a crashed capture, a prompt that never reached the
+  agent. An invalid try is excluded from the battery's arithmetic entirely — it leaves the
+  reliability denominator, it cannot fail a prompt on its own (a row of nothing but ⊘ reads as
+  undispatched, not as a loss), and it cancels no siblings, because it decided nothing. Its cell is
+  gray `E`, deliberately the same family as the killed cells: both are runs nothing is scored from.
+  Token totals still include it — the tokens were spent.
+  `agent_error` receives this invalid classification automatically unless a reviewer explicitly
+  overrides it with pass or fail; its underlying benchmark `success` remains false.
+* **Stored beside `success`, never over it.** The stamp is `verified_verdict` (`pass` / `fail` /
+  `invalid`) / `verified_success` / `verified_by` / `verified_at` / `verified_note` in
+  `attempt.json`. An invalid verdict writes **no `verified_success` at all**, so any reader that
+  predates the third verdict falls back to "unreviewed" rather than to "a human said it failed". This is the same honest-scoring rule
   `gates/gate_checkout.py` follows: measured and verified are logged separately and never promoted,
   because *a measured pass with a verified fail is the discrepancy the whole exercise exists to
   surface*. A card where the two disagree says so without re-highlighting the completed card; the
@@ -257,9 +289,13 @@ judge the run against what you just watched.
 * **Verdict metadata is correctable; cancellation is not.** Pressing the other button overwrites and
   `clear` removes the review stamp, but neither action restarts, requeues, or restores siblings
   stopped by an earlier successful verdict.
-* Clips are rendered **on demand**, on the same one-at-a-time worker Discord uses, and reused if that
-  path already made one. Nothing is encoded for attempts nobody opens.
-* The header tracks review progress: `N reviewed (M✓/K✗, J disagree) · P awaiting review`.
+* Clips are queued **on finish**, on the same one-at-a-time worker Discord uses, and reused once
+  written. Requesting an older missing replay from the modal queues it as a fallback.
+* The header tracks review progress: `N reviewed (M✓/K✗/J⊘, D disagree) · P awaiting review`.
+* **The overview tab reviews from the keyboard.** Hover any try cell and press <kbd>P</kbd>,
+  <kbd>F</kbd> or <kbd>E</kbd> to mark it pass, fail or invalid; the cell flashes to acknowledge the
+  keystroke, because the verdict itself only repaints a poll later. Clicking a cell opens the same
+  replay modal, with that attempt's **complete** log rather than its tail.
 
 None of this needs Discord — `--no-replay` is the only flag that turns clip rendering off, and
 without `ffmpeg` on PATH the verdict buttons still work, you just cannot watch the run first.
@@ -306,10 +342,14 @@ runnable mid-battery, and it folds in attempts that started but never closed out
 collapse score, which is what makes "how many were in a death loop when I killed them" answerable
 afterwards).
 
-`attempts.csv` carries the human verdict beside the predicate's: `verified_success`, `verdict_agrees`
-and `success_final` (the human's call where there is one, the predicate's otherwise — group by this).
+`attempts.csv` carries the human verdict beside the predicate's: `verified_verdict`,
+`verified_success`, `verdict_agrees` and `success_final` (the human's call where there is one, the
+predicate's otherwise — group by this).
 `verified_success` is **blank, not `False`, where nobody has looked**, so an unreviewed attempt is
-never counted as one a human failed. The closing line reports how many verdicts agreed and how many
+never counted as one a human failed. A run marked `invalid` leaves all three of `verified_success`,
+`verdict_agrees` and `success_final` blank for the same reason — it drops out of every grouping
+instead of landing in the failure bucket — and `verified_verdict` is where you find it.
+The closing line reports how many verdicts agreed and how many
 did not, which is the number to watch: it is a direct measurement of how much the completion
 predicates can be trusted.
 

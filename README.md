@@ -40,7 +40,7 @@ them with `uv run poe <task>`:
 | `uv run poe dbench-coordinator` | `python -m sari_bench coordinator --port 9000` | Sandbox registry the runner and sim instances register with |
 | `uv run poe dbench-watch` | `python -m sari_bench watch` | Live dashboard web server for a running battery |
 | `uv run poe dbench-status` | `python -m sari_bench status --coordinator ws://127.0.0.1:9000` | Print the current sandbox pool |
-| `uv run poe dbench-easy` | `python -m sari_bench run ...` | Runs the full easy-prompt battery against the coordinator (see `pyproject.toml` for the full flag set) |
+| `uv run poe dbench-easy [easy\|medium\|hard]` | `python -m sari_bench run --prompts sari_bench/prompts/<difficulty>_prompts.json ...` | Runs the chosen difficulty's prompt battery against the coordinator (default: `easy`; see `pyproject.toml` for the full flag set) |
 | `uv run poe debug-grab <item>` | `python orchestrator/subtask_agents.py --task "Pick up <item>" ...` | Repro a single grab task standalone, without a coordinator/fleet (default item: Choco Mallows) |
 
 These are convenience wrappers around the same `python -m sari_bench` commands documented in
@@ -156,6 +156,7 @@ list; summarized here:
 | `--out` | `<run-dir>/summary.json` | Where to write the run summary. |
 | `--run-dir` | — | Run directory for logs/screenshots. |
 | `--resolver-backend` | `qwen` | Backend for subtask resolution: `qwen` or `claude-cli`. |
+| `--completion-guard` | `deterministic` | Pickup target-grounding backend: `deterministic` or `vlm`. |
 | `--output-dir` | `$SARI_MAP_DIR`, else `slamtest/output` | slamtest output dir to load the map from (topology/annotations/grid). |
 | `--leg-retries` | `1` | How many times to retry a failed leg with the failure reason in context before aborting the task. `0` restores abort-on-first-failure. |
 | `--reset-start` | off | Drive to the fixed spawn pose once before starting (eval-reproducibility). A plain run starts from the agent's current pose. |
@@ -172,7 +173,7 @@ not reimplement the agent. See **[`sari_bench/README.md`](sari_bench/README.md)*
 
 ```bash
 python -m sari_bench coordinator --port 9000
-python -m sari_bench run --prompts sari_bench/prompts/example_battery.json --coordinator ws://localhost:9000
+python -m sari_bench run --prompts sari_bench/prompts/example_battery.json --coordinator ws://localhost:9000 --completion-guard vlm
 ```
 
 ### Legacy stack (`legacy/`) — deprecated
