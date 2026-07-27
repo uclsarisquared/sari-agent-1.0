@@ -1,17 +1,10 @@
 Sari Agent Squared
 ========================
 
-An embodied agent that navigates and manipulates objects in a Unity grocery-store sim. The store
+An embodied agent that navigates and manipulates objects in Sari Sandbox 1.0/2.0. The store
 is mapped offline into an **LLM-consumable checkpoint graph** — each shelf node knows what products
 are on it — so the agent can resolve *"find and pick up Pepero"* without a VLM ever doing spatial
 reasoning.
-
-> **The graph owns spatial truth. The VLM only judges what is directly in front of it. The agent
-> verifies on arrival.**
-
-Open-ended VLM navigation is this agent's primary measured failure mode — it collides with walls and
-burns its budget on global path planning it cannot do from a first-person view. So navigation and
-geometry are deterministic (A*, LiDAR, the skeleton graph) and the VLM is scoped narrowly.
 
 The Unity project is a **separate repo** (`SariSandboxV2`). It is the sim and the ground-truth
 product catalog; this repo is the agent/mapping side.
