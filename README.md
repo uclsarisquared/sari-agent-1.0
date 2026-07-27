@@ -1,4 +1,4 @@
-Sari Agent Squared
+Sari Agent²
 ========================
 
 An embodied agent that navigates and manipulates objects in Sari Sandbox 1.0/2.0. The store
