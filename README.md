@@ -55,13 +55,13 @@ uv run poe dbench-watch
 SOLO
 Task ──▶ Agent ──ws──▶ Unity
            ├──HTTP──▶ OCR daemon
-           └──HTTP──▶ UCL vLLM
+           └──HTTP──▶ OpenAI endpoint
 
 SARI BENCH
 Prompt battery ──▶ Runner ──▶ Agent subprocesses ──ws──▶ Unity fleet
                      │                 │
                      │                 ├──HTTP──▶ OCR daemon
-                     │                 └──HTTP──▶ UCL vLLM
+                     │                 └──HTTP──▶ OpenAI endpoint
                      └──ws──▶ Coordinator ◀──ws── Unity fleet
 ```
 
