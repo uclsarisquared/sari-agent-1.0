@@ -175,6 +175,7 @@ async def record_previews(
     *,
     fetch: Callable[[str], Awaitable[bytes]] = request_screenshot,
     stats: CaptureStats | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> CaptureStats:
     """Fill observation gaps until cancelled.
 
@@ -204,11 +205,21 @@ async def record_previews(
                 await asyncio.sleep(interval - age)
                 continue
 
+        fetch_task = asyncio.create_task(fetch(commands_uri))
         try:
-            image_bytes = await asyncio.wait_for(fetch(commands_uri), CAPTURE_TIMEOUT_SECONDS)
+            image_bytes = await asyncio.wait_for(fetch_task, CAPTURE_TIMEOUT_SECONDS)
             captured_ns = time.time_ns()
             await asyncio.to_thread(_save_jpeg, run_dir, image_bytes, sequence, captured_ns)
         except asyncio.CancelledError:
+            # Python 3.10's wait_for() doesn't retrieve an exception raised by its child while
+            # cancellation is in progress. websockets can hit such an exception when recv() is
+            # cancelled between fragmented screenshot frames, which would otherwise produce a
+            # large "Task exception was never retrieved" traceback during ordinary shutdown.
+            outcome = await asyncio.gather(fetch_task, return_exceptions=True)
+            error = outcome[0]
+            if isinstance(error, Exception) and log is not None:
+                detail = " ".join(str(error).splitlines()) or "no details"
+                log(f"preview capture cleanup: {type(error).__name__}: {detail}")
             raise
         except Exception:  # A preview must never affect an attempt.
             stats.failures += 1

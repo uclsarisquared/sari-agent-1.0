@@ -115,6 +115,49 @@ async def test_recent_agent_frame_suppresses_a_redundant_capture() -> None:
     print("ok  recent agent frames suppress redundant simulator requests")
 
 
+async def test_shutdown_logs_fetch_cleanup_failure_on_one_line() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        run_dir = Path(temp) / "attempt"
+        run_dir.mkdir()
+        started = asyncio.Event()
+        logs: list[str] = []
+        loop_errors: list[dict[str, Any]] = []
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+
+        async def fetch(_uri: str) -> bytes:
+            started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                raise AssertionError("cannot reset()\nwhile queue isn't empty")
+
+        loop.set_exception_handler(lambda _loop, context: loop_errors.append(context))
+        task = asyncio.create_task(
+            capture.record_previews(
+                run_dir,
+                "ws://unused",
+                0.05,
+                fetch=fetch,
+                log=logs.append,
+            )
+        )
+        try:
+            await started.wait()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await asyncio.sleep(0)
+        finally:
+            loop.set_exception_handler(original_handler)
+
+        assert logs == [
+            "preview capture cleanup: AssertionError: "
+            "cannot reset() while queue isn't empty"
+        ], logs
+        assert not loop_errors, loop_errors
+    print("ok  shutdown fetch failures become one-line logs")
+
+
 def test_watch_and_replay_merge_supplementary_frames() -> None:
     with tempfile.TemporaryDirectory() as temp:
         run_dir = Path(temp) / "battery" / "p" / "try01"
@@ -257,6 +300,7 @@ async def main() -> int:
     try:
         await test_recorder_fills_gaps_and_publishes_small_jpegs()
         await test_recent_agent_frame_suppresses_a_redundant_capture()
+        await test_shutdown_logs_fetch_cleanup_failure_on_one_line()
     finally:
         asyncio.to_thread = original_to_thread  # type: ignore[assignment]
     test_watch_and_replay_merge_supplementary_frames()

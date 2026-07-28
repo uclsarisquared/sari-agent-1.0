@@ -1241,6 +1241,7 @@ class BenchmarkRunner:
                 commands_uri,
                 self.capture_interval,
                 stats=stats,
+                log=_log,
             )
         )
         try:
