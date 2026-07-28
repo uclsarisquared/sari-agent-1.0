@@ -1019,6 +1019,58 @@ def test_invalid_verdict_is_excluded_rather_than_failed() -> None:
         print("ok  an invalid verdict excludes a run instead of failing it, and cancels no siblings")
 
 
+def test_already_successful_verdict_is_excluded_and_applied_automatically() -> None:
+    """The fourth verdict: a try halted because a sibling had already won the prompt.
+
+    It is excluded on exactly the terms `invalid` is - no `verified_success` at all, nothing added
+    to either column - but it is not a finding about the harness, and the runner's own
+    cancellations carry it without anyone having to press A.
+    """
+    from sari_bench.report import collect
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        _write(battery / "battery.json", json.dumps({"tries": 2, "prompts": [{"id": "p"}]}))
+        make_attempt(battery, "p", 1, steps=healthy_steps(3), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+        # What the runner writes for a try it never dispatched because the prompt was already won.
+        make_attempt(battery, "p", 2, steps=healthy_steps(1), state="finished",
+                     outcome="skipped", success=False, end_reason="already_successful")
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+
+        view = scan.scan_battery(battery, time.time()).as_dict()
+        cancelled = {a["key"]: a for a in view["attempts"]}["p/try02"]
+        assert cancelled["verified"] is True
+        assert cancelled["verified_verdict"] == "already_successful"
+        assert cancelled["verified_success"] is None
+        assert view["counts"]["verified_already_successful"] == 1, view["counts"]
+        # The whole point of the automatic mark: it leaves the review queue instead of sitting in it.
+        assert view["counts"].get("awaiting_verdict", 0) == 1, view["counts"]
+        assert "disagree" not in view["counts"], view["counts"]
+
+        rows = {row["attempt"]: row for row in collect(battery)[0]}
+        assert rows[2]["verified_verdict"] == "already_successful"
+        assert rows[2]["verified_success"] == ""
+        assert rows[2]["success_final"] == "", "an excluded try answered the prompt"
+        assert rows[2]["verdict_agrees"] == ""
+
+        # By hand, on a try that ran: same exclusion, and no boolean left behind by an earlier pass.
+        manifest_path = battery / "p" / "try01" / "attempt.json"
+        assert state.verdict("p/try01", "pass", by="tester")["ok"] is True
+        assert json.loads(manifest_path.read_text())["verified_success"] is True
+        result = state.verdict("p/try01", "already_successful", by="tester")
+        assert result["ok"] is True and result["verified_success"] is None
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["verified_verdict"] == "already_successful"
+        assert "verified_success" not in manifest, manifest
+        assert manifest["success"] is True, "the verdict overwrote the measured answer"
+
+        assert state.clear_verdict("p/try01") == {"ok": True, "cleared": True}
+        assert "verified_verdict" not in json.loads(manifest_path.read_text())
+    print("ok  already_successful excludes a halted try and is applied to cancellations by itself")
+
+
 def test_retry_config_preserves_completion_guard() -> None:
     with tempfile.TemporaryDirectory() as temp:
         battery = Path(temp) / "b"

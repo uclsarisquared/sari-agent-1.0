@@ -95,6 +95,9 @@
   .badge.verified.success { color: #a8dcbb; border-color: #2c4b38; background: rgba(79,169,107,.10); }
   .badge.verified.fail { color: #f0a596; border-color: #57302a; background: rgba(224,85,63,.10); }
   .badge.verified.invalid { color: #9aa4b2; border-color: #3a414c; background: rgba(154,164,178,.10); }
+  /* Halted because the prompt was already won: green, because nothing went wrong, but a darker and
+     duller green than a pass - this try scored nothing. */
+  .badge.already { color: #7fb894; border-color: #24503a; background: rgba(31,94,58,.22); }
 
   /* The terminal. A fixed height, not a max-height: a card must not resize as its log fills, or the
      whole grid reflows under the reader every two seconds. overflow-anchor is off because the
@@ -121,6 +124,7 @@
   button.vote.on[data-verdict="pass"] { background: #24402f; border-color: #2c4b38; color: #a8dcbb; }
   button.vote.on[data-verdict="fail"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
   button.vote.on[data-verdict="invalid"] { background: #2b3038; border-color: #3a414c; color: #c3cbd6; }
+  button.vote.on[data-verdict="already_successful"] { background: #16351f; border-color: #24503a; color: #7fb894; }
   button.link { background: none; border: none; color: var(--dim); padding: 5px 2px; text-decoration: underline; }
   button.link:hover { background: none; color: var(--ink); }
   .mismatch { background: rgba(224,162,63,.12); color: #e8c48d; }
@@ -178,6 +182,9 @@
   /* Invalid: gray on purpose, and the same gray family as the killed cells - both are runs the
      battery does not score. It must not read as a near-miss of pass or fail. */
   .cell.e .cellbtn { background: rgba(120,131,148,.20); color: #b3bcc9; }
+  /* Halted because a sibling had already won the prompt. Green, because nothing broke - but darker
+     in both the fill and the letter than the pass cell beside it, since this try scored nothing. */
+  .cell.a .cellbtn { background: #192620; color: #6f9c81; }
   .cell.none .cellbtn { background: rgba(90,100,114,.08); color: #3f4753; pointer-events: none; }
   td.res { font-weight: 650; }
   td.res.p { background: rgba(79,169,107,.22); color: #a8dcbb; }
@@ -306,7 +313,7 @@
     <a class="btn" href="/api/report.csv" download>export to CSV</a>
     <span class="muted" id="ov-note"></span>
     <span class="muted ov-hint">hover a try cell and press <kbd>P</kbd> pass, <kbd>F</kbd> fail,
-      <kbd>E</kbd> invalid, <kbd>R</kbd> retry</span>
+      <kbd>E</kbd> invalid, <kbd>A</kbd> already successful, <kbd>R</kbd> retry</span>
   </div>
   <div class="ov-scroll"><table class="ov" id="ov-table"></table></div>
 </section>
@@ -348,6 +355,8 @@
       <button class="vote" data-act="verdict" data-verdict="pass" id="modal-yes">✓ success</button>
       <button class="vote" data-act="verdict" data-verdict="fail" id="modal-no">✗ fail</button>
       <button class="vote" data-act="verdict" data-verdict="invalid" id="modal-invalid">⊘ invalid</button>
+      <button class="vote" data-act="verdict" data-verdict="already_successful"
+              id="modal-already">A already successful</button>
       <button class="link" data-act="verdict-clear" id="modal-clear" hidden>clear</button>
       <span class="muted" id="modal-verdict" style="margin-left:auto"></span>
     </div>
@@ -438,8 +447,9 @@ const disagrees = a => a.verified_success !== null && a.verified_success !== und
 // the boolean, so it stays the fallback.
 const verdictOf = a => !a || !a.verified ? ""
   : (a.verified_verdict || (a.verified_success ? "pass" : "fail"));
-const VERDICT_MARK = { pass: "✓", fail: "✗", invalid: "⊘" };
-const VERDICT_WORD = { pass: "success", fail: "fail", invalid: "invalid" };
+const VERDICT_MARK = { pass: "✓", fail: "✗", invalid: "⊘", already_successful: "A" };
+const VERDICT_WORD = { pass: "success", fail: "fail", invalid: "invalid",
+                       already_successful: "already successful" };
 
 // -- glossary ------------------------------------------------------------------------------
 // Every tag on this page is shorthand for something the harness did, and none of it is guessable
@@ -495,7 +505,7 @@ const TIP_RETRY = "The watcher is tearing this try down and re-dispatching it: `
 const TIP_RETRY_ERROR = "The re-dispatch failed. The try is left as it was; the reason is on the "
   + "retry button.";
 
-// The three human verdicts, in the words of what they do to the battery's arithmetic.
+// The four human verdicts, in the words of what they do to the battery's arithmetic.
 const VERDICT_TIPS = {
   pass: "A reviewer watched this run and judged the task genuinely done. It is this prompt's "
     + "success, and recording it stops or skips every other try of the same prompt.",
@@ -504,6 +514,10 @@ const VERDICT_TIPS = {
   invalid: "A reviewer judged the run unscorable: the harness, the sandbox, or the setup broke "
     + "rather than the agent. It leaves the battery's arithmetic entirely — it neither passes nor "
     + "fails the prompt, and a prompt whose every try is invalid reads as undispatched.",
+  already_successful: "The try was halted because another try of this prompt had already been "
+    + "judged a success, so it never got a task to fail at. Like `invalid` it leaves the battery's "
+    + "arithmetic entirely, but for the opposite reason: nothing broke here. Tries the harness "
+    + "cancelled itself are marked this way automatically.",
 };
 
 // data-tip / data-tip-term / data-tip-meta, escaped, for interpolation into a badge's markup.
@@ -524,7 +538,8 @@ function verdictBadge(a) {
   const who = [a.verified_by, a.verified_at].filter(Boolean).join(" · ");
   const verdict = verdictOf(a);
   const mark = VERDICT_MARK[verdict] || "?";
-  const cls = { pass: "success", fail: "fail", invalid: "invalid" }[verdict] || "";
+  const cls = { pass: "success", fail: "fail", invalid: "invalid",
+                already_successful: "already" }[verdict] || "";
   const meta = [who ? "verdict by " + who : "", a.verified_note || ""].filter(Boolean).join("\n");
   const tip = tipAttrs(`human ${mark} — ${VERDICT_WORD[verdict] || "verdict"}`,
     VERDICT_TIPS[verdict] || "A reviewer has ruled on this run.", meta);
@@ -544,8 +559,11 @@ function statusBadge(a) {
     // `completed` is about how the process ended, not whether the task was done - the agent decided
     // it was finished and exited clean. Painting it by `success` made a clean exit read as a crash,
     // so the tag follows the outcome and the verdict badge beside it carries the judgement.
+    // A try cancelled because its prompt was already won is not a loss either: it takes the same
+    // dark green as its A cell rather than the red of a try that ran and did not make it.
     const cls = outcome === "completed" ? "success"
       : outcome === "agent_error" ? "invalid"
+      : a.end_reason === "already_successful" ? "already"
       : (a.success ? "success" : "fail");
     const tip = tipAttrs(outcome, OUTCOME_TIPS[outcome]
       || "How the runner scored the end of this try.",
@@ -568,10 +586,30 @@ function statusBadge(a) {
 // The one node that is ever rewritten is `partial`, kept last: the line the writer has not finished.
 // It becomes a normal committed line as soon as its newline arrives.
 
+const isAtBottom = el => el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLOP;
+
+// Whether a terminal trails its log is the READER's state, kept in `follow`, and only their own
+// scrolling changes it: up detaches, back to the bottom re-attaches. It is deliberately not
+// re-derived from the scroll position at write time - a <pre> that measured as "not at the bottom"
+// once, which is what an unlaid-out card does when its first lines land, would then be stranded at
+// the top for the rest of the run with no way back except scrolling by hand.
 function newTerm(el, trim = true) {
   const partial = document.createTextNode("");
   el.appendChild(partial);
-  return { el, partial, cursor: null, size: null, count: 0, busy: false, done: false, trim };
+  const term = { el, partial, cursor: null, size: null, count: 0, busy: false, done: false, trim,
+                 follow: true };
+  el.addEventListener("scroll", () => { term.follow = isAtBottom(el); });
+  return term;
+}
+
+// Pin to the tail, now and again after the next layout: the write that called this may have landed
+// before the element had a height, in which case scrollHeight is not yet the number we want.
+function termStick(term) {
+  if (!term.follow) return;
+  term.el.scrollTop = term.el.scrollHeight;
+  requestAnimationFrame(() => {
+    if (term.follow) term.el.scrollTop = term.el.scrollHeight;
+  });
 }
 
 function termClear(term) {
@@ -579,11 +617,13 @@ function termClear(term) {
   term.partial = document.createTextNode("");
   term.el.appendChild(term.partial);
   term.count = 0;
+  // There is no scrollback left to hold a reader in place, so an emptied terminal - a rotated log,
+  // a retried attempt, a modal opened on another run - goes back to trailing the tail.
+  term.follow = true;
 }
 
 function termWrite(term, lines, partial) {
   const el = term.el;
-  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLOP;
 
   if (lines.length) {
     el.insertBefore(document.createTextNode(lines.join("\n") + "\n"), term.partial);
@@ -591,7 +631,7 @@ function termWrite(term, lines, partial) {
   }
   // Trimming rewrites the whole node and so loses the scroll position; only ever do it for a reader
   // who is following the tail anyway, and let the buffer overrun for one who is reading scrollback.
-  if (term.trim && atBottom && term.count > TERM_BUFFER_LINES) {
+  if (term.trim && term.follow && term.count > TERM_BUFFER_LINES) {
     const text = el.textContent;
     const committed = text.slice(0, text.length - term.partial.nodeValue.length);
     // Committed text always ends in a newline, so the last split element is the empty string after it.
@@ -602,7 +642,7 @@ function termWrite(term, lines, partial) {
   }
 
   if (term.partial.nodeValue !== partial) term.partial.nodeValue = partial;
-  if (atBottom) el.scrollTop = el.scrollHeight;
+  termStick(term);
 }
 
 async function termPump(term, key, bootLines, expectedSize = null, full = false) {
@@ -666,6 +706,7 @@ const CARD_HTML = `
     <button class="vote" data-act="verdict" data-verdict="pass">✓ success</button>
     <button class="vote" data-act="verdict" data-verdict="fail">✗ fail</button>
     <button class="vote" data-act="verdict" data-verdict="invalid">⊘ invalid</button>
+    <button class="vote" data-act="verdict" data-verdict="already_successful">A already successful</button>
     <button class="link" data-act="verdict-clear" hidden>clear</button>
     <span class="muted spacer" data-ref="unreviewed">unreviewed</span>
   </div>`;
@@ -884,6 +925,8 @@ function cellState(a) {
     pass:    { code: "p", glyph: "P", label: "human: success" },
     fail:    { code: "f", glyph: "F", label: "human: fail" },
     invalid: { code: "e", glyph: "E", label: "human: invalid — excluded from the totals" },
+    already_successful:
+             { code: "a", glyph: "A", label: "halted: already successful — excluded from the totals" },
   }[verdictOf(a)];
   if (a.retry_state && a.retry_state !== "error")
     return { code: "r", glyph: "R", label: `retry: ${a.retry_state}` };
@@ -897,10 +940,10 @@ function cellState(a) {
   return { code: "f", glyph: "F", label: a.outcome || a.state || "fail" };
 }
 
-// Which cells the P/F keys act on: a finished attempt whose verdict is still open to being set or
-// changed. A running or killed try has nothing to rule on, so it advertises no shortcut either.
+// Which cells the P/F/E/A keys act on: a finished attempt whose verdict is still open to being set
+// or changed. A running or killed try has nothing to rule on, so it advertises no shortcut either.
 function canVerdict(a) {
-  return !!a && !!a.verifiable && ["p", "f", "e", "q"].includes(cellState(a).code);
+  return !!a && !!a.verifiable && ["p", "f", "e", "a", "q"].includes(cellState(a).code);
 }
 
 function ovBuildTable(tries) {
@@ -942,7 +985,8 @@ function renderOverview(state) {
 
   document.getElementById("ov-note").textContent = prompts.length
     ? `${prompts.length} prompt(s) × ${tries} tr${tries === 1 ? "y" : "ies"} — P/F is the human `
-      + "verdict; ? is awaiting review; E is invalid and counts for nothing"
+      + "verdict; ? is awaiting review; E is invalid and A is halted-already-successful, and "
+      + "neither counts for anything"
     : (state.error || "no battery loaded");
   if (!prompts.length) { table.innerHTML = ""; ovRows.clear(); ovShape = ""; return; }
 
@@ -962,6 +1006,9 @@ function renderOverview(state) {
   }
 
   let solved = 0, reliabilitySum = 0, reliabilityN = 0, winIn = 0, winOut = 0;
+  // Elapsed of the first passing try, over the prompts that have one. An attempt whose elapsed was
+  // never recorded is left out of the mean rather than counted as an instant win.
+  let winTime = 0, winTimeN = 0;
   // What the battery has cost outright: every try in the grid, whatever it ended as. The averages
   // below it are per-prompt and exclude things; this line excludes nothing.
   let totalIn = 0, totalOut = 0;
@@ -974,7 +1021,8 @@ function renderOverview(state) {
     }
     if (body.children[index] !== entry.tr) body.insertBefore(entry.tr, body.children[index] || null);
 
-    let pass = null, ran = 0, passes = 0, pending = 0, live = 0, invalid = 0, tokIn = 0, tokOut = 0;
+    let pass = null, ran = 0, passes = 0, pending = 0, live = 0, invalid = 0, halted = 0;
+    let tokIn = 0, tokOut = 0;
     for (let t = 1; t <= tries; t++) {
       const a = byTry.get(`${prompt.id}#${t}`);
       const st = cellState(a);
@@ -993,6 +1041,9 @@ function renderOverview(state) {
       // verdict. It can neither pass a prompt nor fail one, and a row of nothing but invalid tries
       // reads as undispatched rather than as a loss the agent never actually had a chance at.
       if (st.code === "e") { invalid += 1; continue; }
+      // A try halted because the prompt was already won leaves the denominator for the same reason,
+      // and cannot decide the row either way: the pass that caused the halt is what decides it.
+      if (st.code === "a") { halted += 1; continue; }
       ran += 1;
       if (st.code === "p") { passes += 1; if (!pass) pass = a; }
       if (st.code === "q") pending += 1;
@@ -1006,9 +1057,13 @@ function renderOverview(state) {
     const label = { p: "PASS", f: "FAIL", q: pending ? "?" : "…", none: "—" }[verdict];
     entry.res.className = "res " + verdict;
     setText(entry.res, label);
-    const excluded = invalid ? ` · ${invalid} try(s) marked invalid and excluded` : "";
+    const excluded = [
+      invalid ? `${invalid} try(s) marked invalid and excluded` : "",
+      halted ? `${halted} try(s) halted as already successful and excluded` : "",
+    ].filter(Boolean).map(text => " · " + text).join("");
     entry.res.title = (pass ? `first pass: try ${pass.attempt}`
-      : verdict === "none" ? (invalid ? "every dispatched try was marked invalid" : "no try dispatched")
+      : verdict === "none" ? (invalid || halted ? "every dispatched try was excluded"
+                                                : "no try dispatched")
       : verdict === "q" ? `${pending} halt(s) awaiting review, ${live} still running`
       : "every counted try decided, none passed") + excluded;
     setText(entry.stime, pass ? fmtMin(pass.elapsed_seconds) : "—");
@@ -1016,7 +1071,13 @@ function renderOverview(state) {
 
     totalIn += tokIn;
     totalOut += tokOut;
-    if (pass) { solved += 1; winIn += tokIn; winOut += tokOut; }
+    if (pass) {
+      solved += 1; winIn += tokIn; winOut += tokOut;
+      if (pass.elapsed_seconds !== null && pass.elapsed_seconds !== undefined
+          && Number.isFinite(Number(pass.elapsed_seconds))) {
+        winTime += Number(pass.elapsed_seconds); winTimeN += 1;
+      }
+    }
     // A prompt with nothing dequeued has no reliability to average - it is absent from the mean,
     // not a zero in it, or a battery only half dispatched would read as half broken.
     if (ran) { reliabilitySum += passes / ran; reliabilityN += 1; }
@@ -1034,6 +1095,10 @@ function renderOverview(state) {
     <tr>
       <td class="lbl" colspan="${span}">success rate — prompts with at least one human-verified pass</td>
       <td colspan="3">${solved} / ${prompts.length} · ${pct}%</td>
+    </tr>
+    <tr>
+      <td class="lbl" colspan="${span}">avg success time — mean elapsed of the first passing try over ${winTimeN} solved prompt(s)</td>
+      <td colspan="3">${winTimeN ? fmtMin(Math.round(winTime / winTimeN)) : "—"}</td>
     </tr>
     <tr>
       <td class="lbl" colspan="${span}">reliability — mean of (passing tries / tries counted, invalid excluded) over ${reliabilityN} dispatched prompt(s)</td>
@@ -1111,7 +1176,8 @@ function showTip(key) {
   setText(tipRefs.end, a.end_reason || a.outcome || a.state || "—");
   setText(tipRefs.sandbox, a.sandbox_id || "—");
   const hints = [];
-  if (canVerdict(a)) hints.push("<kbd>P</kbd> pass · <kbd>F</kbd> fail · <kbd>E</kbd> invalid");
+  if (canVerdict(a)) hints.push("<kbd>P</kbd> pass · <kbd>F</kbd> fail · <kbd>E</kbd> invalid"
+    + " · <kbd>A</kbd> already successful");
   if (canRetry(a)) hints.push("<kbd>R</kbd> retry");
   setHTML(tipRefs.hint, hints.join(" · "));
   tipRefs.hint.hidden = !hints.length;
@@ -1297,6 +1363,9 @@ function setTab(tab) {
   document.querySelectorAll("button.tab").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   document.getElementById("grid").hidden = tab !== "live";
   document.getElementById("overview").hidden = tab !== "overview";
+  // A hidden terminal has no layout, so nothing written while the overview was up could position
+  // itself. Re-pin the followers now that the cards can measure themselves again.
+  if (tab === "live") for (const entry of cards.values()) termStick(entry.term);
   hideTip();
   refresh();
 }
@@ -1325,6 +1394,7 @@ async function refresh() {
   const review = c.verified
     ? ` · ${c.verified} reviewed (${c.verified_success || 0}✓/${c.verified_fail || 0}✗`
       + `${c.verified_invalid ? "/" + c.verified_invalid + "⊘" : ""}`
+      + `${c.verified_already_successful ? "/" + c.verified_already_successful + "A" : ""}`
       + `${c.disagree ? ", " + c.disagree + " disagree" : ""})`
     : "";
   const waiting = c.awaiting_verdict ? ` · ${c.awaiting_verdict} awaiting review` : "";
@@ -1387,7 +1457,10 @@ function reorder(grid, atts) {
     if (entry.root === cursor) { cursor = cursor.nextSibling; continue; }
     const top = entry.term.el.scrollTop;
     grid.insertBefore(entry.root, cursor);
-    if (entry.term.el.scrollTop !== top) entry.term.el.scrollTop = top;
+    // A follower goes back to the tail rather than to the pixel it was at, so a card that moved
+    // while lines were landing does not come to rest one line short of the bottom and stay there.
+    if (entry.term.follow) termStick(entry.term);
+    else if (entry.term.el.scrollTop !== top) entry.term.el.scrollTop = top;
   }
 }
 
@@ -1507,7 +1580,7 @@ function syncModal() {
   const clear = document.getElementById("modal-clear");
   clear.hidden = !(a && a.verified);
   clear.dataset.key = key || "";
-  for (const id of ["modal-yes", "modal-no", "modal-invalid"]) {
+  for (const id of ["modal-yes", "modal-no", "modal-invalid", "modal-already"]) {
     const el = document.getElementById(id);
     el.dataset.key = key || "";
     el.classList.toggle("on", Boolean(a) && verdictOf(a) === el.dataset.verdict);
@@ -1723,14 +1796,14 @@ document.addEventListener("keydown", async ev => {
     return;
   }
 
-  // While an overview result cell is hovered, P/F/E are direct equivalents of its verdict buttons,
-  // and R is the equivalent of its retry button. Modifier chords and editable controls retain
-  // their normal browser behavior.
+  // While an overview result cell is hovered, P/F/E/A are direct equivalents of its verdict
+  // buttons, and R is the equivalent of its retry button. Modifier chords and editable controls
+  // retain their normal browser behavior.
   const key = ev.key.toLowerCase();
   const target = ev.target;
   const editing = target instanceof HTMLElement
     && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
-  const verdict = { p: "pass", f: "fail", e: "invalid" }[key];
+  const verdict = { p: "pass", f: "fail", e: "invalid", a: "already_successful" }[key];
   if (activeTab !== "overview" || !tipKey || ev.repeat || editing
       || ev.ctrlKey || ev.metaKey || ev.altKey || !(verdict || key === "r")) return;
   const attempt = ovIndex.get(tipKey);

@@ -77,13 +77,15 @@ class AttemptView:
     # `verified_success` is None - not False - until someone actually looks, so "not reviewed" is
     # never read as "reviewed and failed".
     #
-    # `verified_verdict` is the reviewer's full answer and has three values, because "the harness
+    # `verified_verdict` is the reviewer's full answer and has four values, because "the harness
     # broke" is not the same finding as "the agent failed the task": an INVALID run is one nobody
     # should count in either direction. It carries `verified_success = None` for exactly the reason
-    # an unreviewed attempt does - no reader may total it as a failure.
+    # an unreviewed attempt does - no reader may total it as a failure. ALREADY_SUCCESSFUL is the
+    # same exclusion for the opposite cause: the try was halted because the prompt was already won.
     verifiable: bool = False      # finished and eligible for a human verdict
     verified: bool = False
-    verified_verdict: str = ""    # "pass" | "fail" | "invalid", "" when unreviewed
+    # "pass" | "fail" | "invalid" | "already_successful", "" when unreviewed
+    verified_verdict: str = ""
     verified_success: bool | None = None
     verified_by: str = ""
     verified_at: str = ""
@@ -199,12 +201,19 @@ def is_verifiable(state: str, _end_reason: str) -> bool:
     return state == "finished"
 
 
-VERDICTS = ("pass", "fail", "invalid")
+# "already_successful" is the fourth answer and, like "invalid", scores nothing - but for the
+# opposite reason. The run is not broken: it was halted because another try of the same prompt had
+# already been judged a success, so it never got a task to fail at. Excluded, not failed.
+VERDICTS = ("pass", "fail", "invalid", "already_successful")
+ALREADY_SUCCESSFUL = "already_successful"
+# The verdicts that write no `verified_success` at all, because neither True nor False is honest.
+EXCLUDED_VERDICTS = frozenset({"invalid", ALREADY_SUCCESSFUL})
 AUTO_INVALID_OUTCOMES = frozenset({"agent_error"})
 
 
 def verdict_of(manifest: dict[str, Any]) -> str:
-    """The reviewer's verdict on one attempt: "pass", "fail", "invalid", or "" for unreviewed.
+    """The reviewer's verdict on one attempt: "pass", "fail", "invalid", "already_successful", or ""
+    for unreviewed.
 
     One definition, shared by the dashboard's view and the report, so the two surfaces can never
     disagree about what a reviewer said.
@@ -223,15 +232,22 @@ def verdict_of(manifest: dict[str, Any]) -> str:
 
 
 def effective_verdict(manifest: dict[str, Any]) -> str:
-    """Explicit human verdict, or the watcher's automatic classification for unscorable crashes.
+    """Explicit human verdict, or the watcher's automatic classification for runs nobody need judge.
 
     An explicit verdict always wins, so a reviewer can still inspect an agent_error and deliberately
     mark it pass or fail. Without one, agent_error behaves exactly like pressing E: it is invalid and
     excluded from review arithmetic rather than being mistaken for a task failure.
+
+    A try the runner or the watcher halted because a sibling had already been verified successful is
+    classified the same way pressing A would: `already_successful`, excluded. Nobody has to review a
+    cancellation the harness performed on its own bookkeeping, so those cells leave the review queue
+    instead of sitting in it as halts awaiting a verdict that would mean nothing.
     """
     explicit = verdict_of(manifest)
     if explicit:
         return explicit
+    if manifest.get("end_reason") == ALREADY_SUCCESSFUL:
+        return ALREADY_SUCCESSFUL
     return "invalid" if manifest.get("outcome") in AUTO_INVALID_OUTCOMES else ""
 
 
@@ -532,8 +548,11 @@ def scan_battery(battery: Path, now: float, *, discovered: list[Path] | None = N
             counts["success"] = counts.get("success", 0) + 1
         if attempt.verified:
             counts["verified"] = counts.get("verified", 0) + 1
-            key = {"pass": "verified_success", "fail": "verified_fail"}.get(
-                attempt.verified_verdict, "verified_invalid")
+            key = {
+                "pass": "verified_success",
+                "fail": "verified_fail",
+                ALREADY_SUCCESSFUL: "verified_already_successful",
+            }.get(attempt.verified_verdict, "verified_invalid")
             counts[key] = counts.get(key, 0) + 1
             # An invalid run is excluded, not disagreed with: the reviewer threw the attempt out
             # rather than ruling against the predicate, so it is no evidence either way.

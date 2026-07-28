@@ -28,11 +28,17 @@ ATTEMPT_COLUMNS = [
     # state they cannot ground. `verified_success` is a reviewer's call after watching the replay.
     # `verdict_agrees` is the column this whole path exists to produce; `success_final` is the one to
     # group by, preferring the human where there is one.
-    # `verified_verdict` carries the third answer the boolean cannot: "invalid", a run the reviewer
-    # threw out. Those rows leave `verified_success`, `verdict_agrees` and `success_final` blank -
-    # excluded from every total rather than counted as failures.
+    # `verified_verdict` carries the answers the boolean cannot: "invalid", a run the reviewer threw
+    # out, and "already_successful", a try halted because a sibling had already won the prompt. Those
+    # rows leave `verified_success`, `verdict_agrees` and `success_final` blank - excluded from every
+    # total rather than counted as failures.
     "verifiable", "verified", "verified_verdict", "verified_success", "verdict_agrees",
     "success_final",
+    # True on exactly one row per solved prompt: its lowest-numbered human-verified pass, the same
+    # try the dashboard's "success time" column shows. Averaging `wall_minutes` over these rows is
+    # the dashboard's "avg success time" - without it the CSV can only average every passing try,
+    # which double-counts a prompt that was dispatched more than once and won twice.
+    "first_pass",
     "verified_by", "verified_at", "verified_note",
     "end_reason", "exit_code", "wall_seconds", "wall_minutes",
     "tokens_in", "tokens_out", "tokens_total", "llm_calls",
@@ -126,9 +132,11 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         # said it failed" in a pivot table.
         verdict = scan.effective_verdict(manifest)
         verified = bool(verdict)
-        # Blank for "invalid" as well as for unreviewed, for the same reason: neither is a human
-        # saying the attempt failed, and a pivot table must not be able to read one as that.
-        verified_success = "" if verdict in ("", "invalid") else verdict == "pass"
+        # Blank for the excluded verdicts as well as for unreviewed, for the same reason: none of
+        # them is a human saying the attempt failed, and a pivot table must not read one as that.
+        verified_success = (
+            "" if verdict == "" or verdict in scan.EXCLUDED_VERDICTS else verdict == "pass"
+        )
 
         attempt_rows.append({
             "battery_id": battery_id,
@@ -144,9 +152,9 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             "verified_verdict": verdict,
             "verified_success": verified_success,
             "verdict_agrees": (verified_success == success) if verified_success != "" else "",
-            # An invalid attempt has no final answer at all - it is not the predicate's `success`
-            # either, since the reviewer's whole point was that the run proved nothing.
-            "success_final": "" if verdict == "invalid" else (
+            # An excluded attempt has no final answer at all - it is not the predicate's `success`
+            # either, since the whole point of the verdict was that the run proved nothing.
+            "success_final": "" if verdict in scan.EXCLUDED_VERDICTS else (
                 verified_success if verified else success),
             "verified_by": manifest.get("verified_by", ""),
             "verified_at": manifest.get("verified_at", ""),
@@ -207,6 +215,15 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             })
 
     attempt_rows.sort(key=lambda r: (str(r["prompt_id"]), r["attempt"]))
+    # After the sort, so "first" means the lowest try number and not whatever order the run dirs came
+    # back in. Only a human `pass` marks one: the predicate's `success` is exactly what the review
+    # flow exists to second-guess, and an unreviewed halt has not won its prompt yet.
+    seen: set[str] = set()
+    for row in attempt_rows:
+        first = row["verified_verdict"] == "pass" and str(row["prompt_id"]) not in seen
+        if first:
+            seen.add(str(row["prompt_id"]))
+        row["first_pass"] = first
     return attempt_rows, leg_rows
 
 
@@ -250,15 +267,30 @@ def main(argv: list[str] | None = None) -> int:
     # it gets its own line rather than a column nobody opens the CSV to find.
     reviewed = [row for row in attempts if row["verified"]]
     if reviewed or any(row["verifiable"] for row in attempts):
-        # Invalid runs are held out of the agree/disagree split entirely: the reviewer discarded
-        # them rather than ruling on them, so they are evidence about the harness, not the predicate.
-        judged = [row for row in reviewed if row["verified_verdict"] != "invalid"]
-        invalid = len(reviewed) - len(judged)
+        # Excluded runs are held out of the agree/disagree split entirely: nobody ruled on the
+        # predicate. An invalid one is evidence about the harness; an already_successful one is
+        # bookkeeping about a prompt some other try had already won.
+        judged = [row for row in reviewed
+                  if row["verified_verdict"] not in scan.EXCLUDED_VERDICTS]
+        invalid = sum(1 for row in reviewed if row["verified_verdict"] == "invalid")
+        halted = sum(1 for row in reviewed
+                     if row["verified_verdict"] == scan.ALREADY_SUCCESSFUL)
         agree = sum(1 for row in judged if row["verdict_agrees"])
         waiting = sum(1 for row in attempts if row["verifiable"] and not row["verified"])
         print(f"[sari-bench report] {len(judged)} human-verified "
               f"({agree} agree, {len(judged) - agree} disagree with the predicate), "
-              f"{invalid} marked invalid, {waiting} halt(s) awaiting review")
+              f"{invalid} marked invalid, {halted} halted as already successful, "
+              f"{waiting} halt(s) awaiting review")
+
+    # The dashboard's "avg success time", printed from the same rows the CSV carries so the two
+    # cannot drift. A solved prompt whose wall clock was never recorded is left out of the mean
+    # rather than averaged in as an instant win.
+    won = [float(row["wall_seconds"]) for row in attempts
+           if row["first_pass"] and row["wall_seconds"]]
+    if won:
+        mean = sum(won) / len(won)
+        print(f"[sari-bench report] avg success time {int(mean // 60)}m{int(mean % 60):02d}s "
+              f"over {len(won)} solved prompt(s) (first human-verified pass of each)")
     return 0
 
 

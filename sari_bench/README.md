@@ -277,7 +277,8 @@ they cannot ground — they say so themselves, in reasons like `goto granted [un
 info unavailable`. `predicate_unknown` is a keyword guard. So the headline success rate is a number
 the harness cannot fully stand behind.
 
-A halted attempt's tile therefore carries **▶ replay · ✓ success · ✗ fail · ⊘ invalid**. The watcher
+A halted attempt's tile therefore carries **▶ replay · ✓ success · ✗ fail · ⊘ invalid · A already
+successful**. The watcher
 queues its full replay as soon as the run finishes; press ▶ to play it in a modal and judge the run
 against what you just watched. Discord's separate, size-bounded attachment is rendered by the same
 one-at-a-time worker.
@@ -295,10 +296,21 @@ one-at-a-time worker.
   Token totals still include it — the tokens were spent.
   `agent_error` receives this invalid classification automatically unless a reviewer explicitly
   overrides it with pass or fail; its underlying benchmark `success` remains false.
+* **A already successful is the same exclusion for the opposite reason.** It marks a try that was
+  halted because another try of the same prompt had already been judged a success — nothing broke,
+  and the agent was never given a task to fail at. It leaves the reliability denominator exactly as
+  ⊘ does, cannot pass or fail a prompt, and cancels nothing (the pass that caused the halt already
+  did whatever cancelling was warranted). Its cell is dark green `A`: deliberately not the lighter
+  green of a pass, because this try scored nothing either. Every try the runner or the watcher
+  cancelled itself — `end_reason=already_successful`, i.e. the `operator_kill` and `skipped` rows a
+  ✓ produces — carries this verdict automatically, so those cells leave the review queue instead of
+  sitting in it as halts awaiting a verdict that would mean nothing. An explicit human verdict still
+  overrides it.
 * **Stored beside `success`, never over it.** The stamp is `verified_verdict` (`pass` / `fail` /
-  `invalid`) / `verified_success` / `verified_by` / `verified_at` / `verified_note` in
-  `attempt.json`. An invalid verdict writes **no `verified_success` at all**, so any reader that
-  predates the third verdict falls back to "unreviewed" rather than to "a human said it failed". This is the same honest-scoring rule
+  `invalid` / `already_successful`) / `verified_success` / `verified_by` / `verified_at` /
+  `verified_note` in `attempt.json`. An invalid or already-successful verdict writes **no
+  `verified_success` at all**, so any reader that predates them falls back to "unreviewed" rather
+  than to "a human said it failed". This is the same honest-scoring rule
   `gates/gate_checkout.py` follows: measured and verified are logged separately and never promoted,
   because *a measured pass with a verified fail is the discrepancy the whole exercise exists to
   surface*. A card where the two disagree says so without re-highlighting the completed card; the
@@ -313,9 +325,10 @@ one-at-a-time worker.
   stopped by an earlier successful verdict.
 * Clips are queued **on finish**, on the same one-at-a-time worker Discord uses, and reused once
   written. Requesting an older missing replay from the modal queues it as a fallback.
-* The header tracks review progress: `N reviewed (M✓/K✗/J⊘, D disagree) · P awaiting review`.
+* The header tracks review progress: `N reviewed (M✓/K✗/J⊘/HA, D disagree) · P awaiting review`.
 * **The overview tab reviews from the keyboard.** Hover any try cell and press <kbd>P</kbd>,
-  <kbd>F</kbd> or <kbd>E</kbd> to mark it pass, fail or invalid; the cell flashes to acknowledge the
+  <kbd>F</kbd>, <kbd>E</kbd> or <kbd>A</kbd> to mark it pass, fail, invalid or halted-already-
+  successful; the cell flashes to acknowledge the
   keystroke, because the verdict itself only repaints a poll later. Clicking a cell opens the same
   replay modal, with that attempt's **complete** log rather than its tail.
 
@@ -371,12 +384,18 @@ afterwards).
 `verified_success`, `verdict_agrees` and `success_final` (the human's call where there is one, the
 predicate's otherwise — group by this).
 `verified_success` is **blank, not `False`, where nobody has looked**, so an unreviewed attempt is
-never counted as one a human failed. A run marked `invalid` leaves all three of `verified_success`,
-`verdict_agrees` and `success_final` blank for the same reason — it drops out of every grouping
-instead of landing in the failure bucket — and `verified_verdict` is where you find it.
+never counted as one a human failed. A run marked `invalid` or `already_successful` leaves all three of
+`verified_success`, `verdict_agrees` and `success_final` blank for the same reason — it drops out of
+every grouping instead of landing in the failure bucket — and `verified_verdict` is where you find
+which of the two it was.
 The closing line reports how many verdicts agreed and how many
 did not, which is the number to watch: it is a direct measurement of how much the completion
 predicates can be trusted.
+
+`first_pass` is `True` on exactly one row per solved prompt — its lowest-numbered human-verified
+pass, the try the dashboard's `success time` column shows. Averaging `wall_minutes` over those rows
+gives the overview's `avg success time`; averaging over every passing row instead double-counts a
+prompt that was won on more than one try. The report prints that same average as its last line.
 
 `video` chronologically merges `legNN/stepNN.png` with supplementary `capture/*.jpg` frames into an
 mp4, captioning steps with their mode, action and checkpoint and gap captures with elapsed time. Every

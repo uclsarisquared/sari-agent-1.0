@@ -44,7 +44,9 @@ POOL_REFRESH_SECONDS = 5.0
 LOG_TAIL_LINES = 25
 LOG_MAX_LINES = 2000
 LOG_BOOTSTRAP_BYTES = 16_384
-ALREADY_SUCCESSFUL = "already_successful"
+# Same string the runner stamps as a cancelled try's end_reason and the scanner classifies as the
+# `already_successful` verdict; one definition so the three can never drift.
+ALREADY_SUCCESSFUL = scan.ALREADY_SUCCESSFUL
 # How long the watcher waits for a runner to close an attempt out before deciding nobody will.
 FINALIZE_GRACE_SECONDS = 3.0
 # The end_reason written for an attempt nobody recorded: not something the agent decided, and
@@ -793,7 +795,7 @@ class WatchState:
         by: str = "",
         battery_id: str | None = None,
     ) -> dict[str, Any]:
-        """Records a human's pass / fail / invalid for one finished attempt.
+        """Records a human's pass / fail / invalid / already_successful for one finished attempt.
 
         The verdict is stamped BESIDE `success`, never over it: a measured pass with a verified fail
         is exactly the discrepancy worth collecting, and overwriting `success` would erase it.
@@ -803,6 +805,11 @@ class WatchState:
         and a reader with no notion of the third verdict must fall back to "unreviewed" rather than
         to "failed". It also cancels no siblings: an excluded try leaves the prompt undecided, and
         the remaining tries are exactly what still has to run.
+
+        "already_successful" is excluded on the same terms and writes no boolean either, but says
+        something different: the try was halted because another try of this prompt had already been
+        judged a success. It is not evidence about the agent in either direction, and it cancels
+        nothing - whatever cancelling was warranted was done by the pass that caused the halt.
 
         The eligibility check is repeated here rather than trusted from the UI: the button is only
         rendered on a finished card, but the route is reachable without the page.
@@ -834,9 +841,10 @@ class WatchState:
                 "verified_by": by or os.environ.get("USER") or "watcher",
                 "verified_note": note,
             }
-            if verdict == "invalid":
-                # A pass or fail being downgraded to invalid has to lose its old boolean outright,
-                # or every reader of the compatibility field would keep reporting the stale verdict.
+            if verdict in scan.EXCLUDED_VERDICTS:
+                # A pass or fail being downgraded to an excluded verdict has to lose its old boolean
+                # outright, or every reader of the compatibility field would keep reporting the
+                # stale verdict.
                 stale = scan._read_json(manifest_path)
                 stale.pop("verified_success", None)
                 stale.update(fields)
@@ -852,13 +860,14 @@ class WatchState:
             # up to `min_interval`. Drop it and let the reviewer see their own click land.
             self._invalidate_locked()
 
-        disagrees = verdict != "invalid" and bool(manifest.get("success")) != (verdict == "pass")
+        disagrees = (verdict not in scan.EXCLUDED_VERDICTS
+                     and bool(manifest.get("success")) != (verdict == "pass"))
         _log(f"verdict on {key}: {verdict.upper()} by {fields['verified_by']}"
              f"{' (predicate disagreed)' if disagrees else ''}")
         return {
             "ok": True,
             **fields,
-            "verified_success": None if verdict == "invalid" else verdict == "pass",
+            "verified_success": None if verdict in scan.EXCLUDED_VERDICTS else verdict == "pass",
             "siblings_stopped": cancellations["stopped"],
             "siblings_skipped": cancellations["skipped"],
             "sibling_cancellations": cancellations,
@@ -1365,7 +1374,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if rest.endswith("/verdict"):
                 body = self._body()
-                # `verdict` is the full three-value field; `success` remains accepted so anything
+                # `verdict` is the full four-value field; `success` remains accepted so anything
                 # scripted against the original boolean route keeps working unchanged.
                 verdict = body.get("verdict")
                 if verdict is None and isinstance(body.get("success"), bool):
