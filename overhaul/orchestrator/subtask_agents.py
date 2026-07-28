@@ -108,6 +108,7 @@ from orchestrator.subtask_completion import (
     mismatched_hands,
     pickup_has_target,
     reported_inspection_answer,
+    held_item_inspection_active,
     planned_subtask_metrics,
     inspect_scope_violation,
     HALT_REFUSAL_CAP,
@@ -290,6 +291,24 @@ _MACRO_ACTIONS = {"checkout_held_item": "auto",
 _GRAB_ACTIONS = {"extend_arm_until_grabbed",
                  "extend_arm_until_grabbed_left",
                  "extend_arm_until_grabbed_right"}
+_INSPECT_HELD_ACTIONS = {
+    "present_left_item_for_inspection", "present_right_item_for_inspection",
+    "reset_left_hand_after_inspection", "reset_right_hand_after_inspection",
+    "extend_left_hand_forward", "extend_right_hand_forward",
+    "pull_left_hand_backward", "pull_right_hand_backward",
+    "raise_left_hand", "raise_right_hand", "lower_left_hand", "lower_right_hand",
+    "rotate_left_clockwise", "rotate_left_counterclockwise",
+    "rotate_right_clockwise", "rotate_right_counterclockwise",
+}
+_INSPECT_VISUAL_ACTIONS = {
+    "pan_left", "pan_right", "tilt_up", "tilt_down", "center_object_on_screen",
+}
+_INSPECT_ACTION_SIDE = {
+    action: side
+    for action in _INSPECT_HELD_ACTIONS
+    for side in ("left", "right")
+    if f"_{side}_" in f"_{action}_"
+}
 
 
 def _grab_ready(state):
@@ -356,7 +375,8 @@ def parse_actor_response(text: str, pattern) -> dict:
 
 
 def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None,
-                    mode: str = None, debug_dir: str = None, agent=None, leg_type: str = None) -> dict:
+                    mode: str = None, debug_dir: str = None, agent=None, leg_type: str = None,
+                    state: dict = None) -> dict:
     """Execute one action. Returns a result dict; grab actions include a 'gripped' key, and the
     checkout macro returns its {scanned, placed, ...} verdict (surfaced by run_leg as `last_checkout`).
 
@@ -371,6 +391,35 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         item). A wrong-mode emit blocks and the router flips to manipulation next step.
 
     `leg_type=None` disables the leg gate (eval_pickup, which has no legs, calls it that way)."""
+    if leg_type == "inspect":
+        inspect_state = state
+        if not isinstance(inspect_state, dict):
+            try:
+                inspect_state = TransformHands(
+                    (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+            except Exception:
+                inspect_state = {}
+        held = bool(inspect_state.get("leftGrippedState")
+                    or inspect_state.get("rightGrippedState"))
+        allowed = _INSPECT_HELD_ACTIONS if held else _INSPECT_VISUAL_ACTIONS
+        if action not in allowed:
+            reason = (
+                f"{action} is outside inspect scope: "
+                + ("a held-item inspect leg allows only presentation, safe hand repositioning, "
+                   "rotation, and hand reset"
+                   if held else
+                   "an unheld inspect leg allows only camera pan/tilt and visual centering")
+            )
+            print(f"[BLOCKED] {reason}.")
+            return {"blocked": True, "executed": False, "reason": reason,
+                    "inspect_scope_violation": True}
+        if held:
+            side = _INSPECT_ACTION_SIDE.get(action)
+            if side and not inspect_state.get(f"{side}GrippedState"):
+                reason = f"the {side} hand is empty; {action} requires a held item"
+                print(f"[BLOCKED] {reason}.")
+                return {"blocked": True, "executed": False, "reason": reason}
+
     if action in _MACRO_ACTIONS and leg_type is not None and leg_type != "checkout":
         print(f"[BLOCKED] '{action}' belongs to the *checkout* subtask, not this "
               f"'{leg_type}' leg. If the CURRENT GOAL is complete, choose STOP to hand off.")
@@ -593,8 +642,8 @@ def _off_target(sm, leg, near_cp) -> bool:
     return min(dists) > _AT_TARGET_HOP_MARGIN
 
 
-def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
-            visited=None, leg_idx=0, completion_guard="deterministic"):
+def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
+                  visited=None, leg_idx=0, completion_guard="deterministic"):
     """Run ONE typed subtask leg as a self-contained embodied-agent loop - eval_pickup.run_one
     generalised for a leg of a long-horizon task (see the module docstring for the three differences).
 
@@ -618,6 +667,14 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
              "them, and do not check out an item unless THIS goal is the checkout.)"]
     parts.append(f"CONTEXT FROM PREVIOUS SUBTASKS:\n{context}" if context
                  else "CONTEXT FROM PREVIOUS SUBTASKS: None — this is the first subtask.")
+    if leg.get("type") == "inspect":
+        parts.append(
+            "INSPECTING FOR EXPIRATION/INGREDIENTS: the expiration date is printed somewhere on "
+            "the item's surface, format DD/MM/YY. If an item is already held, present and safely "
+            "reposition that held item until the date or ingredient list is visible. Never grab, "
+            "release, check out, or navigate during this inspect leg. If no item is held, use only "
+            "camera pan/tilt and visual centering."
+        )
     if future_legs:
         numbered = "\n".join(f"  {i+1}. {s.get('text') if isinstance(s, dict) else s}"
                              for i, s in enumerate(future_legs))
@@ -804,10 +861,19 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
                      if leg.get("type") in _LOCATION_GATED_TYPES else [])
         state["target_checkpoints"] = gated_cps or None
         off_target = _off_target(sm, leg, state.get("nearest_checkpoint"))
+        # Held-item inspection is reevaluated from live grip state every timestep. It ends
+        # immediately when both hands are empty or this runner moves to a different leg.
+        force_manipulate = held_item_inspection_active(leg, state)
+        inspect_mode = (
+            ("held" if force_manipulate else "visual")
+            if leg.get("type") == "inspect" else None
+        )
         if off_target:
             print(f"[GATE] off-target: at cp{state.get('nearest_checkpoint')}, target at "
                   f"{gated_cps} — forcing navigation this step.")
         request = {"task": augmented_task, "nav_goal": leg_text, "force_navigate": off_target,
+                   "force_manipulate": force_manipulate,
+                   "inspect_mode": inspect_mode,
                    "image": imageb64, "state": _model_facing_state(state)}
 
         try:
@@ -964,16 +1030,10 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
             eff_mode, promoted = mode, False
             if raw_action in _GRAB_ACTIONS and mode not in (None, "manipulation") and _grab_ready(state):
                 eff_mode, promoted = "manipulation", True
-            scope_pre_state = None
-            if leg.get("type") == "inspect":
-                if (raw_action in _GRAB_ACTIONS or raw_action in ("grip_left", "grip_right")
-                        or raw_action in _MACRO_ACTIONS):
-                    try:
-                        scope_pre_state = _fresh_agent_state()
-                    except Exception:  # noqa: BLE001 - auditing must never block normal dispatch
-                        scope_pre_state = state
+            scope_pre_state = state if leg.get("type") == "inspect" else None
             res = dispatch_action(raw_action, int(tt), notes, inline_arg=inline, mode=eff_mode,
-                                  debug_dir=step_center, agent=agent, leg_type=leg.get("type")) or {}
+                                  debug_dir=step_center, agent=agent, leg_type=leg.get("type"),
+                                  state=state) or {}
             if scope_pre_state is not None:
                 scope_event = inspect_scope_violation(raw_action, step, scope_pre_state, res)
                 if scope_event:
@@ -1106,6 +1166,58 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
     if log_fh:
         log_fh.close()
     return m
+
+
+def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
+            visited=None, leg_idx=0, completion_guard="deterministic"):
+    """Run a leg and unconditionally restore canonical hand transforms after inspection.
+
+    Cleanup deliberately lives outside the main loop so it covers granted STOP, completion
+    backstops, caps, repeated errors, retries, and exceptions without changing their original result.
+    """
+    typed_leg = leg if isinstance(leg, dict) else {"type": "unknown", "text": str(leg)}
+    result = None
+    try:
+        result = _run_leg_impl(
+            agent, leg, sm, caps, log_path=log_path, context=context,
+            future_legs=future_legs, visited=visited, leg_idx=leg_idx,
+            completion_guard=completion_guard)
+        return result
+    finally:
+        if typed_leg.get("type") == "inspect":
+            cleanup = None
+            try:
+                cleanup = agent._restore_hands_after_inspection()
+                if not cleanup.get("restored"):
+                    agent._hand_pose = None
+                if result is not None and cleanup.get("restored"):
+                    refreshed = _fresh_agent_state()
+                    prior = result.get("final_state") or {}
+                    prior.update(refreshed)
+                    result["final_state"] = prior
+            except Exception as cleanup_error:  # noqa: BLE001 - never mask the leg result/error
+                try:
+                    agent._hand_pose = None
+                except Exception:
+                    pass
+                cleanup = {
+                    "restored": False,
+                    "error": f"{type(cleanup_error).__name__}: {cleanup_error}",
+                }
+                print(f"[WARN] inspect cleanup failed: {cleanup['error']}")
+            if result is not None:
+                result["inspection_cleanup"] = cleanup
+            if log_path:
+                try:
+                    with open(log_path, "a", encoding="utf-8") as cleanup_log:
+                        cleanup_log.write(json.dumps({
+                            "event": "inspect_cleanup",
+                            "leg": leg_idx,
+                            **(cleanup or {"restored": False}),
+                        }, ensure_ascii=False, default=str) + "\n")
+                except Exception as log_error:  # noqa: BLE001 - logging cannot mask the leg outcome
+                    print(f"[WARN] could not log inspect cleanup: "
+                          f"{type(log_error).__name__}: {log_error}")
 
 
 # ---------------------------------------------------------------------------

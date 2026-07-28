@@ -1,0 +1,105 @@
+"""Offline coverage for inspect-leg cleanup on every runner exit path."""
+import os
+import sys
+
+import pytest
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from orchestrator import subtask_agents as SA
+
+
+class FakeAgent:
+    def __init__(self, cleanup=None, error=None):
+        self._hand_pose = None
+        self.cleanup = cleanup or {"restored": True, "hands": {}}
+        self.error = error
+        self.calls = 0
+
+    def _restore_hands_after_inspection(self):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        self._hand_pose = "rest" if self.cleanup["restored"] else None
+        return self.cleanup
+
+
+@pytest.fixture
+def runner_stubs(monkeypatch):
+    monkeypatch.setattr(
+        SA, "_fresh_agent_state",
+        lambda: {
+            "leftTranslation": ("rest", "left"),
+            "rightTranslation": ("rest", "right"),
+            "leftRotation": (0, 0, 0),
+            "rightRotation": (0, 0, 0),
+            "leftGrippedState": True,
+            "rightGrippedState": False,
+        })
+
+
+@pytest.mark.parametrize("end_reason", [
+    "halt_granted", "completed_no_stop", "step_cap", "time_cap", "errors", "halt_forced",
+])
+def test_all_normal_inspect_exits_restore_and_refresh_final_state(
+        monkeypatch, runner_stubs, end_reason):
+    result = {
+        "end_reason": end_reason,
+        "final_state": {
+            "leftTranslation": ("displaced",),
+            "leftRotation": (0, 90, 0),
+            "sticky_metric": "preserved",
+        },
+    }
+    monkeypatch.setattr(SA, "_run_leg_impl", lambda *args, **kwargs: result)
+    agent = FakeAgent()
+
+    returned = SA.run_leg(agent, {"type": "inspect"}, None, (1, 1))
+
+    assert returned is result
+    assert agent.calls == 1
+    assert agent._hand_pose == "rest"
+    assert returned["inspection_cleanup"]["restored"] is True
+    assert returned["final_state"]["leftTranslation"] == ("rest", "left")
+    assert returned["final_state"]["leftRotation"] == (0, 0, 0)
+    assert returned["final_state"]["leftGrippedState"] is True
+    assert returned["final_state"]["sticky_metric"] == "preserved"
+
+
+def test_thrown_exception_attempts_cleanup_and_preserves_original_error(monkeypatch, runner_stubs):
+    def fail(*args, **kwargs):
+        raise RuntimeError("original leg failure")
+
+    monkeypatch.setattr(SA, "_run_leg_impl", fail)
+    agent = FakeAgent()
+
+    with pytest.raises(RuntimeError, match="original leg failure"):
+        SA.run_leg(agent, {"type": "inspect"}, None, (1, 1))
+    assert agent.calls == 1
+    assert agent._hand_pose == "rest"
+
+
+def test_cleanup_failure_does_not_mask_result_and_leaves_pose_unknown(monkeypatch, runner_stubs):
+    result = {"end_reason": "step_cap", "final_state": {"leftRotation": (0, 90, 0)}}
+    monkeypatch.setattr(SA, "_run_leg_impl", lambda *args, **kwargs: result)
+    agent = FakeAgent(error=ValueError("transform stalled"))
+    agent._hand_pose = "inspection"
+
+    returned = SA.run_leg(agent, {"type": "inspect"}, None, (1, 1))
+
+    assert returned is result
+    assert returned["end_reason"] == "step_cap"
+    assert returned["inspection_cleanup"]["restored"] is False
+    assert "transform stalled" in returned["inspection_cleanup"]["error"]
+    assert agent._hand_pose is None
+
+
+def test_non_inspect_leg_does_not_run_cleanup(monkeypatch, runner_stubs):
+    result = {"end_reason": "halt_granted", "final_state": {}}
+    monkeypatch.setattr(SA, "_run_leg_impl", lambda *args, **kwargs: result)
+    agent = FakeAgent()
+
+    assert SA.run_leg(agent, {"type": "pickup"}, None, (1, 1)) is result
+    assert agent.calls == 0

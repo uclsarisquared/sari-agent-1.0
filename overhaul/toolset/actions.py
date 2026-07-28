@@ -36,7 +36,13 @@ from vision.perception import (
 # grab_item_in_view_* (md_tools) drove the sim's ReachAtPixel command, which is NOT implemented in
 # SariSandboxMY - it hits the `default: Unknown command` branch. Temporarily de-wired in favour of
 # extend_arm_until_grabbed (manipulation.py), which grabs using only commands the sim handles.
-from manip.manipulation import extend_arm_until_grabbed
+from manip.manipulation import (
+    extend_arm_until_grabbed,
+    present_left_item_for_inspection,
+    present_right_item_for_inspection,
+    reset_left_hand_after_inspection,
+    reset_right_hand_after_inspection,
+)
 
 
 # Dual-hand variants (2026-07-23): the bare action auto-selects a FREE hand (left preferred, right
@@ -68,6 +74,10 @@ PERCEPTION_ACTIONS_REF = {
 }
 
 MANIPULATION_ACTIONS_REF = {
+    'present_left_item_for_inspection': present_left_item_for_inspection,
+    'present_right_item_for_inspection': present_right_item_for_inspection,
+    'reset_left_hand_after_inspection': reset_left_hand_after_inspection,
+    'reset_right_hand_after_inspection': reset_right_hand_after_inspection,
     'extend_left_hand_forward': extend_left_hand_forward,
     'extend_right_hand_forward': extend_right_hand_forward,
     'pull_left_hand_backward': pull_left_hand_backward,

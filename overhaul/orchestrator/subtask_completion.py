@@ -780,6 +780,16 @@ def reported_inspection_answer(response: dict) -> str:
     return answer.strip() if isinstance(answer, str) else ""
 
 
+def held_item_inspection_active(sub: dict, state: dict) -> bool:
+    """Whether this timestep may expose the constrained held-item inspection controls."""
+    return bool(
+        isinstance(sub, dict)
+        and sub.get("type") == "inspect"
+        and isinstance(state, dict)
+        and (state.get("leftGrippedState") or state.get("rightGrippedState"))
+    )
+
+
 def planned_subtask_metrics(legs) -> dict:
     """Stable planned-leg vocabulary counts plus the unknown-leg adoption rate."""
     counts = {t: 0 for t in (*SUBTASK_TYPES, "unknown")}
@@ -795,8 +805,11 @@ def planned_subtask_metrics(legs) -> dict:
 
 def inspect_scope_violation(action: str, step: int, pre_action_state: dict,
                             dispatch_result: dict) -> dict:
-    """Build the audit event for an inspect-leg manipulation attempt, or return ``None``."""
+    """Build an audit event for a hard-blocked inspect-scope violation, or return ``None``."""
     action = str(action or "")
+    result = dispatch_result or {}
+    if not result.get("inspect_scope_violation"):
+        return None
     grabs = {"extend_arm_until_grabbed", "extend_arm_until_grabbed_left",
              "extend_arm_until_grabbed_right"}
     macros = {"checkout_held_item", "checkout_held_item_left", "checkout_held_item_right"}
@@ -808,16 +821,18 @@ def inspect_scope_violation(action: str, step: int, pre_action_state: dict,
                 if pre_action_state.get(f"{side}GrippedState") else "grip_or_grab")
     elif action in macros:
         kind = "checkout_macro"
+    elif action in {"move_forward", "move_backward", "move_left", "move_right"}:
+        kind = "body_translation"
     else:
-        return None
-    blocked = bool((dispatch_result or {}).get("blocked"))
+        kind = "disallowed_action"
     return {
         "event": "inspect_scope_violation",
         "step": step,
         "action": action,
         "kind": kind,
-        "blocked": blocked,
-        "executed": not blocked,
+        "blocked": True,
+        "executed": False,
+        "reason": result.get("reason"),
         "pre_action_grip_state": {
             "left": bool(pre_action_state.get("leftGrippedState")),
             "right": bool(pre_action_state.get("rightGrippedState")),

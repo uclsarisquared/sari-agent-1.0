@@ -102,7 +102,8 @@ REST_POSE = (-0.213, -0.09, 0.26)  # LEFT-hand out-of-frame resting pose: naviga
                                    # Right hand rests at (+0.213, -0.09, 0.26) via pose_for_hand.
 GRAB_POSE = (-0.01, 0.006, 0.33)   # LEFT-hand centred forward "ready to grab" pose - TOOL-INTERNAL
                                    # (see below). Right hand: (+0.01, 0.006, 0.33) via pose_for_hand.
-_NAMED_POSES = {"rest": REST_POSE, "grab": GRAB_POSE}
+INSPECTION_POSE = (-0.01, 0.006, 0.33)  # Separately tunable held-item presentation calibration.
+_NAMED_POSES = {"rest": REST_POSE, "grab": GRAB_POSE, "inspection": INSPECTION_POSE}
 
 
 def pose_for_hand(pose, hand):
@@ -115,6 +116,8 @@ def pose_for_hand(pose, hand):
     return target
 _HAND_MOVE_RANGE = 0.5   # Unity clamps each TransformHands delta component here (TranslateHand, ~656)
 _POSE_TOL = 0.012        # m; "arrived" once the reported translation is within this of the target
+_ROT_STEP_DEG = 15.0
+_ROT_TOL_DEG = 1.0
 
 
 def _vlen(v):
@@ -153,6 +156,89 @@ def set_hand_pose(pose, hand="left", max_iters=5):
             cur = TransformHands((0, 0, 0), (0, 0, 0), d, (0, 0, 0))[tkey]
     resid = _vlen([target[k] - cur[k] for k in range(3)])
     return resid <= _POSE_TOL, cur, resid
+
+
+def _shortest_angle_delta(target, current):
+    """Signed target-current delta in [-180, 180), including wrapped simulator Euler values."""
+    return (float(target) - float(current) + 180.0) % 360.0 - 180.0
+
+
+def set_hand_transform(pose, rotation=(0, 0, 0), hand="left", max_iters=30):
+    """Closed-loop translation + Euler drive for inspection presentation/restoration.
+
+    Rotation residuals follow the shortest wrapped path and each TransformHands call is bounded to
+    15 degrees per Euler component. This helper never toggles either grip.
+    Returns ``(arrived, state, translation_residual, rotation_residual)``.
+    """
+    hand = str(hand).lower()
+    if hand not in ("left", "right"):
+        raise ValueError("hand must be 'left' or 'right'")
+    target_translation = pose_for_hand(pose, hand)
+    target_rotation = tuple(float(v) for v in rotation)
+    tkey = f"{hand}Translation"
+    rkey = f"{hand}Rotation"
+    state = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+
+    for _ in range(max_iters):
+        cur_t = state[tkey]
+        cur_r = state[rkey]
+        terr = tuple(target_translation[k] - cur_t[k] for k in range(3))
+        rerr = tuple(_shortest_angle_delta(target_rotation[k], cur_r[k]) for k in range(3))
+        tresid, rresid = _vlen(terr), max(abs(v) for v in rerr)
+        if tresid <= _POSE_TOL and rresid <= _ROT_TOL_DEG:
+            return True, state, tresid, rresid
+
+        clamp = _HAND_MOVE_RANGE - 1e-3
+        td = tuple(max(-clamp, min(clamp, v)) for v in terr)
+        rd = tuple(max(-_ROT_STEP_DEG, min(_ROT_STEP_DEG, v)) for v in rerr)
+        zero = (0, 0, 0)
+        if hand == "left":
+            state = TransformHands(td, rd, zero, zero)
+        else:
+            state = TransformHands(zero, zero, td, rd)
+
+    cur_t, cur_r = state[tkey], state[rkey]
+    tresid = _vlen(tuple(target_translation[k] - cur_t[k] for k in range(3)))
+    rresid = max(abs(_shortest_angle_delta(target_rotation[k], cur_r[k])) for k in range(3))
+    return tresid <= _POSE_TOL and rresid <= _ROT_TOL_DEG, state, tresid, rresid
+
+
+def _inspection_transform(hand, pose):
+    hand = str(hand).lower()
+    grips = hand_grip_states()
+    if hand not in grips:
+        return {"blocked": True, "executed": False, "reason": "hand must be 'left' or 'right'"}
+    if not grips[hand]:
+        return {"blocked": True, "executed": False,
+                "reason": f"the {hand} hand is empty; inspection actions require a held item"}
+    arrived, state, tresid, rresid = set_hand_transform(pose, (0, 0, 0), hand=hand)
+    return {
+        "blocked": not arrived,
+        "executed": True,
+        "hand": hand,
+        "arrived": arrived,
+        "translation": state.get(f"{hand}Translation"),
+        "rotation": state.get(f"{hand}Rotation"),
+        "translation_residual": tresid,
+        "rotation_residual": rresid,
+        **({} if arrived else {"reason": f"{hand} hand transform did not converge"}),
+    }
+
+
+def present_left_item_for_inspection(times=1):
+    return _inspection_transform("left", "inspection")
+
+
+def present_right_item_for_inspection(times=1):
+    return _inspection_transform("right", "inspection")
+
+
+def reset_left_hand_after_inspection(times=1):
+    return _inspection_transform("left", "rest")
+
+
+def reset_right_hand_after_inspection(times=1):
+    return _inspection_transform("right", "rest")
 
 
 # ===== Dual-hand selection policy (2026-07-23) ==================================================

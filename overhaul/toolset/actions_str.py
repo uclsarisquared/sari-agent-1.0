@@ -56,4 +56,25 @@ MANIPULATION_ACTIONS = (
     "checkout_held_item_right: Same as checkout_held_item but forces the RIGHT hand's item; refused if the right hand is empty.\n"
 )
 
+# Held-item inspection has a deliberately closed vocabulary. Presentation owns horizontal centring;
+# no lateral hand nudges, camera actions, grip changes, grabs, checkout, or body motion are exposed.
+INSPECTION_ACTIONS = (
+    "present_left_item_for_inspection: Move the held LEFT item to the calibrated centred inspection pose and normalize its rotation (times is ignored).\n"
+    "present_right_item_for_inspection: Move the held RIGHT item to the mirrored calibrated centred inspection pose and normalize its rotation (times is ignored).\n"
+    "reset_left_hand_after_inspection: Return the held LEFT item to REST and normalize its rotation (times is ignored).\n"
+    "reset_right_hand_after_inspection: Return the held RIGHT item to REST and normalize its rotation (times is ignored).\n"
+    "extend_left_hand_forward: Extend the held left item forward 0.025 meters per step.\n"
+    "extend_right_hand_forward: Extend the held right item forward 0.025 meters per step.\n"
+    "pull_left_hand_backward: Pull the held left item backward 0.025 meters per step.\n"
+    "pull_right_hand_backward: Pull the held right item backward 0.025 meters per step.\n"
+    "raise_left_hand: Raise the held left item 0.025 meters per step.\n"
+    "raise_right_hand: Raise the held right item 0.025 meters per step.\n"
+    "lower_left_hand: Lower the held left item 0.025 meters per step.\n"
+    "lower_right_hand: Lower the held right item 0.025 meters per step.\n"
+    "rotate_left_clockwise: Rotate left hand clockwise 15 degrees per step.\n"
+    "rotate_left_counterclockwise: Rotate left hand counterclockwise 15 degrees per step.\n"
+    "rotate_right_clockwise: Rotate right hand clockwise 15 degrees per step.\n"
+    "rotate_right_counterclockwise: Rotate right hand counterclockwise 15 degrees per step.\n"
+)
+
 ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS

@@ -29,6 +29,7 @@ from toolset.actions_str import (
     NAVIGATION_ACTIONS,
     PERCEPTION_ACTIONS,
     MANIPULATION_ACTIONS,
+    INSPECTION_ACTIONS,
 )
 
 def _extract_json(pattern, text: str) -> str:
@@ -83,6 +84,41 @@ def _stop_response(semantic_response: dict, semantic_response_text: str) -> dict
         "reported_answer": answer if isinstance(answer, str) else "",
         "semantic": semantic_response_text,
     }
+
+
+def _resolve_agent_mode(agent_mode: str, force_navigate: bool = False,
+                        force_manipulate: bool = False, inspect_mode: str = None) -> str:
+    """Apply orchestrator mode overrides without changing the learner's classifier prompt.
+
+    STOP is always preserved. Inspect mode is a hard leg-scope route (held -> manipulation,
+    unheld -> perception) and therefore cannot enter navigation; outside inspection, the graph
+    location gate wins defensively if both legacy overrides are supplied.
+    """
+    if agent_mode == "STOP":
+        return agent_mode
+    if inspect_mode == "held":
+        return "manipulation"
+    if inspect_mode == "visual":
+        return "perception"
+    if force_navigate:
+        return ("navigation"
+                if agent_mode in ("perception", "manipulation")
+                else agent_mode)
+    if force_manipulate and agent_mode == "perception":
+        return "manipulation"
+    return agent_mode
+
+
+def _available_actions(agent_mode: str, held_item_inspection: bool = False) -> str:
+    """Return the actor vocabulary for the effective mode."""
+    if agent_mode == "perception":
+        return f"{PERCEPTION_ACTIONS}\n\n"
+    if agent_mode == "navigation":
+        return f"{NAVIGATION_ACTIONS}\n\n"
+    if agent_mode == "manipulation":
+        actions = INSPECTION_ACTIONS if held_item_inspection else MANIPULATION_ACTIONS
+        return f"{actions}\n\n"
+    raise ValueError(f"unsupported agent mode: {agent_mode!r}")
 
 
 # The episodic reflector emits the same single-quoted Python-literal dict as the learner, so it has
@@ -497,6 +533,36 @@ class EmbodiedAgent:
         self._set_hands(True)
         self._hand_pose = None
 
+    def _restore_hands_after_inspection(self):
+        """Restore both hands to canonical REST translation/rotation without changing either grip.
+
+        The pose tracker is updated only when both closed-loop transforms converge. Callers use this
+        from inspect-leg cleanup, including exceptional exits.
+        """
+        self._set_hands(True)
+        self._hand_pose = None
+        from manip.manipulation import set_hand_transform
+        results = {}
+        all_arrived = True
+        for side in ("left", "right"):
+            arrived, state, tresid, rresid = set_hand_transform(
+                "rest", (0, 0, 0), hand=side)
+            results[side] = {
+                "arrived": arrived,
+                "translation": state.get(f"{side}Translation"),
+                "rotation": state.get(f"{side}Rotation"),
+                "translation_residual": tresid,
+                "rotation_residual": rresid,
+            }
+            all_arrived = all_arrived and arrived
+            if not arrived:
+                logger.warning(
+                    f"[inspect-cleanup] {side} hand did not converge "
+                    f"(translation residual={tresid:.3f} m, rotation residual={rresid:.1f} deg)")
+        if all_arrived:
+            self._hand_pose = "rest"
+        return {"restored": all_arrived, "hands": results}
+
     # ---- Phase 4.2 graph-navigation dispatcher -------------------------------------------
 
     def _graph_nav_session(self):
@@ -874,17 +940,17 @@ class EmbodiedAgent:
             # Soft .get: an older learner reply without the field just omits the line below.
             next_action = semantic_response.get('next_action')
 
-            # Location gate (2026-07-24): run_leg sets force_navigate when the graph says the agent is
-            # not yet at the target's checkpoint(s). The graph owns spatial truth, so OVERRIDE a router
-            # that hallucinated the target onto whatever is in front of it (e.g. a just-checked-out item
-            # on the counter) and chose perception/manipulation to grab in place. Force *navigation*, and
-            # drop any stale MOVE verdict so the nav branch drives a candidate HOP to the shelf instead
-            # of a metric creep that inches against the wrong fixture forever.
-            if request.get('force_navigate'):
-                if agent_mode in ("perception", "manipulation"):
-                    agent_mode = "navigation"
-                if agent_mode == "navigation":
-                    reach_move_steps = None
+            # Orchestrator overrides leave STOP/navigation alone. The graph location gate takes
+            # precedence; otherwise an inspect leg with an already-held item may promote perception
+            # to manipulation so the actor can choose a safe reorientation.
+            force_navigate = bool(request.get('force_navigate'))
+            force_manipulate = bool(request.get('force_manipulate'))
+            inspect_mode = request.get("inspect_mode")
+            agent_mode = _resolve_agent_mode(
+                agent_mode, force_navigate, force_manipulate, inspect_mode=inspect_mode)
+            if force_navigate and agent_mode == "navigation":
+                # Drop a stale MOVE verdict so forced navigation performs a candidate hop.
+                reach_move_steps = None
 
             nav_note = ""
             if agent_mode == "navigation" and self.nav_mode in ("graph", "graph-advised"):
@@ -911,14 +977,12 @@ class EmbodiedAgent:
             else:
                 self._set_hand_pose("rest")
 
-            if agent_mode == "perception":
-                available_actions = f"{PERCEPTION_ACTIONS}\n\n"
-            elif agent_mode == "navigation":
-                available_actions = f"{NAVIGATION_ACTIONS}\n\n"
-            elif agent_mode == "manipulation":
-                available_actions = f"{MANIPULATION_ACTIONS}\n\n"
-            elif agent_mode == "STOP":
+            if agent_mode == "STOP":
                 return _stop_response(semantic_response, semantic_response_text)
+            available_actions = _available_actions(
+                agent_mode,
+                held_item_inspection=(inspect_mode == "held" and agent_mode == "manipulation"),
+            )
 
             self.vlm_agent.base_semantic_memory += f"{self._semantic_tag(timestep)}: {new_semantic_memory}\n"
 
@@ -978,15 +1042,15 @@ class EmbodiedAgent:
             self.vlm_agent.base_semantic_memory += f"{self._semantic_tag(timestep)}: {new_semantic_memory}\n"
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
 
-            # Location gate (2026-07-24): see the timestep==1 branch above. run_leg's force_navigate
-            # lets the graph override a router that put the target where the agent already stands and
-            # chose perception/manipulation; force *navigation* and drop the stale MOVE verdict so the
-            # nav branch does a candidate HOP to the shelf, not a metric creep in place.
-            if request.get('force_navigate'):
-                if agent_mode in ("perception", "manipulation"):
-                    agent_mode = "navigation"
-                if agent_mode == "navigation":
-                    reach_move_steps = None
+            # Same override resolution as timestep 1. Keeping this after the unchanged learner call
+            # means the mode-classifier prompt and response contract are untouched.
+            force_navigate = bool(request.get('force_navigate'))
+            force_manipulate = bool(request.get('force_manipulate'))
+            inspect_mode = request.get("inspect_mode")
+            agent_mode = _resolve_agent_mode(
+                agent_mode, force_navigate, force_manipulate, inspect_mode=inspect_mode)
+            if force_navigate and agent_mode == "navigation":
+                reach_move_steps = None
 
             nav_note = ""
             if agent_mode == "navigation" and self.nav_mode in ("graph", "graph-advised"):
@@ -1013,14 +1077,12 @@ class EmbodiedAgent:
             else:
                 self._set_hand_pose("rest")
 
-            if agent_mode == "perception":
-                available_actions = f"{PERCEPTION_ACTIONS}\n\n"
-            elif agent_mode == "navigation":
-                available_actions = f"{NAVIGATION_ACTIONS}\n\n"
-            elif agent_mode == "manipulation":
-                available_actions = f"{MANIPULATION_ACTIONS}\n\n"
-            elif agent_mode == "STOP":
+            if agent_mode == "STOP":
                 return _stop_response(semantic_response, semantic_response_text)
+            available_actions = _available_actions(
+                agent_mode,
+                held_item_inspection=(inspect_mode == "held" and agent_mode == "manipulation"),
+            )
 
             next_action_line = (f"## THIS STEP'S INTENDED ACTION: {next_action}\n"
                                 if next_action and not nav_note else "")

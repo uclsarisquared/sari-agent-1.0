@@ -30,6 +30,7 @@ from orchestrator.subtask_completion import (
     mismatched_hands,
     predicate_inspect,
     reported_inspection_answer,
+    held_item_inspection_active,
     planned_subtask_metrics,
     inspect_scope_violation,
     SUBTASK_TYPES,
@@ -246,17 +247,31 @@ def test_planned_subtask_metrics_count_inspect_unknown_and_rate():
     assert metrics["unknown_subtask_rate"] == 0.5
 
 
-def test_inspect_scope_violation_audits_grab_release_and_checkout_without_blocking():
+def test_inspect_scope_violation_records_only_hard_blocked_attempts_as_unexecuted():
     empty = _state()
     held = _state(leftGrippedState=True)
-    grab = inspect_scope_violation("extend_arm_until_grabbed", 3, empty, {})
-    release = inspect_scope_violation("grip_left", 4, held, {})
-    checkout = inspect_scope_violation("checkout_held_item", 5, held, {"blocked": True})
-    assert grab["kind"] == "grip_or_grab" and grab["executed"] is True
+    blocked = {"blocked": True, "executed": False, "inspect_scope_violation": True,
+               "reason": "outside inspect scope"}
+    grab = inspect_scope_violation("extend_arm_until_grabbed", 3, empty, blocked)
+    release = inspect_scope_violation("grip_left", 4, held, blocked)
+    checkout = inspect_scope_violation("checkout_held_item", 5, held, blocked)
+    body = inspect_scope_violation("move_forward", 6, held, blocked)
+    assert grab["kind"] == "grip_or_grab" and grab["executed"] is False
     assert release["kind"] == "grip_toggle_release"
     assert release["pre_action_grip_state"]["left"] is True
     assert checkout["kind"] == "checkout_macro" and checkout["blocked"] is True
+    assert body["kind"] == "body_translation" and body["executed"] is False
     assert inspect_scope_violation("turn_left", 6, empty, {}) is None
+    assert inspect_scope_violation("rotate_left_clockwise", 7, held, {}) is None
+
+
+def test_held_item_inspection_force_tracks_both_hands_and_empty_state():
+    inspect = {"type": "inspect"}
+    assert held_item_inspection_active(inspect, _state(leftGrippedState=True)) is True
+    assert held_item_inspection_active(inspect, _state(rightGrippedState=True)) is True
+    assert held_item_inspection_active(inspect, _state()) is False
+    assert held_item_inspection_active(
+        {"type": "pickup"}, _state(leftGrippedState=True)) is False
 
 
 # --- name_overlap ----------------------------------------------------------

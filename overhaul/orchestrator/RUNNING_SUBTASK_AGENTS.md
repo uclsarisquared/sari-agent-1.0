@@ -73,7 +73,10 @@ python orchestrator/subtask_agents.py --task "..." --reset-start
   the failure reason in context.
 - **Inspection is read-only and fail-closed:** an `inspect` leg must report a non-empty
   answer that the image-bound VLM guard conclusively verifies against the actor's frame.
-  Grip/grab, release-toggle, and checkout attempts are logged as scope violations.
+  An item that is already held may be presented, moved forward/back or up/down, and rotated
+  to expose another face; these controls never change grip state. Every inspect exit restores
+  both hands to canonical REST position and rotation. Grip/grab, release-toggle, checkout, and
+  body-translation attempts are blocked and logged as scope violations.
 - **Outputs:** per-leg JSONL logs, per-step screenshots and full agent output under the
   run dir, plus `summary.json` with per-leg metrics (`end_reason`, timings, LLM calls),
   planned type counts, and `unknown_subtask_rate`.
