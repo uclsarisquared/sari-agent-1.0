@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import time
 import websockets
@@ -61,6 +62,13 @@ def init_logger(run_name: str, directory: str = "logs"):
         format='{time:YYYY-MM-DD HH:mm:ss} {level: <8} {message}',
         rotation=None,
         retention=None
+    )
+    # Also mirror to stdout so sari_bench's watch UI (which tails the agent's
+    # captured stdout/stderr into agent.log, not runtime.log) sees these too.
+    logger.add(
+        sys.stdout,
+        level='INFO',
+        format='{time:YYYY-MM-DD HH:mm:ss} {level: <8} {message}',
     )
     logger.info(f"=== STARTING NEW RUN: {run_name} ===")
     return logger

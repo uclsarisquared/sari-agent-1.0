@@ -219,14 +219,27 @@ def _is_transient_api_error(error: Exception) -> bool:
 
 
 def call_with_api_retries(operation):
-    """Quietly retry transient OpenAI failures, re-raising the final error after ten attempts."""
+    """Retry transient OpenAI failures, logging every attempt, and re-raise the final error after ten attempts."""
     for attempt in range(API_MAX_ATTEMPTS):
         try:
-            return operation()
+            result = operation()
+            if attempt > 0:
+                logger.info(f"[api-retry] attempt {attempt + 1}/{API_MAX_ATTEMPTS} succeeded")
+            return result
         except Exception as error:
+            remaining = API_MAX_ATTEMPTS - (attempt + 1)
             if not _is_transient_api_error(error) or attempt + 1 == API_MAX_ATTEMPTS:
+                logger.error(
+                    f"[api-retry] attempt {attempt + 1}/{API_MAX_ATTEMPTS} failed "
+                    f"({type(error).__name__}: {error}); giving up, {remaining} tries left"
+                )
                 raise
-            time.sleep(API_RETRY_DELAYS[attempt])
+            delay = API_RETRY_DELAYS[attempt]
+            logger.warning(
+                f"[api-retry] attempt {attempt + 1}/{API_MAX_ATTEMPTS} failed "
+                f"({type(error).__name__}: {error}); retrying in {delay}s, {remaining} tries left"
+            )
+            time.sleep(delay)
 
 
 class BaseAgent(ABC):
