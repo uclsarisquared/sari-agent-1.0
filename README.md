@@ -94,7 +94,7 @@ at all (`REPLICATE_API_TOKEN`).
 | | Backend | Why |
 |---|---|---|
 | **Annotator** (offline, pipeline step 5) | `claude -p`, Sonnet, medium effort — pinned | Annotation quality is measured and frozen on Sonnet |
-| **Agent runtime** (per-step VLM calls) | UCL vLLM, `Qwen/Qwen3.6-27B` | Agent behaviour is measured on Qwen |
+| **Agent runtime** (per-step VLM calls) | OpenAI-compatible VLM endpoint | Agent behaviour is measured on `Qwen3.6-27B` |
 
 Also note `claude -p` bills a claude.ai subscription while the `anthropic` SDK path bills API
 credits — different accounts. Don't switch silently.
