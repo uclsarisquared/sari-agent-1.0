@@ -11,7 +11,7 @@ product catalog; this repo is the agent/mapping side.
 
 ## Quickstart
 
-One-time setup:
+### One-time setup
 
 ```bash
 uv sync
@@ -19,7 +19,8 @@ cp config.env.example config.env  # add OPENAI_API_URL and OPENAI_API_KEY
 ls overhaul/slamtest/output       # confirm the map artifacts exist
 ```
 
-Solo agent—start Unity in Play mode, then run these in separate terminals:
+### Solo agent
+Start Unity in Play mode, then run these in separate terminals:
 
 ```bash
 # Terminal 1
@@ -30,7 +31,8 @@ cd overhaul
 uv run python orchestrator/subtask_agents.py "find and pick up Pepero"
 ```
 
-Sari Bench battery—run in order:
+### Sari Bench battery
+Run in order:
 
 ```bash
 # Terminal 1
