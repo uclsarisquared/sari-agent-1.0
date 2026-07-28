@@ -28,7 +28,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
 from sari_bench import capture, video
@@ -76,6 +76,7 @@ class WatchState:
         coordinator_url: str | None = None,
         retry_agent_entry: str | None = None,
         retry_agent_cwd: Path | None = None,
+        retry_ocr_health_check: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self.bench_root = bench_root
         self.fixed_battery = fixed_battery
@@ -86,11 +87,15 @@ class WatchState:
         self.coordinator_url = coordinator_url
         self.retry_agent_entry = retry_agent_entry
         self.retry_agent_cwd = retry_agent_cwd
+        self.retry_ocr_health_check = retry_ocr_health_check
         self._lock = threading.Lock()
         self._notify_lock = threading.Lock()
         self._seeded = False
         self._cached: dict[str, Any] = {}
         self._cached_at = 0.0
+        # Read-only views of batteries this watcher is not the one following, one cache entry per
+        # battery id. A browser can look at any run on disk without moving what the server watches.
+        self._views: dict[str, tuple[float, dict[str, Any]]] = {}
         self._pool: list[dict[str, Any]] = []
         self._pool_error = ""
         self._announced_start = False
@@ -109,6 +114,65 @@ class WatchState:
         batteries = scan.find_batteries(self.bench_root)
         return batteries[0] if batteries else None
 
+    def battery_for(self, battery_id: str | None) -> Path | None:
+        """The battery one request is about, which need not be the one this watcher follows.
+
+        Matching is by directory name against what discovery found, never by joining the caller's
+        string onto a path: an id that names no battery on disk resolves to the watched one rather
+        than to somewhere else on the filesystem. `newest` asks for follow-the-fleet explicitly,
+        which is how a browser opts out of a `--run-dir` pin without restarting the server.
+        """
+        if not battery_id:
+            return self.resolve_battery()
+        batteries = scan.find_batteries(self.bench_root)
+        if battery_id == "newest":
+            return batteries[0] if batteries else None
+        for battery in batteries:
+            if battery.name == battery_id:
+                return battery
+        return self.resolve_battery()
+
+    def _invalidate_locked(self) -> None:
+        """Drops every cached payload. The caller must hold `self._lock`."""
+        self._cached_at = 0.0
+        self._views.clear()
+
+    def view(self, battery_id: str | None = None) -> dict[str, Any]:
+        """`/api/state` for one battery, which may not be the one being watched.
+
+        Looking at another run is a read: it must not move `self.battery`, and it must not hand the
+        notifier a battery whose finishes were all announced hours ago. So only the watched battery
+        goes through `snapshot`, and everything else is scanned into a cache of its own.
+        """
+        battery = self.battery_for(battery_id)
+        watched = self.resolve_battery()
+        if battery is None or battery == watched:
+            return self.snapshot()
+
+        # Announcements and replay renders are driven by this poll and nothing else, so reading
+        # another battery must not silence them: the watched snapshot is still rebuilt for its side
+        # effects, and only its payload is discarded. That is one extra scan per poll, which is the
+        # price of a reviewer reading yesterday's run while today's is halfway through.
+        self.snapshot()
+
+        with self._lock:
+            now = time.time()
+            cached_at, cached = self._views.get(battery.name, (0.0, {}))
+            if cached and now - cached_at < self.min_interval:
+                return cached
+            view = scan.scan_battery(
+                battery, now, discovered=scan.find_batteries(self.bench_root)
+            ).as_dict()
+            view["pool"] = self._pool
+            view["pool_error"] = self._pool_error
+            view["now"] = now
+            view["bench_root"] = str(self.bench_root)
+            view["mode"] = "pinned"
+            view["watching_id"] = watched.name if watched else None
+            self._merge_retry_jobs(view, battery.name)
+            self._views[battery.name] = (now, view)
+            return view
+
     def snapshot(self, force: bool = False) -> dict[str, Any]:
         with self._lock:
             now = time.time()
@@ -125,6 +189,8 @@ class WatchState:
                     "pool": self._pool,
                     "pool_error": self._pool_error,
                     "discovered": [],
+                    "watching_id": None,
+                    "bench_root": str(self.bench_root),
                     "now": now,
                 }
                 self._cached_at = now
@@ -137,21 +203,25 @@ class WatchState:
                 self._announced_done = False
                 self._seeded = False
 
-            discovered = [] if self.fixed_battery else scan.find_batteries(self.bench_root)
-            view = scan.scan_battery(battery, now, discovered=discovered).as_dict()
+            # Every battery on disk, pinned or not: the header's picker is how an operator reaches
+            # a run the server was not started on, so the list may not depend on how it was started.
+            view = scan.scan_battery(
+                battery, now, discovered=scan.find_batteries(self.bench_root)
+            ).as_dict()
             view["pool"] = self._pool
             view["pool_error"] = self._pool_error
             view["now"] = now
             view["bench_root"] = str(self.bench_root)
             view["mode"] = "pinned" if self.fixed_battery else "auto"
-            self._merge_retry_jobs(view)
+            view["watching_id"] = battery.name
+            self._merge_retry_jobs(view, battery.name)
             self._cached = view
             self._cached_at = now
 
         self._notify(view)
         return view
 
-    def _merge_retry_jobs(self, view: dict[str, Any]) -> None:
+    def _merge_retry_jobs(self, view: dict[str, Any], battery_id: str | None = None) -> None:
         """Keeps a logical try visible while its old directory is gone and replacement is queued."""
         attempts = view.get("attempts")
         if not isinstance(attempts, list):
@@ -159,6 +229,10 @@ class WatchState:
             view["attempts"] = attempts
         by_key = {str(attempt.get("key") or ""): attempt for attempt in attempts}
         for key, job in self._retry_jobs.items():
+            # Retries are tracked for the whole process but belong to one run; a placeholder card
+            # must not surface in a different battery's grid just because the keys collide.
+            if battery_id and job.get("battery_id") and job["battery_id"] != battery_id:
+                continue
             current = by_key.get(key)
             logical = job["attempt"]
             related = [
@@ -249,7 +323,7 @@ class WatchState:
 
     # -- actions ---------------------------------------------------------------------------
 
-    def kill(self, key: str) -> dict[str, Any]:
+    def kill(self, key: str, *, battery_id: str | None = None) -> dict[str, Any]:
         """Stops one attempt, and then gets out of the way.
 
         The watcher signals the agent's process group and does nothing else: the runner's own
@@ -261,7 +335,7 @@ class WatchState:
         When there is no runner left to get out of the way of - the pid in the manifest names no
         living process - this closes the attempt out instead of failing on a signal to nobody.
         """
-        battery = self.resolve_battery()
+        battery = self.battery_for(battery_id)
         if battery is None:
             return {"ok": False, "error": "no battery"}
         run_dir = _safe_run_dir(battery, key)
@@ -397,7 +471,7 @@ class WatchState:
         upsert_attempt_row(battery, asdict(result))
         self._release_abandoned_lease(battery, manifest)
         with self._lock:
-            self._cached_at = 0.0
+            self._invalidate_locked()
         _log(f"closed out {key} as {result.outcome}: its runner never recorded it")
         return {"ok": True, "closed_out": True, "outcome": result.outcome,
                 "wall_seconds": result.wall_seconds}
@@ -427,9 +501,9 @@ class WatchState:
             return
         _log(f"released abandoned lease {lease_id} ({'known' if known else 'already reaped'})")
 
-    def retry(self, key: str) -> dict[str, Any]:
+    def retry(self, key: str, *, battery_id: str | None = None) -> dict[str, Any]:
         """Schedules a destructive replacement of one logical prompt/try."""
-        battery = self.resolve_battery()
+        battery = self.battery_for(battery_id)
         if battery is None:
             return {"ok": False, "error": "no battery"}
         selected = _safe_run_dir(battery, key)
@@ -466,6 +540,7 @@ class WatchState:
                 return {"ok": False, "error": "retry already in progress", "key": canonical_key}
             job = {
                 "key": canonical_key,
+                "battery_id": battery.name,
                 "run_id": f"retry-{uuid.uuid4().hex}",
                 "state": "stopping",
                 "error": "",
@@ -473,7 +548,7 @@ class WatchState:
                 "source_manifest": manifest,
             }
             self._retry_jobs[canonical_key] = job
-            self._cached_at = 0.0
+            self._invalidate_locked()
             self._announced_done = False
             if self.replay is not None:
                 self.replay.forget_attempt(canonical_key)
@@ -496,7 +571,7 @@ class WatchState:
                 return
             job["state"] = state
             job["error"] = error
-            self._cached_at = 0.0
+            self._invalidate_locked()
 
     def _retry_worker(
         self,
@@ -553,6 +628,12 @@ class WatchState:
                 agent_cwd=self.retry_agent_cwd or OVERHAUL_DIR,
                 work_items=[(prompt_id, attempt)],
                 initialize_battery=False,
+                ocr_url=config["ocr_url"],
+                **(
+                    {"ocr_health_check": self.retry_ocr_health_check}
+                    if self.retry_ocr_health_check is not None
+                    else {}
+                ),
             )
             self._set_retry_state(key, "running")
             asyncio.run(runner.run())
@@ -565,7 +646,7 @@ class WatchState:
             current = self._retry_jobs.get(key)
             if current and current.get("run_id") == retry_run_id:
                 self._retry_jobs.pop(key, None)
-            self._cached_at = 0.0
+            self._invalidate_locked()
         _log(f"retry completed for {key}")
 
     def _retry_config(
@@ -608,6 +689,11 @@ class WatchState:
                 source_manifest.get("completion_guard")
                 or plan.get("completion_guard")
                 or option("--completion-guard", "deterministic")
+            ),
+            "ocr_url": str(
+                source_manifest.get("ocr_url")
+                or plan.get("ocr_url")
+                or option("--ocr-url", "http://127.0.0.1:9100")
             ),
             "timeout_grace": float(plan.get("timeout_grace_seconds") or 120.0),
             "sandbox_startup_timeout": max(
@@ -698,7 +784,15 @@ class WatchState:
                 if child.is_dir():
                     shutil.rmtree(child)
 
-    def verdict(self, key: str, verdict: str, *, note: str = "", by: str = "") -> dict[str, Any]:
+    def verdict(
+        self,
+        key: str,
+        verdict: str,
+        *,
+        note: str = "",
+        by: str = "",
+        battery_id: str | None = None,
+    ) -> dict[str, Any]:
         """Records a human's pass / fail / invalid for one finished attempt.
 
         The verdict is stamped BESIDE `success`, never over it: a measured pass with a verified fail
@@ -713,7 +807,7 @@ class WatchState:
         The eligibility check is repeated here rather than trusted from the UI: the button is only
         rendered on a finished card, but the route is reachable without the page.
         """
-        battery = self.resolve_battery()
+        battery = self.battery_for(battery_id)
         if battery is None:
             return {"ok": False, "error": "no battery"}
         run_dir = _safe_run_dir(battery, key)
@@ -756,7 +850,7 @@ class WatchState:
                 )
             # The cached snapshot predates the stamp, so the next poll would show the old badge for
             # up to `min_interval`. Drop it and let the reviewer see their own click land.
-            self._cached_at = 0.0
+            self._invalidate_locked()
 
         disagrees = verdict != "invalid" and bool(manifest.get("success")) != (verdict == "pass")
         _log(f"verdict on {key}: {verdict.upper()} by {fields['verified_by']}"
@@ -846,10 +940,10 @@ class WatchState:
         )
         return {"stopped": stopped, "skipped": skipped}
 
-    def clear_verdict(self, key: str) -> dict[str, Any]:
+    def clear_verdict(self, key: str, *, battery_id: str | None = None) -> dict[str, Any]:
         """Un-reviews an attempt, for a misclick. Leaves no trace, so the row reads as never looked at
         rather than as a verdict of False."""
-        battery = self.resolve_battery()
+        battery = self.battery_for(battery_id)
         if battery is None:
             return {"ok": False, "error": "no battery"}
         run_dir = _safe_run_dir(battery, key)
@@ -864,15 +958,15 @@ class WatchState:
             for field in VERDICT_FIELDS:
                 manifest.pop(field, None)
             _write_json(manifest_path, manifest)
-            self._cached_at = 0.0
+            self._invalidate_locked()
         _log(f"verdict cleared on {key}")
         return {"ok": True, "cleared": True}
 
-    def replay_status(self, key: str) -> tuple[str, Path | None]:
+    def replay_status(self, key: str, *, battery_id: str | None = None) -> tuple[str, Path | None]:
         """Returns the auto-rendered clip, queueing a missing older one as a fallback."""
         if self.replay is None:
             return replay_mod.UNAVAILABLE, None
-        battery = self.resolve_battery()
+        battery = self.battery_for(battery_id)
         if battery is None:
             return replay_mod.UNAVAILABLE, None
         run_dir = _safe_run_dir(battery, key)
@@ -890,6 +984,7 @@ class WatchState:
         lines: int = LOG_TAIL_LINES,
         since: int | None = None,
         full: bool = False,
+        battery_id: str | None = None,
     ) -> dict[str, Any]:
         """Reads agent.log as a full log, a tail, or the delta since a byte offset.
 
@@ -903,7 +998,7 @@ class WatchState:
         more - whole this time - when its newline lands.
         """
         empty = {"lines": [], "offset": 0, "size": 0, "partial": "", "reset": False}
-        battery = self.resolve_battery()
+        battery = self.battery_for(battery_id)
         if battery is None:
             return empty
         run_dir = _safe_run_dir(battery, key)
@@ -952,8 +1047,8 @@ class WatchState:
             "reset": reset,
         }
 
-    def frame_path(self, key: str) -> Path | None:
-        battery = self.resolve_battery()
+    def frame_path(self, key: str, *, battery_id: str | None = None) -> Path | None:
+        battery = self.battery_for(battery_id)
         if battery is None:
             return None
         run_dir = _safe_run_dir(battery, key)
@@ -1152,14 +1247,18 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return payload if isinstance(payload, dict) else {}
 
-    def _report_csv(self) -> None:
+    def _battery_param(self, query: str) -> str:
+        """The `?battery=` a request carries, naming the run the browser is looking at."""
+        return parse_qs(query).get("battery", [""])[0]
+
+    def _report_csv(self, battery_id: str = "") -> None:
         """The same attempts.csv `python -m sari_bench report` writes, served as a download.
 
         `report.collect` is the one implementation of this flattening and it does no output I/O, so
         the button and the CLI cannot drift. It re-scans every run dir, which costs a second or two
         on a large battery - fine for a click, which is why this is not on the 2s poll path.
         """
-        battery = self.state.resolve_battery()
+        battery = self.state.battery_for(battery_id)
         if battery is None:
             self._send(404, b"no battery found", "text/plain")
             return
@@ -1186,6 +1285,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        battery_id = self._battery_param(parsed.query)
 
         if path in {"/", "/index.html"}:
             page = STATIC_DIR / "dashboard.html"
@@ -1193,18 +1293,18 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/state":
-            self._json(self.state.snapshot())
+            self._json(self.state.view(battery_id))
             return
 
         if path == "/api/report.csv":
-            self._report_csv()
+            self._report_csv(battery_id)
             return
 
         if path.startswith("/api/attempt/"):
             rest = path[len("/api/attempt/"):]
             key, _, action = rest.rpartition("/")
             if action == "frame.png":
-                frame = self.state.frame_path(key)
+                frame = self.state.frame_path(key, battery_id=battery_id)
                 if frame is None or not frame.exists():
                     self._send(404, b"no frame yet", "text/plain")
                     return
@@ -1233,10 +1333,11 @@ class Handler(BaseHTTPRequestHandler):
                     lines=_int_param(query, "lines", LOG_TAIL_LINES, 1, LOG_MAX_LINES),
                     since=_int_param(query, "since", None, 0, None),
                     full=query.get("full", ["0"])[0] == "1",
+                    battery_id=battery_id,
                 ))
                 return
             if action == "replay.mp4":
-                status, clip = self.state.replay_status(key)
+                status, clip = self.state.replay_status(key, battery_id=battery_id)
                 if clip is not None:
                     self._send_file(clip, "video/mp4")
                 elif status == replay_mod.RENDERING:
@@ -1251,11 +1352,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:  # noqa: N802
-        path = unquote(urlparse(self.path).path)
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path)
+        battery_id = self._battery_param(parsed.query)
         if path.startswith("/api/attempt/"):
             rest = path[len("/api/attempt/"):]
             if rest.endswith("/verdict/clear"):
-                result = self.state.clear_verdict(rest[:-len("/verdict/clear")])
+                result = self.state.clear_verdict(
+                    rest[:-len("/verdict/clear")], battery_id=battery_id
+                )
                 self._json(result, code=200 if result.get("ok") else 400)
                 return
             if rest.endswith("/verdict"):
@@ -1275,15 +1380,16 @@ class Handler(BaseHTTPRequestHandler):
                     verdict,
                     note=str(body.get("note") or ""),
                     by=str(body.get("by") or ""),
+                    battery_id=battery_id,
                 )
                 self._json(result, code=200 if result.get("ok") else 400)
                 return
             if rest.endswith("/kill"):
-                result = self.state.kill(rest[:-len("/kill")])
+                result = self.state.kill(rest[:-len("/kill")], battery_id=battery_id)
                 self._json(result, code=200 if result.get("ok") else 400)
                 return
             if rest.endswith("/retry"):
-                result = self.state.retry(rest[:-len("/retry")])
+                result = self.state.retry(rest[:-len("/retry")], battery_id=battery_id)
                 self._json(result, code=202 if result.get("ok") else 400)
                 return
         self._send(404, b"not found", "text/plain")
@@ -1310,6 +1416,13 @@ def serve(argv: list[str] | None = None) -> int:
                         help="Announce halts without rendering and attaching a replay clip.")
     parser.add_argument("--replay-fps", type=float, default=video.UPLOAD_FPS)
     parser.add_argument("--replay-width", type=int, default=video.UPLOAD_WIDTH)
+    parser.add_argument(
+        "--review-max-frames",
+        type=int,
+        default=video.MAX_REPLAY_FRAMES,
+        help=f"Maximum frames in a dashboard replay (default: {video.MAX_REPLAY_FRAMES}; "
+             "0 keeps every capture). Step frames are always retained.",
+    )
     parser.add_argument("--replay-max-mb", type=float,
                         default=video.DISCORD_BUDGET_BYTES / 1e6,
                         help="Size budget for an attached clip.")
@@ -1318,6 +1431,8 @@ def serve(argv: list[str] | None = None) -> int:
                              "started. Off by default: a restart mid-battery would otherwise replay "
                              "the whole run into the channel.")
     args = parser.parse_args(argv)
+    if args.review_max_frames < 0:
+        parser.error("--review-max-frames cannot be negative")
 
     _load_api_env()
 
@@ -1331,6 +1446,7 @@ def serve(argv: list[str] | None = None) -> int:
         max_bytes=int(args.replay_max_mb * 1e6),
         width=args.replay_width,
         fps=args.replay_fps,
+        review_max_frames=args.review_max_frames or None,
     )
     # Started whenever rendering is on, not only when Discord is: the dashboard's review flow asks
     # this same worker for clips, and it must be running with no webhook configured.
@@ -1381,12 +1497,12 @@ def serve(argv: list[str] | None = None) -> int:
 
 
 def _load_api_env() -> None:
-    """Loads api.env from the repo root, the same file every other module reads."""
+    """Loads config.env from the repo root, the same file every other module reads."""
     try:
         from dotenv import load_dotenv
     except ImportError:
         return
-    env_path = REPO_ROOT / "api.env"
+    env_path = REPO_ROOT / "config.env"
     if env_path.exists():
         load_dotenv(env_path)
 

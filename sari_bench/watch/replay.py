@@ -25,6 +25,7 @@ encoder with no webhook configured at all.
 from __future__ import annotations
 
 import contextlib
+import itertools
 import queue
 import threading
 from pathlib import Path
@@ -36,6 +37,9 @@ from sari_bench.watch import notify
 # Deep enough to absorb a burst of simultaneous finishes, shallow enough that a wedged encode fails
 # loudly instead of hoarding attempt dicts forever.
 QUEUE_MAXSIZE = 32
+ANNOUNCE_PRIORITY = 0
+RENDER_PRIORITY = 10
+SHUTDOWN_PRIORITY = -1
 
 _SHUTDOWN = object()
 
@@ -57,7 +61,8 @@ class ReplayNotifier(threading.Thread):
     def __init__(self, discord: notify.Discord, *, enabled: bool = True,
                  max_bytes: int = video.DISCORD_BUDGET_BYTES,
                  width: int = video.UPLOAD_WIDTH, fps: float = video.UPLOAD_FPS,
-                 review_fps: float = video.DEFAULT_FPS) -> None:
+                 review_fps: float = video.DEFAULT_FPS,
+                 review_max_frames: int | None = video.MAX_REPLAY_FRAMES) -> None:
         super().__init__(name="replay-notifier")
         self.discord = discord
         # Two flags, not one. The dashboard renders clips for review whether or not a webhook is
@@ -68,7 +73,13 @@ class ReplayNotifier(threading.Thread):
         self.width = width
         self.fps = fps
         self.review_fps = review_fps
-        self._queue: queue.Queue[Any] = queue.Queue(maxsize=QUEUE_MAXSIZE)
+        self.review_max_frames = review_max_frames
+        # A single queue retains join/task_done lifecycle semantics while making time-sensitive
+        # notification clips jump ahead of archival dashboard renders already waiting in the burst.
+        self._queue: queue.PriorityQueue[tuple[int, int, Any]] = queue.PriorityQueue(
+            maxsize=QUEUE_MAXSIZE
+        )
+        self._sequence = itertools.count()
         self._claimed: set[str] = set()
         self._requested: set[str] = set()
         self._failed: set[str] = set()
@@ -97,11 +108,17 @@ class ReplayNotifier(threading.Thread):
             self._claimed.add(key)
         try:
             # Copy: the view dict is cached on WatchState and re-read by other handlers.
-            self._queue.put_nowait({"attempt": dict(attempt), "announce": True})
+            self._put_nowait(
+                {"attempt": dict(attempt), "announce": True},
+                priority=ANNOUNCE_PRIORITY,
+            )
         except queue.Full:
-            # Keep the claim. Thirty-two deep is already minutes of backlog, and dropping one clip
-            # beats growing the queue without bound while the fleet keeps finishing.
+            # Let the HTTP caller post immediately without a clip. Keeping the claim here used to
+            # suppress that fallback and silently lose the finish notification as well as its video.
+            with self._claim_lock:
+                self._claimed.discard(key)
             _log(f"queue full, dropping replay for {key}")
+            return False
         return True
 
     def enqueue(self, key: str, run_dir: Path) -> str:
@@ -113,7 +130,7 @@ class ReplayNotifier(threading.Thread):
             return UNAVAILABLE
         clip = run_dir / video.REPLAY_NAME
         try:
-            if clip.is_file() and clip.stat().st_size > 0:
+            if clip.is_file() and video.is_complete_mp4(clip):
                 return READY
         except OSError:
             pass
@@ -128,8 +145,10 @@ class ReplayNotifier(threading.Thread):
                 return RENDERING
             self._requested.add(key)
         try:
-            self._queue.put_nowait({"attempt": {"key": key, "run_dir": str(run_dir)},
-                                    "announce": False})
+            self._put_nowait(
+                {"attempt": {"key": key, "run_dir": str(run_dir)}, "announce": False},
+                priority=RENDER_PRIORITY,
+            )
         except queue.Full:
             with self._claim_lock:
                 self._requested.discard(key)
@@ -169,7 +188,7 @@ class ReplayNotifier(threading.Thread):
     def run(self) -> None:
         while not self._stop.is_set():
             try:
-                item = self._queue.get(timeout=0.5)
+                _, _, item = self._queue.get(timeout=0.5)
             except queue.Empty:
                 continue
             try:
@@ -198,6 +217,7 @@ class ReplayNotifier(threading.Thread):
                     run_dir / video.REPLAY_NAME,
                     fps=self.review_fps,
                     width=max(self.width, 1280),
+                    max_frames=self.review_max_frames,
                 )
         elif announce:
             _log(f"no run dir for {key}, posting without a clip")
@@ -219,4 +239,7 @@ class ReplayNotifier(threading.Thread):
     def stop(self) -> None:
         self._stop.set()
         with contextlib.suppress(queue.Full):
-            self._queue.put_nowait(_SHUTDOWN)
+            self._put_nowait(_SHUTDOWN, priority=SHUTDOWN_PRIORITY)
+
+    def _put_nowait(self, item: Any, *, priority: int) -> None:
+        self._queue.put_nowait((priority, next(self._sequence), item))

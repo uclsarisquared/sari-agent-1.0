@@ -31,10 +31,10 @@ _SLAM_DIR = os.path.dirname(_THIS_DIR)                         # slamtest
 if _SLAM_DIR not in sys.path:
     sys.path.insert(0, _SLAM_DIR)
 import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
+from sim import sim_paths  # noqa: E402
 
-CATALOG_DIR = r"C:\Sari\SariSandboxMY\SariSandboxV2\Assets\Resources\Data"
-STORE_JSON = (r"C:\Users\Tristan Baclor\AppData\LocalLow\Sari Sandbox"
-              r"\Sari Sandbox V2\Store 2 v2.json")
+CATALOG_DIR = sim_paths.data_dir()          # $SARI_SANDBOX_DIR/Assets/Resources/Data (config.env)
+STORE_JSON = sim_paths.store_save_json()    # $SARI_STORE_SAVE_JSON (config.env)
 
 # Fridge shelves span (x_min, x_max) at z=6.0, face at z ~= 5.5; a checkpoint "faces" one if
 # its x lies within the span +- slack and it sits on the approach line z ~= 4.55.

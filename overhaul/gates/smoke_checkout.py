@@ -73,7 +73,15 @@ def main():
                     help="drive the FUSED both-hands chain: fill both hands, sweep-scan LEFT then RIGHT "
                          "(re-facing the pad between), then bag both - the primitive-level mirror of "
                          "store_map.checkout_held_items")
+    ap.add_argument("--ocr-url", default=None, help="OCR service base URL (else $SARI_OCR_URL/default).")
     args = ap.parse_args()
+
+    from vision.ocr_client import check_ocr_health
+    try:
+        check_ocr_health(args.ocr_url)
+    except Exception as error:
+        print(f"OCR preflight failed before simulator work: {error}")
+        return 1
 
     from sim.env import RequestScreenshot, SetHandsActive, default_uri
     from manip.manipulation import set_hand_pose, extend_arm_until_grabbed

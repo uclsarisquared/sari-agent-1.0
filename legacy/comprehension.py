@@ -5,8 +5,8 @@ def determine_mode(timestep, current_state_log, plan, previous_mode):
     import os
     from pathlib import Path
 
-    # Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
-    dotenv.load_dotenv(Path(__file__).resolve().parent / 'api.env')
+    # Repo-root config.env, resolved from __file__ so it loads regardless of CWD.
+    dotenv.load_dotenv(Path(__file__).resolve().parent / 'config.env')
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     client = genai.Client(api_key=GEMINI_API_KEY)
     model_name = "gemini-2.5-pro-preview-05-06"

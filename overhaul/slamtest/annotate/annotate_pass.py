@@ -386,7 +386,7 @@ def build_parser():
                         f"'{QWEN_DEFAULT_MODEL}' for qwen.")
     p.add_argument("--effort", default=DEFAULT_EFFORT, choices=["low", "medium", "high", "xhigh", "max"],
                    help="claude-cli only; ignored by the qwen backend.")
-    p.add_argument("--base-url", default=None, help="qwen backend host (default $UCL_BASE_URL:8000/v1)")
+    p.add_argument("--base-url", default=None, help="qwen backend host (default $OPENAI_API_URL:8000/v1)")
     p.add_argument("--timeout", type=float, default=240.0)
     return p
 

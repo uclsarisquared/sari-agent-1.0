@@ -30,7 +30,7 @@ Scoring is about RESOLUTION, not stock: "Coke Zero" resolving to the cola checkp
 CORRECT even though the store doesn't stock it. Found/not-found is the driving+verification
 layer's job, measured separately by the live trial set.
 
-    python slamtest/scoring/eval_resolver.py --backend qwen        # needs $UCL_BASE_URL + $UCL_API
+    python slamtest/scoring/eval_resolver.py --backend qwen        # needs $OPENAI_API_URL + $OPENAI_API_KEY
     python slamtest/scoring/eval_resolver.py --backend claude-cli
 """
 import argparse
@@ -49,8 +49,9 @@ import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dir
 
 from nav.store_map import StoreMap  # noqa: E402
 from nav import locate_task  # noqa: E402
+from sim import sim_paths  # noqa: E402
 
-CATALOG = r"C:\Sari\SariSandboxMY\SariSandboxV2\Assets\Resources\Data\PriceData.json"
+CATALOG = sim_paths.price_data_json()   # $SARI_SANDBOX_DIR/Assets/Resources/Data/PriceData.json
 
 
 def squash(s):

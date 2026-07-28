@@ -5,7 +5,7 @@
     python slamtest/drivers/explore_vlm.py --planner astar --max-steps 300    # the A* control arm
 
 Requires the Unity scene in Play mode (same as explore.py) and the Qwen server reachable at
-$UCL_BASE_URL:8000/v1 (the var lives in the sari_env_old conda env).
+$OPENAI_API_URL:8000/v1 (the var lives in the sari_env_old conda env).
 
 WHAT THIS IS FOR
 ----------------
@@ -130,9 +130,9 @@ def build_vlm_parser():
              "instrumentation.",
     )
     g.add_argument("--model", default=DEFAULT_MODEL)
-    g.add_argument("--base-url", default=None, help="Default: $UCL_BASE_URL, +:8000/v1")
+    g.add_argument("--base-url", default=None, help="Default: $OPENAI_API_URL, +:8000/v1")
     g.add_argument("--api-key", default=None,
-                   help="Bearer for the qwen server (default: $UCL_API, then sari_env_old's "
+                   help="Bearer for the qwen server (default: $OPENAI_API_KEY, then sari_env_old's "
                         "conda state). The server 401s without it - measured 2026-07-19.")
     g.add_argument(
         "--vlm-mode", choices=["both", "map", "ego"], default="both",

@@ -74,9 +74,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Repo-root api.env (overhaul/orchestrator/ -> repo root is three parents up), resolved from
+# Repo-root config.env (overhaul/orchestrator/ -> repo root is three parents up), resolved from
 # __file__ so it loads regardless of CWD.
-load_dotenv(Path(__file__).resolve().parent.parent.parent / 'api.env')
+load_dotenv(Path(__file__).resolve().parent.parent.parent / 'config.env')
 
 from sim.env import (
     _GRIP_LEFT_,
@@ -1148,7 +1148,7 @@ def _resolve_run_dir(run_dir, arm):
 
 def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                 resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1,
-                output_dir=None, completion_guard="deterministic"):
+                output_dir=None, completion_guard="deterministic", ocr_url=None):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then
     run each with run_leg until the AGENT stops (predicate-granted) or a per-leg cap fires. Shared
     semantic/episodic memory + a between-leg findings summary carry context forward. A failed leg is
@@ -1189,6 +1189,15 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     # without adding configuration to ordinary single-run commands.
     run_dir = _resolve_run_dir(run_dir, arm)
     os.environ["SARI_RUN_DIR"] = run_dir
+    if ocr_url:
+        os.environ["SARI_OCR_URL"] = ocr_url
+
+    # OCR is a required shared service, even for tasks that may not reach checkout. Fail before the
+    # first simulator command so a missing daemon cannot consume a sandbox lease or alter sim state.
+    from vision.ocr_client import check_ocr_health, resolve_ocr_url
+    resolved_ocr_url = resolve_ocr_url(ocr_url)
+    health = check_ocr_health(resolved_ocr_url)
+    print(f"[ORCHESTRATOR] OCR ready: {health['model']} at {resolved_ocr_url}")
 
     # Before ANY reasoner runs, so the decomposer's and resolver's tokens are counted too.
     token_meter.install(run_dir)
@@ -1333,6 +1342,7 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
         # they ever stop being the same model.
         token_totals = token_meter.totals()
         summary = {"task": task, "arm": arm, "completion_guard": completion_guard,
+                   "ocr_url": resolved_ocr_url,
                    "success": task_success,
                    "legs_planned": len(legs),
                    "legs_completed": sum(1 for r in leg_rows if r.get("success")),
@@ -1408,6 +1418,12 @@ def main():
                          "for this process. Default: $SARI_WS_URI, else ws://localhost:8080/commands. "
                          "Distributed Sari Bench passes the URI of the sandbox it leased for this "
                          "attempt, which is how several agents run against one machine at once.")
+    ap.add_argument(
+        "--ocr-url",
+        default=None,
+        help="OCR service base URL. Resolution: this flag, $SARI_OCR_URL, then "
+             "http://127.0.0.1:9100.",
+    )
     args = ap.parse_args()
 
     # Must be set before anything reads it. sim.env resolves the default per call, not at import,
@@ -1420,7 +1436,7 @@ def main():
                 run_dir=args.run_dir, resolver_backend=args.resolver_backend,
                 reset_start=args.reset_start, restart_env=args.restart_env,
                 leg_retries=max(0, args.leg_retries), output_dir=args.output_dir,
-                completion_guard=args.completion_guard)
+                completion_guard=args.completion_guard, ocr_url=args.ocr_url)
 
 
 if __name__ == "__main__":

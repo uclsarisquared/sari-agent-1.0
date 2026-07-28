@@ -18,8 +18,13 @@ checkout predicate reads rather than re-deriving.
 """
 
 import json
+import logging
 import os
 import re
+
+from sim.sim_paths import categories_json  # lightweight (stdlib os only) - safe to import here
+
+logger = logging.getLogger(__name__)
 
 # Closed type vocabulary. `checkout` (not `place`) - see the module docstring.
 SUBTASK_TYPES = ("pickup", "checkout", "compare", "goto", "inspect")
@@ -177,8 +182,11 @@ def parse_decomposition(raw: str, original_task: str) -> list:
         if item.get("count") is not None:
             try:
                 norm["count"] = max(1, int(item["count"]))
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as error:
+                logger.warning(
+                    "[subtask_completion] invalid pickup count %r (%s); defaulting to 1",
+                    item["count"], error,
+                )
         out.append(norm)
     return out or [{"type": "unknown", "text": original_task}]
 
@@ -205,8 +213,11 @@ def _tokens(text: str) -> list:
 # --- catalog grounding (2026-07-23) -----------------------------------------------------------
 # Two catalog sources, both LAZY + FAILURE-SILENT by design (a machine without them degrades to the
 # plain substring check, keeping this module sim-free and import-cheap):
-#   1. Categories.json - the full category->SKU index (all ~250 SKUs). Pinned absolute (the
-#      reconcile_products.py convention; the sim repo's .claude/worktrees hold stale copies, no glob).
+#   1. Categories.json - the full category->SKU index (all ~250 SKUs). Path comes from
+#      $SARI_SANDBOX_DIR (config.env; see sim.sim_paths) - there is no path to the separate sim repo
+#      that works across machines, so it is read as a setting rather than hardcoded per-developer
+#      (the previous absolute broke on every machine but the one it was written on, silently, into
+#      this same failure-silent fallback - see overhaul/CLAUDE.md open thread on catalog grounding).
 #      Gives BOTH category membership (a 'Biscuits' target -> any Biscuit SKU) AND the set of
 #      category-name words, which are GENERIC (see below).
 #   2. products_final_shelf_reconciled.json - the annotated per-SKU records (~56 SKUs) carrying a
@@ -215,12 +226,16 @@ def _tokens(text: str) -> list:
 #      APPEARANCE (colour/packaging) rides along as a SOFT, ADDITIVE tie-breaker - it can only HELP a
 #      target token match (e.g. 'green Piattos' vs a 'green bag' appearance), never block one, so the
 #      78% of SKUs with no record never cause a false refusal.
-_CATEGORIES_JSON = r"C:\Sari\SariSandboxMY\SariSandboxV2\Assets\Resources\Data\Categories.json"
 _RECONCILED_JSON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "slamtest", "output", "products_final_shelf_reconciled.json")
 _CATEGORY_LEXICON = None    # {singularized category word: [sku_lower, ...]}
 _GENERIC_NAMES = None       # {category-name tokens} - matching on these alone is not product identity
 _RECONCILED_INDEX = None    # {sku_lower: "clean name variant appearance ..."} (category EXCLUDED)
+_CATALOG_LOADED = False     # True iff Categories.json was actually read, vs the alias-only fallback.
+                            # _category_lexicon() alone can't tell a real catalog from an absent one:
+                            # _CATEGORY_ALIASES always merges in 5 pseudo-categories, so the dict is
+                            # truthy either way. Anything that needs to distinguish "no sim repo" from
+                            # "sim repo present" (e.g. a test's skip guard) should check this flag.
 
 # A size/pack token ('70g', '500ml', '5x18g') is a spec, not identity - matching on it alone is as
 # weak as matching on a category word, so it is treated generic too. Pure-digit brands ('555') are
@@ -280,23 +295,37 @@ def _singular(word: str) -> str:
 
 
 def _category_lexicon() -> dict:
-    global _CATEGORY_LEXICON, _GENERIC_NAMES
+    global _CATEGORY_LEXICON, _GENERIC_NAMES, _CATALOG_LOADED
     if _CATEGORY_LEXICON is None:
         lex, generic = {}, set()
-        try:
-            with open(_CATEGORIES_JSON, encoding="utf-8") as fh:
-                data = json.load(fh)
-            for cat in data.get("Categories", []):
-                name = _singular(cat.get("Category"))
-                if name:
-                    lex[name] = [str(i).lower() for i in (cat.get("Items") or [])]
-                # Every token of a category name is a generic type-word (both plural and singular
-                # forms, so 'chips'/'chip', 'biscuits'/'biscuit' all count).
-                for tok in _tokens(cat.get("Category")):
-                    generic.add(tok)
-                    generic.add(_singular(tok))
-        except (OSError, ValueError):
-            lex, generic = {}, set()
+        _CATALOG_LOADED = False
+        categories_path = categories_json(required=False)
+        if categories_path:
+            try:
+                with open(categories_path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                for cat in data.get("Categories", []):
+                    name = _singular(cat.get("Category"))
+                    if name:
+                        lex[name] = [str(i).lower() for i in (cat.get("Items") or [])]
+                    # Every token of a category name is a generic type-word (both plural and
+                    # singular forms, so 'chips'/'chip', 'biscuits'/'biscuit' all count).
+                    for tok in _tokens(cat.get("Category")):
+                        generic.add(tok)
+                        generic.add(_singular(tok))
+                _CATALOG_LOADED = True
+            except (OSError, ValueError, TypeError, AttributeError) as error:
+                lex, generic = {}, set()
+                logger.error(
+                    "[subtask_completion] failed to load Categories.json from %s (%s: %s); "
+                    "using alias-only category matching",
+                    categories_path, type(error).__name__, error,
+                )
+        if not _CATALOG_LOADED and not categories_path:
+            logger.warning(
+                "[subtask_completion] Categories.json was not found; using alias-only "
+                "category matching"
+            )
         # Colloquial aliases (see _CATEGORY_ALIASES): merged AFTER the file load so they apply even
         # when the sim repo is absent (they carry their own SKU substrings), and via setdefault so a
         # real catalog category of the same name always wins. Each alias key is also generic, so a
@@ -523,7 +552,11 @@ def predicate_pickup(sub: dict, state: dict, guard_backend="deterministic",
     _validate_guard_backend(guard_backend)
     try:
         count = max(1, int(sub.get("count") or 1))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as error:
+        logger.warning(
+            "[subtask_completion] invalid pickup count %r (%s); defaulting to 1",
+            sub.get("count"), error,
+        )
         count = 1
     if not _gripping(state):
         return False, "pickup not complete: no hand is gripping anything yet"

@@ -31,12 +31,12 @@ DEFAULT_MODEL = "Qwen/Qwen3.6-27B"
 
 
 def _client(base_url=None, api_key=None):
-    load_dotenv(_REPO / "api.env")
-    url = base_url or os.getenv("UCL_BASE_URL")
-    key = api_key or os.getenv("UCL_API_KEY") or os.getenv("UCL_API")
+    load_dotenv(_REPO / "config.env")
+    url = base_url or os.getenv("OPENAI_API_URL")
+    key = api_key or os.getenv("OPENAI_API_KEY")
     if not (url and key):
         raise RuntimeError(
-            "Set UCL_BASE_URL and UCL_API_KEY (or pass --base-url and --api-key).")
+            "Set OPENAI_API_URL and OPENAI_API_KEY (or pass --base-url and --api-key).")
     if "://" not in url:
         url = f"http://{url}"
     parsed = urlsplit(url)

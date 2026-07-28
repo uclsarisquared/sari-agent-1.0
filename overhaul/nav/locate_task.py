@@ -17,7 +17,7 @@ The division of labour is the whole architecture (`phase4_agent_integration.md`)
 Backends (--backend):
   claude-cli  (default) `claude -p` - same billing path as annotate_pass: the claude.ai
               subscription, NOT API credits. Do not switch silently (CLAUDE.md).
-  qwen        the UCL vLLM server (Chat Completions at $UCL_BASE_URL:8000/v1, no key; the env
+  qwen        the UCL vLLM server (Chat Completions at $OPENAI_API_URL:8000/v1, no key; the env
               var lives in the sari_env_old conda env).
 
 Outputs land in --run-dir: every screenshot, every verifier verdict, locate_report.json.
@@ -35,10 +35,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Repo-root api.env (overhaul/ -> repo root is two parents up), resolved from __file__ so the
+# Repo-root config.env (overhaul/ -> repo root is two parents up), resolved from __file__ so the
 # qwen backend's UCL creds load when this is run standalone (agent.py loads its own copy when it
 # imports this module for graph-nav, so this is a harmless no-op in that path).
-load_dotenv(Path(__file__).resolve().parent.parent.parent / "api.env")
+load_dotenv(Path(__file__).resolve().parent.parent.parent / "config.env")
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _OVERHAUL_DIR = os.path.dirname(_THIS_DIR)  # overhaul/ — packages + slamtest live under here
@@ -224,14 +224,13 @@ def qwen_json(system, prompt, schema, image_paths=(), model="Qwen/Qwen3.6-27B", 
     """One vLLM Chat Completions call -> (dict, envelope-ish). MEASURED (see CLAUDE.md): vLLM
     has silently ignored guided_json before - the schema is stated in the prompt AND parsed
     defensively, never trusted to be enforced server-side. The server requires a bearer key
-    (verified 2026-07-19: /v1/models returns 401 without it) - $UCL_API, same conda env as
-    $UCL_BASE_URL."""
+    (verified 2026-07-19: /v1/models returns 401 without it) - $OPENAI_API_KEY, same conda env as
+    $OPENAI_API_URL."""
     import requests
-    host = base_url or os.environ.get("UCL_BASE_URL")
-    # UCL_API_KEY first (api.env's spelling) then UCL_API (legacy env / conda state).
-    key = api_key or os.environ.get("UCL_API_KEY") or os.environ.get("UCL_API")
+    host = base_url or os.environ.get("OPENAI_API_URL")
+    key = api_key or os.environ.get("OPENAI_API_KEY")
     if not host:
-        raise RuntimeError("qwen backend needs --base-url or $UCL_BASE_URL "
+        raise RuntimeError("qwen backend needs --base-url or $OPENAI_API_URL "
                            "(it lives in the sari_env_old conda env)")
     if not host.startswith("http"):
         host = f"http://{host}"
@@ -374,7 +373,7 @@ def main():
     p.add_argument("--backend", choices=["claude-cli", "qwen"], default="claude-cli")
     p.add_argument("--model-name", default=None)
     p.add_argument("--effort", default="medium")
-    p.add_argument("--base-url", default=None, help="qwen backend host (default $UCL_BASE_URL)")
+    p.add_argument("--base-url", default=None, help="qwen backend host (default $OPENAI_API_URL)")
     p.add_argument("--max-visits", type=int, default=4)
     p.add_argument("--uri", default=None, help="sim websocket (default from executor args)")
     p.add_argument("--run-dir", default=None,

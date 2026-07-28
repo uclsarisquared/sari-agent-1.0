@@ -45,18 +45,33 @@ You do not strictly need the bench build: setting `SARI_BENCH_COORDINATOR` makes
 fleet, which is the convenient way to test with an editor session. The define only matters for a
 player you want to be a fleet member with no environment set.
 
-**3. Runner:**
+**3. OCR service** (once on the runner machine):
+
+```bash
+uv run poe ocr-server
+```
+
+This loads one PaddleOCR pipeline on `127.0.0.1:9100`. All attempt subprocesses send their in-memory
+PNG crops to it; inference is serialized and queued, so parallel agents do not create parallel model
+instances. Use `--ocr-url` (or `SARI_OCR_URL`) when the runner-local endpoint differs.
+
+**4. Runner:**
 
 ```bash
 python -m sari_bench run \
     --prompts sari_bench/prompts/example_battery.json \
     --tries 3 --time-limit 120 --per-leg-minutes 40 \
+    --ocr-url http://127.0.0.1:9100 \
     --coordinator ws://coordinator-host:9000
 ```
 
 With no `--concurrency` flag, the runner fills every registered, store-loaded sandbox and adds
 workers automatically when more sandboxes join during the battery. Pass `--concurrency N` to keep
 an explicit upper bound.
+
+The runner requires the OCR service's `/health` before it contacts the coordinator or leases a
+sandbox. It passes the resolved URL to every agent in both `--ocr-url` and `SARI_OCR_URL`, and
+records it in `battery.json` and every `attempt.json`.
 
 The `uv run poe dbench` shortcut waits up to 30 seconds for at least one usable sandbox to
 register, then exits with launch instructions instead of leaving every prompt at
@@ -120,7 +135,7 @@ single-leg tasks. Set it lower for a long attempt limit — otherwise a 5-leg ta
 own `time_cap`, so every overrun arrives as a SIGKILLed `harness_timeout` with no `summary.json` and
 no per-leg detail.
 
-**4. Watch it live** (on the runner's machine — screenshots are written to its local disk):
+**5. Watch it live** (on the runner's machine — screenshots are written to its local disk):
 
 ```bash
 python -m sari_bench watch --discord            # newest battery under bench_runs/
@@ -208,6 +223,13 @@ By default it **auto-discovers** the newest battery under `bench_runs/` and foll
 battery to battery without a restart; `--run-dir` pins one. Either way it logs which battery it
 picked, and the runner logs whether it created a fresh output dir or is reusing one that already
 holds results.
+
+The battery name in the header is a **picker**: it lists every run under `bench_runs/`, blinks a green
+dot beside any whose runner is still working, and switches the whole page — tiles, frames, logs, CSV
+export — to whichever you choose. So `--run-dir` and the auto/pinned toggle beside it now only set
+where the page *starts*; reading yesterday's run no longer means restarting the watcher. Switching is
+per-browser and does not move what the watcher itself follows: Discord announcements and replay
+renders stay with the battery it was started on.
 
 Tiles are sorted **worst-first** by a collapse score, which is the actual feature — with eight
 concurrent attempts you want to look at one tile, not scan eight. Every signal comes from the `step`
@@ -302,7 +324,7 @@ without `ffmpeg` on PATH the verdict buttons still work, you just cannot watch t
 
 ### Discord
 
-`--discord` with `SARI_BENCH_DISCORD_WEBHOOK` set in `api.env` posts: battery started, **collapse
+`--discord` with `SARI_BENCH_DISCORD_WEBHOOK` set in `config.env` posts: battery started, **collapse
 alerts with the offending screenshot attached** (once per attempt, 15-minute cooldown), **every halt
 with a replay clip attached**, and battery complete. Notification lives in the watcher rather than
 the runner deliberately: the runner is a scheduler, and an outbound HTTP call has no business on the
@@ -317,10 +339,12 @@ something did. Notes:
   a bare line of metrics and that really was noise at 3 tries × 20 prompts. A clip of a win is worth
   watching, so every finish is announced now.
 * **A separate file from `replay.mp4`.** The clip is capped at 8 MB (960 px, bitrate computed from its
-  duration) because that is what a webhook will carry; the `video` CLI below writes an uncapped
-  `replay.mp4` for archive viewing. On 300 frames of worst-case footage those are 7.5 MB and 178 MB
-  respectively, which is why auto-render never writes over the CLI's copy.
-* **Rendered on a worker thread**, one encode at a time. The notify diff runs on the thread serving
+  duration) because that is what a webhook will carry; dashboard/CLI review writes a separate
+  `replay.mp4`, capped by default and optionally uncapped for archival use. On 300 frames of
+  worst-case footage those are 7.5 MB and 178 MB respectively, which is why attachment rendering
+  never writes over the review copy.
+* **Rendered on a worker thread**, one encode at a time. Notification clips have priority over full
+  dashboard renders already in the queue. The notify diff runs on the thread serving
   `/api/state`, so an inline ffmpeg pass would hang the dashboard for as long as the encode takes,
   and eight simultaneous finishes would mean eight ffmpegs competing with the agents still running.
 * **Restarting the watcher mid-battery does not replay the run into the channel.** Finishes already on
@@ -333,6 +357,7 @@ something did. Notes:
 ```bash
 python -m sari_bench report                       # newest battery -> attempts.csv + legs.csv
 python -m sari_bench video --battery bench_runs/20260725_170000   # replay.mp4 per attempt
+python -m sari_bench video RUN_DIR --max-frames 0                # explicitly keep every capture
 ```
 
 `report` writes **two** CSVs, joined on `run_dir`: attempts and legs are different grains, and
@@ -354,10 +379,13 @@ did not, which is the number to watch: it is a direct measurement of how much th
 predicates can be trusted.
 
 `video` chronologically merges `legNN/stepNN.png` with supplementary `capture/*.jpg` frames into an
-mp4, captioning steps with their mode, action and checkpoint and gap captures with elapsed time. mp4
-rather than gif: a long 1080p gif runs to hundreds of megabytes and cannot be scrubbed (`--gif` is
-there for pasting into chat). Needs `ffmpeg` on PATH. This writes `replay.mp4` uncapped, for watching;
-the watcher's step-only 8 MB `replay.discord.mp4` is a separate file and neither overwrites the other.
+mp4, captioning steps with their mode, action and checkpoint and gap captures with elapsed time. Every
+step frame is retained; dense captures are uniformly sampled when a replay exceeds the default
+1,200-frame/five-minute review cap. Pass `--max-frames 0` for an uncapped archive. mp4 rather than
+gif: a long 1080p gif runs to hundreds of megabytes and cannot be scrubbed (`--gif` is there for
+pasting into chat). Needs `ffmpeg` on PATH. The watcher's step-only 8 MB `replay.discord.mp4` is a
+separate file and neither overwrites the other. Both outputs are published atomically, so a timeout
+cannot leave a partial clip that the dashboard mistakes for a finished replay.
 
 ## Tests
 

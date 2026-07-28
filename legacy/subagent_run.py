@@ -31,7 +31,7 @@ from openai import OpenAI
 
 import env
 
-load_dotenv('api.env')
+load_dotenv('config.env')
 
 SERVER_URL = "http://localhost:8005/predict"
 ORCHESTRATOR_MODEL = "google/gemini-3.1-pro-preview"

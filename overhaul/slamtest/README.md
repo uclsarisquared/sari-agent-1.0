@@ -82,7 +82,7 @@ A good `grid_final.png` has **no grey holes** in the store interior — if it do
 - **Step 5** defaults to `--backend claude-cli` (`claude -p`, Sonnet, medium effort) — the
   measured/frozen quality baseline. Requires `claude auth login` (bills the claude.ai subscription).
   `--backend qwen` runs fully self-hosted on the UCL vLLM server instead (creds in repo-root
-  `api.env`); if you switch, A/B qwen-vs-sonnet on cp015/cp017/cp067 first — quality was only ever
+  `config.env`); if you switch, A/B qwen-vs-sonnet on cp015/cp017/cp067 first — quality was only ever
   measured on Sonnet.
 - **Step 5b** is pure string matching against the pinned Unity catalog
   (`SariSandboxV2/Assets/Resources/Data/`) — no model, no sim, deterministic.

@@ -1,4 +1,5 @@
 import ast
+import json
 import random
 import os
 import base64
@@ -12,9 +13,10 @@ import requests
 import ast
 import re
 import math
-# Repo-root api.env (overhaul/vision/ -> repo root is three parents up), resolved from __file__
+from .ocr_client import OcrUnavailable, ocr_lines
+# Repo-root config.env (overhaul/vision/ -> repo root is three parents up), resolved from __file__
 # so it loads regardless of CWD.
-load_dotenv(Path(__file__).resolve().parent.parent.parent / 'api.env')
+load_dotenv(Path(__file__).resolve().parent.parent.parent / 'config.env')
 
 GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to grab
 
@@ -66,14 +68,16 @@ PPD_PITCH = 16.4
 # to match, so keep the prompt and parser in agreement.
 PERCEPTION_PROMPT = ("Detect the <target_object> from the provided info about it. The box_2d should be [xmin, ymin, xmax, ymax] in the image normalized to 0-1000. "
                      "The top-left corner of the image is the origin. The x- and y-axes go horizontally and vertically, respectively. "
-                     "Return bounding boxes as a JSON array with labels. Never return masks or code fencing. Limit to one object only. Do not put the JSON inside a list/array. "
+                     "Return one JSON object with a label. If the target is genuinely not visible, return the empty JSON array []. "
+                     "Never return masks or code fencing. Limit to one object only. "
                      "Example output:\n\n"
                      "```json\n"
                      "{'box_2d': box_2d, 'label': target_object}\n"
                      "```\n\n")
 PERCEPTION_PROMPT_MULTI = ("Detect up to 12 instances of the <target_object> from the provided info about it - the ones CLOSEST to the centre of the image. "
                            "Each box_2d is [xmin, ymin, xmax, ymax] normalized to 0-1000, origin at the top-left, x horizontal and y vertical. "
-                           "Return a JSON array with one entry per instance and nothing else. Never return masks or extra code fencing. "
+                           "Return a JSON array with one entry per instance and nothing else; return [] only when no matching target is genuinely visible. "
+                           "Never return masks or extra code fencing. "
                            "Example output:\n\n"
                            "```json\n"
                            "[{'box_2d': box_2d, 'label': target_object}, {'box_2d': box_2d, 'label': target_object}]\n"
@@ -98,14 +102,9 @@ from manip.manipulation import *
 from sim.env import _XTNFWD_LEFT_, _PLLBCK_LEFT_, _XTNFWD_RIGHT_, _PLLBCK_RIGHT_
 
 
-_ocr = None
-
-def _get_ocr():
-    global _ocr
-    if _ocr is None:
-        from paddleocr import PaddleOCR
-        _ocr = PaddleOCR(use_angle_cls=True, lang='en')
-    return _ocr
+def _ocr_lines(source):
+    """Send a path/PIL image/PNG body to the central OCR service and return validated lines."""
+    return ocr_lines(source)
 
 
 def _encode_image(image: Image.Image) -> dict:
@@ -117,18 +116,13 @@ def _encode_image(image: Image.Image) -> dict:
 
 def read_text(image_path=None):
     image_path = image_path or os.path.join(screenshot_dir(), "ClientScreenshot.png")
-    result = _get_ocr().ocr(image_path)
-    return "\n".join([line[1][0] for line in result[0]]) if result else ""
+    return "\n".join(_ocr_lines(image_path))
 
 def extract_text_from_image(image_path):
-    result = _get_ocr().ocr(image_path, cls=True)
-    if len(result) == 0:
-        return "", []
-    try:
-        final_result = "\n".join([line[1][0] for line in result[0]] if result else "")
-    except Exception as e:
-        final_result = ""
-    return final_result, result
+    # The second element was historically raw Paddle output. It is now the service's parsed line
+    # list so no Paddle result shape leaks into an agent process.
+    lines = _ocr_lines(image_path)
+    return "\n".join(lines), lines
 
 def find_most_similar_bbox_to_target_name(target_name, ocr_result):
     bboxes = '\n'.join([f'* {box}' for box in ocr_result])
@@ -231,95 +225,129 @@ def _draw_debug_frame(frame_source, boxes, chosen, aim_xy, out_path):
         print(f"[CENTER] debug frame save failed: {type(e).__name__}: {e}")
 
 
+DETECTION_PARSE_MAX_ATTEMPTS = 3
+
+
+class BBoxResponseParseError(ValueError):
+    """The VLM replied, but its bbox payload was malformed or truncated."""
+
+
+def _bbox_payload(content):
+    """Parse a complete JSON/Python-literal bbox payload.
+
+    A valid ``[]`` is the only negative detection result. Invalid or truncated output raises so it
+    cannot be confused with "target not visible".
+    """
+    if not isinstance(content, str) or not content.strip():
+        raise BBoxResponseParseError("empty VLM response")
+    text = content.strip()
+    fenced = re.fullmatch(r"```\s*(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+    if fenced:
+        text = fenced.group(1).strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        # Qwen commonly emits single-quoted Python literals despite the JSON instruction. Keep
+        # supporting those, while parsing actual JSON first (including its null/true/false values).
+        try:
+            parsed = ast.literal_eval(text)
+        except (ValueError, SyntaxError) as error:
+            raise BBoxResponseParseError(
+                f"bbox payload is not complete valid JSON/literal: {error}"
+            ) from error
+    if parsed == []:
+        return []
+    if isinstance(parsed, dict):
+        return [parsed]
+    if not isinstance(parsed, list) or not parsed:
+        raise BBoxResponseParseError(
+            f"bbox payload must be an object, non-empty list, or [] (got {type(parsed).__name__})"
+        )
+    return parsed
+
+
+def _bbox_dict_px(box_2d):
+    if not isinstance(box_2d, dict):
+        raise BBoxResponseParseError(
+            f"bbox entry must be an object (got {type(box_2d).__name__})"
+        )
+    coords = box_2d.get('box_2d') or box_2d.get('bbox_2d')
+    if not isinstance(coords, (list, tuple)) or len(coords) != 4:
+        raise BBoxResponseParseError("bbox entry is missing a four-value box_2d")
+    if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in coords):
+        raise BBoxResponseParseError("bbox coordinates must be finite numbers")
+    xmin = coords[0] / 1000 * ORIGINAL_WIDTH
+    ymin = coords[1] / 1000 * ORIGINAL_HEIGHT
+    xmax = coords[2] / 1000 * ORIGINAL_WIDTH
+    ymax = coords[3] / 1000 * ORIGINAL_HEIGHT
+    if xmin >= xmax or ymin >= ymax:
+        raise BBoxResponseParseError("bbox coordinates are empty or reversed")
+    return {'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax,
+            'cx': (xmin + xmax) / 2.0, 'cy': (ymin + ymax) / 2.0,
+            'label': box_2d.get('label', 'unknown')}
+
+
+def _bbox_request(image, target_info, prompt, max_tokens, temperature):
+    return call_with_api_retries(
+        lambda: CLIENT.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": [
+                _encode_image(image),
+                {"type": "text", "text": f"{prompt}\n\ntarget_info={target_info}\n\n"},
+            ]}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+        )
+    ).choices[0].message.content
+
+
+def _parsed_bbox_response(image, target_info, prompt, max_tokens, temperature):
+    last_error = None
+    for attempt in range(1, DETECTION_PARSE_MAX_ATTEMPTS + 1):
+        content = _bbox_request(image, target_info, prompt, max_tokens, temperature)
+        print(f"[DETECT OBJECT IN FRAME] Response: {content}")
+        try:
+            return [_bbox_dict_px(entry) for entry in _bbox_payload(content)]
+        except BBoxResponseParseError as error:
+            last_error = error
+            print(
+                f"[DETECT OBJECT IN FRAME] malformed bbox response "
+                f"({attempt}/{DETECTION_PARSE_MAX_ATTEMPTS}): {error}"
+            )
+    raise BBoxResponseParseError(
+        f"bbox response remained malformed after {DETECTION_PARSE_MAX_ATTEMPTS} attempts: "
+        f"{last_error}"
+    ) from last_error
+
+
 def _detect_bbox_px(image, target_info, temperature=0.0):
     """Detect ONE target box and return it in PIXELS as
-    {'xmin','ymin','xmax','ymax','cx','cy','label'}, or None if nothing parseable.
+    {'xmin','ymin','xmax','ymax','cx','cy','label'}, or None only for a valid [] response.
+    Malformed/truncated responses are retried, then raise BBoxResponseParseError.
 
     temperature defaults to 0.0 on purpose: this is a LOCALISATION call, not a creative
     one. At the old 0.5 the same frame returned different coordinates run to run, which a
     closed centring loop would chase as if the object itself were moving. Deterministic box
     in, deterministic correction out. Pulled out of center_object_on_screen so it (and the
     projection math) can be exercised offline on saved PNGs - see center_offline_check.py."""
-    resp = call_with_api_retries(
-        lambda: CLIENT.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": [
-                _encode_image(image),
-                {"type": "text", "text": f"{PERCEPTION_PROMPT}\n\ntarget_info={target_info}\n\n"},
-            ]}],
-            temperature=temperature,
-            max_tokens=400,
-            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
-        )
+    entries = _parsed_bbox_response(
+        image, target_info, PERCEPTION_PROMPT, 400, temperature
     )
-    annotated_bbox = resp.choices[0].message.content
-    print(f"[DETECT OBJECT IN FRAME] Response: {annotated_bbox}")
-
-    match = re.search(EXTRACTABLE_JSON_PATTERN, annotated_bbox)
-    if not match:
-        return None
-    try:
-        parsed = ast.literal_eval(match.group(1))
-    except (ValueError, SyntaxError):
-        return None
-    box_2d = parsed[0] if isinstance(parsed, list) else parsed
-    if not isinstance(box_2d, dict):
-        return None
-    coords = box_2d.get('box_2d') or box_2d.get('bbox_2d')  # Qwen sometimes uses bbox_2d
-    if not coords or len(coords) != 4:
-        return None
-    label = box_2d.get('label', 'unknown')
-    xmin = coords[0] / 1000 * ORIGINAL_WIDTH   # [xmin, ymin, xmax, ymax] - Qwen order (see prompt note)
-    ymin = coords[1] / 1000 * ORIGINAL_HEIGHT
-    xmax = coords[2] / 1000 * ORIGINAL_WIDTH
-    ymax = coords[3] / 1000 * ORIGINAL_HEIGHT
-    return {'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax,
-            'cx': (xmin + xmax) / 2.0, 'cy': (ymin + ymax) / 2.0, 'label': label}
+    return entries[0] if entries else None
 
 
 def _detect_boxes_px(image, target_info, temperature=0.0):
     """ALL matching instances as a list of box dicts (same shape as _detect_bbox_px's return);
-    [] if none. Lets the centring loop pick and TRACK one instance instead of taking whatever
+    [] only for a valid empty response. Malformed/truncated responses are retried, then raise
+    BBoxResponseParseError. Lets the centring loop pick and TRACK one instance instead of taking whatever
     single box the model happens to return - the fix for the loop hopping between identical
     items on a dense shelf (measured 2026-07-21). temperature 0.0 for the same reason as
     _detect_bbox_px: a stable candidate set look to look."""
-    resp = call_with_api_retries(
-        lambda: CLIENT.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": [
-                _encode_image(image),
-                {"type": "text", "text": f"{PERCEPTION_PROMPT_MULTI}\n\ntarget_info={target_info}\n\n"},
-            ]}],
-            temperature=temperature,
-            max_tokens=1500,
-            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
-        )
+    entries = _parsed_bbox_response(
+        image, target_info, PERCEPTION_PROMPT_MULTI, 1500, temperature
     )
-    content = resp.choices[0].message.content
-    # Tolerant parse: pull each {...} object out on its own rather than literal_eval-ing the whole
-    # array. A long instance list can truncate at max_tokens with no closing ``` fence; the
-    # fence-based parse then returns nothing. Per-object extraction still yields every COMPLETE
-    # box and simply drops a half-written trailing one.
-    body = content.split("```json", 1)[-1].split("```", 1)[0]
-    out = []
-    for m in re.finditer(r'\{[^{}]*\}', body):
-        try:
-            box_2d = ast.literal_eval(m.group(0))
-        except (ValueError, SyntaxError):
-            continue
-        if not isinstance(box_2d, dict):
-            continue
-        coords = box_2d.get('box_2d') or box_2d.get('bbox_2d')  # Qwen sometimes uses bbox_2d
-        if not coords or len(coords) != 4:
-            continue
-        xmin = coords[0] / 1000 * ORIGINAL_WIDTH   # [xmin, ymin, xmax, ymax] - Qwen order (see prompt note)
-        ymin = coords[1] / 1000 * ORIGINAL_HEIGHT
-        xmax = coords[2] / 1000 * ORIGINAL_WIDTH
-        ymax = coords[3] / 1000 * ORIGINAL_HEIGHT
-        out.append({'xmin': xmin, 'ymin': ymin, 'xmax': xmax, 'ymax': ymax,
-                    'cx': (xmin + xmax) / 2.0, 'cy': (ymin + ymax) / 2.0,
-                    'label': box_2d.get('label', 'unknown')})
-    return out
+    return entries
 
 
 def bbox_to_rotation(cx, cy, aim_x, aim_y, focal_px=FOCAL_PX):
@@ -442,7 +470,7 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
 
     Returns the last TransformAgent state dict, augmented with 'centered' (bool), 'detected'
     (bool), 'residual_px' (dx, dy at the final look), 'iters' (looks taken), 'outcome'
-    (success | not_detected | stalled | incomplete), 'center_message' (a human-readable line
+    (success | not_detected | detection_error | stalled | incomplete), 'center_message' (a human-readable line
     the runner surfaces to the agent as `last_center`, so the actor and the episodic learner know
     whether centring worked instead of guessing), and 'box' - the final locked bbox dict
     (xmin/ymin/xmax/ymax/cx/cy in the ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame, plus label),
@@ -454,6 +482,7 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     residual = (None, None)
     centered = False
     detected = False        # did the detector ever return the target?
+    detection_error = None  # malformed VLM output after detector-level parse retries
     stalled = False         # did the residual stop shrinking (target likely at the frame edge)?
     locked = None           # predicted (x, y) of the tracked instance; None until look 1 picks one
     box = None              # last locked box (xmin/ymin/xmax/ymax/cx/cy/label); None if never detected
@@ -465,7 +494,12 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
         screenshot = RequestScreenshot(save_image=True)
         image = Image.open(BytesIO(screenshot["image"]))
         image.load()
-        boxes = _detect_boxes_px(image, target_info)
+        try:
+            boxes = _detect_boxes_px(image, target_info)
+        except BBoxResponseParseError as error:
+            detection_error = str(error)
+            print(f"[CENTER] look {i}: detector parse failure - {error}")
+            break
         if not boxes:
             print(f"[CENTER] look {i}: target not detected - not rotating (let the caller search).")
             break
@@ -526,6 +560,12 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     if centered:
         outcome = "success"
         message = f"SUCCESS - target centred (residual {residual}px, {i} look(s))"
+    elif detection_error is not None:
+        outcome = "detection_error"
+        message = (
+            "ERROR - target detection could not be parsed after retries; this is a VLM response "
+            "failure, not evidence that the target is absent. Retry center_object_on_screen"
+        )
     elif not detected:
         outcome = "not_detected"
         message = ("FAILED - target not detected in the frame; tilt/pan to bring it into view, "
@@ -542,6 +582,7 @@ def center_object_on_screen(target_info, aim_norm=(0.5, 0.5), max_iters=5, tol_p
     state = dict(state)
     state.update({'centered': centered, 'detected': detected, 'residual_px': residual,
                   'iters': i, 'outcome': outcome, 'center_message': message, 'box': box,
+                  'detection_error': detection_error,
                   '_source_image': image})
     return state
 
@@ -668,13 +709,25 @@ def read_text_in_box(box, pad_frac=0.04, image_path=None, source_image=None):
     """OCR only the region under `box` (a center_object_on_screen 'box' dict, whose
     xmin/ymin/xmax/ymax are in the ORIGINAL_WIDTH x ORIGINAL_HEIGHT virtual frame). Scales the box
     to the actual image size the same way annotate_target does, pads it by `pad_frac` of its size so
-    a slightly-tight detection doesn't clip the edge glyphs, crops, and runs paddleocr on the crop.
+    a slightly-tight detection doesn't clip the edge glyphs, crops, and sends a PNG to the OCR API.
 
     Cropping first is the whole win over read_text(): the POS receipt is a small bright rectangle in
-    a busy frame, and full-frame OCR mixes in shelf/label/button text. Returns [] on a None box or
-    any failure (OCR must never take down the caller). Live callers pass ``source_image`` from the
-    centering result, so OCR cannot race another screenshot writer. The attempt-local saved frame is
-    retained as a compatibility fallback for standalone callers."""
+    a busy frame, and full-frame OCR mixes in shelf/label/button text. Live callers pass
+    ``source_image`` from the centering result, so OCR cannot race another screenshot writer. The
+    attempt-local saved frame is retained as a compatibility fallback for standalone callers.
+
+    FAILURE CONTRACT — CHANGED, deliberately. This used to catch Exception, print
+    ``[OCR] read_text_in_box failed (...)`` and return [], on the rule "OCR must never take down the
+    caller". That rule was wrong here, because [] is not a neutral value for the callers: the
+    checkout path (_fuzzy_new_lines, store_map's scan confirmation, gates/smoke_checkout) diffs
+    receipt lines against a baseline, and an empty read is indistinguishable from "nothing new was
+    scanned". Unavailable OCR therefore must fail the run rather than silently converting the
+    MEASURED scan signal into a permanent "no scan detected", i.e. exactly the fake negative the
+    measure-don't-assume rule exists to prevent. So OCR failure now propagates: an empty [] returned
+    from here means paddle genuinely read no text, and nothing else.
+
+    A genuinely absent box still returns [] — "no screen was centred" is a real, non-erroneous
+    answer that the caller already branches on."""
     if not box:
         return []
     try:
@@ -696,16 +749,15 @@ def read_text_in_box(box, pad_frac=0.04, image_path=None, source_image=None):
         if x1 - x0 < 2 or y1 - y0 < 2:
             return []
         crop = img.crop((x0, y0, x1, y1))
-        # PaddleOCR accepts an ndarray. Keeping the crop in memory removes the last functional
-        # scratch-file handoff and therefore the _ocr_crop.png cross-worker race entirely.
-        import numpy as np
-        result = _get_ocr().ocr(np.asarray(crop))
-        if not result or not result[0]:
-            return []
-        return [line[1][0].strip() for line in result[0] if line[1][0].strip()]
+        # The crop stays in memory and is encoded as PNG by the API-only client. No scratch-file
+        # handoff and no process-local Paddle model exist in an agent.
+        return _ocr_lines(crop)
     except Exception as e:
-        print(f"[OCR] read_text_in_box failed ({type(e).__name__}: {e})")
-        return []
+        raise OcrUnavailable(
+            f"read_text_in_box failed ({type(e).__name__}: {e}). Region OCR is REQUIRED by the "
+            f"callers that diff receipt lines - returning no text here would silently read as "
+            f"'nothing scanned'. Start the service with `uv run poe ocr-server`."
+        ) from e
 
 
 def _fuzzy_new_lines(before, after, ratio=0.8):
@@ -920,6 +972,11 @@ def place_held_item(hand="auto", aim_norm=None, max_approach_iters=4, max_extend
     for iters in range(1, max_approach_iters + 1):
         res = center_to_tray(aim_norm=aim, debug_dir=debug_dir)
         box = res.get("box")
+        if res.get("outcome") == "detection_error":
+            return {"placed": False, "released": False, "verdict": "detection_error",
+                    "distance": None, "surface_height": None, "iters": iters,
+                    "reason": "bagging-tray detector returned malformed output after retries; "
+                    "target visibility is unknown, so nothing was released"}
         if res.get("outcome") == "not_detected" or box is None:
             return {"placed": False, "released": False, "verdict": "not_detected", "distance": None,
                     "surface_height": None, "iters": iters,
@@ -990,7 +1047,7 @@ def place_held_item(hand="auto", aim_norm=None, max_approach_iters=4, max_extend
 
 
 def detect_object_via_gemini(target_name):
-    # api.env is loaded once at module import; the redundant CWD-relative reload here was a no-op.
+    # config.env is loaded once at module import; the redundant CWD-relative reload here was a no-op.
     client = CLIENT  # UCL qwen (name kept for call sites; Gemini retired with OpenRouter)
     model_name = MODEL_NAME
     original_width = 1920

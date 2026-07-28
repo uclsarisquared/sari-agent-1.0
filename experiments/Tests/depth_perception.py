@@ -8,7 +8,7 @@ from annotation_tools import annotate_boxes
 from manipulation import grab_and_read_item
 from Tests.perception import read_text
 
-load_dotenv("api.env")
+load_dotenv("config.env")
 
 
 def request_rgbd_image():

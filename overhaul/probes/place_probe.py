@@ -88,6 +88,7 @@ reach did (fit_envelope.py pattern) and wire it into plan_place. The columns tha
 that is height mattering - split out a PLACE pose.
 """
 import csv
+import argparse
 import math
 import os
 import sys
@@ -161,6 +162,17 @@ def _crosshair(run_dir, idx, tag="read"):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Interactive placement and checkout OCR probe.")
+    parser.add_argument("--ocr-url", default=None, help="OCR service base URL (else $SARI_OCR_URL/default).")
+    args = parser.parse_args()
+
+    from vision.ocr_client import check_ocr_health
+    try:
+        check_ocr_health(args.ocr_url)
+    except Exception as error:
+        print(f"OCR preflight failed before simulator work: {error}")
+        return 1
+
     from collections import Counter
     from sim.env import (RequestLidarCenter, SetCrouch, SetHandsActive, RequestScreenshot,
                      TransformHands, ToggleLeftGrip, _XTNFWD_LEFT_, _PLLBCK_LEFT_,
@@ -658,7 +670,8 @@ def main():
         SetCrouch(False)   # stand back up; the crouch verdict is sticky
         nav.close()        # no-op restore for stow_hands=False, but keep the session tidy
         print(f"\ndone. rows -> {CSV_PATH}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

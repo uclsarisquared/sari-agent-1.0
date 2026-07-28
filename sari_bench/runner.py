@@ -26,7 +26,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from sari_bench import capture
 from sari_bench.client import CoordinatorClient, Lease, SandboxLost
@@ -40,6 +40,7 @@ from sari_bench.storage import (
     upsert_attempt_row,
     write_json_atomic,
 )
+from overhaul.vision.ocr_client import OcrUnavailable, check_ocr_health, resolve_ocr_url
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OVERHAUL_DIR = REPO_ROOT / "overhaul"
@@ -65,6 +66,10 @@ class SandboxStartupError(RuntimeError):
 
 class ResumeError(RuntimeError):
     """The requested output-directory operation is unsafe or incompatible."""
+
+
+class OcrPreflightError(RuntimeError):
+    """The required central OCR service was unavailable before sandbox leasing."""
 
 
 # Per-attempt manifest, written INTO the run dir before the agent is spawned. attempts.jsonl only
@@ -126,6 +131,7 @@ class AttemptResult:
     end_reason: str = ""
     sandbox_id: str = ""
     commands_uri: str = ""
+    ocr_url: str = ""
     exit_code: int | None = None
     wall_seconds: float = 0.0
     run_dir: str = ""
@@ -204,6 +210,8 @@ class BenchmarkRunner:
         work_items: list[tuple[str, int]] | None = None,
         initialize_battery: bool = True,
         resume: bool = False,
+        ocr_url: str | None = None,
+        ocr_health_check: Callable[[str], dict[str, Any]] = check_ocr_health,
     ) -> None:
         self.prompts = {prompt.id: prompt for prompt in prompts}
         self.coordinator_url = coordinator_url
@@ -238,6 +246,8 @@ class BenchmarkRunner:
         self.work_items = work_items
         self.initialize_battery = initialize_battery
         self.resume = resume
+        self.ocr_url = resolve_ocr_url(ocr_url)
+        self.ocr_health_check = ocr_health_check
 
         self._queue: asyncio.Queue[tuple[str, int, int]] = asyncio.Queue()
         self._results: list[AttemptResult] = []
@@ -287,6 +297,14 @@ class BenchmarkRunner:
         if total == 0:
             _log("battery already complete; no sandbox required")
             return self._write_summary()
+
+        # Fail before coordinator contact/acquire: a dead shared OCR daemon must not consume a
+        # simulator lease merely to make every agent subprocess fail.
+        try:
+            health = self.ocr_health_check(self.ocr_url)
+        except OcrUnavailable as error:
+            raise OcrPreflightError(str(error)) from error
+        _log(f"OCR preflight: {health['model']} at {self.ocr_url}")
 
         await self._wait_for_registered_sandbox()
         if self.initialize_battery and not self.resume:
@@ -433,6 +451,7 @@ class BenchmarkRunner:
             "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
             "leg_retries": self.leg_retries,
             "completion_guard": self.completion_guard,
+            "ocr_url": self.ocr_url,
             "timeout_grace_seconds": self.timeout_grace,
             "agent_entry": self.agent_entry,
             "agent_cwd": str(Path(self.agent_cwd).resolve()),
@@ -447,6 +466,8 @@ class BenchmarkRunner:
         def existing_value(key: str) -> Any:
             if key == "completion_guard" and key not in battery:
                 return "deterministic"
+            if key == "ocr_url" and key not in battery:
+                return resolve_ocr_url()
             return battery.get(key)
 
         mismatches = [
@@ -493,6 +514,7 @@ class BenchmarkRunner:
         result.end_reason = str(manifest.get("end_reason") or result.end_reason)
         result.sandbox_id = str(manifest.get("sandbox_id") or "")
         result.commands_uri = str(manifest.get("commands_uri") or "")
+        result.ocr_url = str(manifest.get("ocr_url") or self.ocr_url)
         result.wall_seconds = float(manifest.get("wall_seconds") or 0.0)
         result.run_dir = str(run_dir)
         result.requeues = int(manifest.get("requeues") or 0)
@@ -773,6 +795,7 @@ class BenchmarkRunner:
                 "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
                 "leg_retries": self.leg_retries,
                 "completion_guard": self.completion_guard,
+                "ocr_url": self.ocr_url,
                 "timeout_grace_seconds": self.timeout_grace,
                 "sandbox_startup_timeout_seconds": self.sandbox_startup_timeout,
                 "agent_entry": self.agent_entry,
@@ -882,6 +905,7 @@ class BenchmarkRunner:
 
             result.sandbox_id = lease.sandbox_id
             result.commands_uri = lease.commands_uri
+            result.ocr_url = self.ocr_url
             result.wall_seconds = round(time.monotonic() - started, 1)
             result.requeues = requeues
             result.run_dir = str(run_dir)
@@ -936,6 +960,7 @@ class BenchmarkRunner:
         env["PYTHONUNBUFFERED"] = "1"
         # How the agent finds its sandbox. sim/env.py reads this for every command's default URI.
         env["SARI_WS_URI"] = lease.commands_uri
+        env["SARI_OCR_URL"] = self.ocr_url
         if self.map_dir:
             # Belt to --output-dir's braces. The flag only reaches the call sites the orchestrator
             # explicitly threads it through; this reaches every StoreMap() in the attempt's process
@@ -959,6 +984,7 @@ class BenchmarkRunner:
                 "attempt": attempt,
                 "arm": self.arm,
                 "completion_guard": self.completion_guard,
+                "ocr_url": self.ocr_url,
                 "sandbox_id": lease.sandbox_id,
                 "commands_uri": lease.commands_uri,
                 "lease_id": getattr(lease, "lease_id", ""),
@@ -1170,6 +1196,7 @@ class BenchmarkRunner:
                 "looking_for": prompt.looking_for,
                 "attempt": attempt,
                 "arm": self.arm,
+                "ocr_url": self.ocr_url,
                 "run_dir": str(run_dir),
                 "state": "finished",
                 "outcome": "skipped",
@@ -1193,6 +1220,7 @@ class BenchmarkRunner:
                 wall_seconds=0.0,
                 run_dir=str(run_dir),
                 requeues=requeues,
+                ocr_url=self.ocr_url,
                 winning_attempt_key=str(winner.get("winning_attempt_key") or ""),
             )
         )
@@ -1248,6 +1276,8 @@ class BenchmarkRunner:
             self.completion_guard,
             "--ws-uri",
             lease.commands_uri,
+            "--ocr-url",
+            self.ocr_url,
         ]
         if self.map_dir:
             # Resolved, for the same reason SARI_MAP_DIR is (see _spawn_agent): --map-dir is given
@@ -1512,6 +1542,12 @@ async def async_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-steps", type=int, default=150, help="Per-leg step cap for the agent.")
     parser.add_argument("--arm", choices=["vlm", "graph", "graph-advised"], default="graph")
     parser.add_argument("--map-dir", default=None, help="slamtest output dir the agent loads its map from.")
+    parser.add_argument(
+        "--ocr-url",
+        default=None,
+        help="OCR service base URL. Resolution: this flag, $SARI_OCR_URL, then "
+             "http://127.0.0.1:9100.",
+    )
     parser.add_argument("--leg-retries", type=int, default=1)
     parser.add_argument(
         "--completion-guard",
@@ -1567,6 +1603,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         map_dir=args.map_dir,
         leg_retries=max(0, args.leg_retries),
         completion_guard=args.completion_guard,
+        ocr_url=args.ocr_url,
         sandbox_startup_timeout=args.sandbox_startup_timeout,
         capture_interval=args.capture_interval,
         resume=args.resume,
@@ -1584,6 +1621,9 @@ def main(argv: list[str] | None = None) -> int:
     except ResumeError as error:
         _log(f"error: {error}")
         return 2
+    except OcrPreflightError as error:
+        _log(f"error: {error}")
+        return 1
     except KeyboardInterrupt:
         return 130
 

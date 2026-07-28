@@ -9,88 +9,81 @@ reasoning.
 The Unity project is a **separate repo** (`SariSandboxV2`). It is the sim and the ground-truth
 product catalog; this repo is the agent/mapping side.
 
-## Setup
+## Quickstart
 
-Dependencies are managed with [uv](https://docs.astral.sh/uv/). Python 3.10.13 is pinned in
-`.python-version`; uv fetches it automatically.
+One-time setup:
 
 ```bash
-uv sync                 # create .venv and install everything
-cp api.env.example api.env    # then fill it in — see Configuration
+uv sync
+cp config.env.example config.env  # add OPENAI_API_URL and OPENAI_API_KEY
+ls overhaul/slamtest/output       # confirm the map artifacts exist
 ```
 
-Run anything through `uv run`, which activates the environment for you:
+Solo agent—start Unity in Play mode, then run these in separate terminals:
 
 ```bash
+# Terminal 1
+uv run poe ocr-server
+
+# Terminal 2
 cd overhaul
-uv run python orchestrator/subtask_agents.py "your task"
+uv run python orchestrator/subtask_agents.py "find and pick up Pepero"
 ```
 
-Note that the entrypoint is `overhaul/orchestrator/subtask_agents.py`, **not** the legacy `run.py` — see
-[Running the agent](#running-the-agent).
-
-### ⚒️ Task runner (poe)
-
-[poethepoet](https://poethepoet.natn.io/) is a dev dependency (`uv sync` installs it) and wraps the
-`sari_bench` fleet commands as short tasks defined in `[tool.poe.tasks]` in `pyproject.toml`. Run
-them with `uv run poe <task>`:
-
-| Task | Runs | What |
-|---|---|---|
-| `uv run poe dbench-coordinator` | `python -m sari_bench coordinator --port 9000` | Sandbox registry the runner and sim instances register with |
-| `uv run poe dbench-watch` | `python -m sari_bench watch` | Live dashboard web server for a running battery |
-| `uv run poe dbench-status` | `python -m sari_bench status --coordinator ws://127.0.0.1:9000` | Print the current sandbox pool |
-| `uv run poe dbench-easy [easy\|medium\|hard]` | `python -m sari_bench run --prompts sari_bench/prompts/<difficulty>_prompts.json ...` | Runs the chosen difficulty's prompt battery against the coordinator (default: `easy`; see `pyproject.toml` for the full flag set) |
-| `uv run poe debug-grab <item>` | `python orchestrator/subtask_agents.py --task "Pick up <item>" ...` | Repro a single grab task standalone, without a coordinator/fleet (default item: Choco Mallows) |
-
-These are convenience wrappers around the same `python -m sari_bench` commands documented in
-[Distributed Sari Bench](#distributed-sari-bench) — use whichever form you prefer.
-
-Optional extra — PaddleOCR is lazy-imported inside `perception._get_ocr()`, so the agent runs
-without it. Paddle wheels are large and unreliable on Apple Silicon, hence opt-in:
+Sari Bench battery—run in order:
 
 ```bash
-uv sync --extra ocr
+# Terminal 1
+uv run poe ocr-server
+
+# Terminal 2
+uv run poe dbench-coordinator
+
+# Terminal 3 (repeat on each Unity host)
+SARI_BENCH_COORDINATOR=ws://<runner-host>:9000/sandbox ./SariSandbox
+
+# Terminal 4
+uv run poe dbench-run easy       # easy | medium | hard
+
+# Optional Terminal 5
+uv run poe dbench-watch
 ```
 
-### Prerequisites
+```text
+SOLO
+Task ──▶ Agent ──ws──▶ Unity
+           ├──HTTP──▶ OCR daemon
+           └──HTTP──▶ UCL vLLM
 
-- **The Unity sim running in Play mode**, exposing its WebSocket command server at
-  `ws://localhost:8080/commands`. Nothing that touches the environment works without it.
-- **`api.env` at the repo root** — see [Configuration](#configuration).
-- **The map artifacts** in `overhaul/slamtest/output/`. These are gitignored, so a fresh clone
-  does not have them; without `topology_final_shelf.json` the agent fails at import. Check with
-  `ls overhaul/slamtest/output`.
-- `ClientGUI.py` needs system Tk (`tkinter`); nothing else does.
+SARI BENCH
+Prompt battery ──▶ Runner ──▶ Agent subprocesses ──ws──▶ Unity fleet
+                     │                 │
+                     │                 ├──HTTP──▶ OCR daemon
+                     │                 └──HTTP──▶ UCL vLLM
+                     └──ws──▶ Coordinator ◀──ws── Unity fleet
+```
 
-Runs on macOS, Linux, and Windows. The run-completion chime is platform-dispatched in `chime.py`
-(`winsound` on Windows, `afplay` on macOS, terminal bell elsewhere) and never raises.
-
-### Dependency notes
-
-`pyproject.toml` is derived from actual imports, not from the two `requirements.txt` files — those
-are whole-environment `pip freeze` dumps. `overhaul/requirements.txt` alone lists 100+ packages **none of
-which are imported anywhere in this repo**. The requirements files are kept for reference; `pyproject.toml` is the source
-of truth.
+The live entrypoint is `overhaul/orchestrator/subtask_agents.py`, not legacy `run.py`. OCR defaults
+to `http://127.0.0.1:9100`; override it with `--ocr-url` or `SARI_OCR_URL`.
 
 ## Configuration
 
 Copy the template and fill it in:
 
 ```bash
-cp api.env.example api.env
+cp config.env.example config.env
 ```
 
-`api.env` lives at the **repo root** and is gitignored. Every module resolves it from `__file__`,
+`config.env` lives at the **repo root** and is gitignored. Every module resolves it from `__file__`,
 so it loads regardless of which directory you run from — you do not need to `cd` anywhere
 particular for config to be found.
 
-The two variables that matter most are **`UCL_BASE_URL`** and **`UCL_API`**: the vLLM server
-(`Qwen/Qwen3.6-27B`) that serves all per-step agent calls. `UCL_BASE_URL` is a *bare host* — the
+The two variables that matter most are **`OPENAI_API_URL`** and **`OPENAI_API_KEY`**: the vLLM server
+(`Qwen/Qwen3.6-27B`) that serves all per-step agent calls. `OPENAI_API_URL` is a *bare host* — the
 code appends `:8000/v1` itself. The server 401s without a bearer key. If these are unset the agent
-raises `UCL_BASE_URL/UCL_API not found` on startup.
+raises `OPENAI_API_URL/OPENAI_API_KEY not found` on startup.
 
-`api.env.example` documents every variable, including which are legacy (`OPENROUTER_API_KEY` —
+`config.env.example` documents every variable, including which are legacy (`OPENROUTER_API_KEY` —
 credits exhausted, agent calls moved to the UCL server) and which have no reader in the codebase
 at all (`REPLICATE_API_TOKEN`).
 
@@ -132,8 +125,9 @@ uv run python orchestrator/subtask_agents.py "find and pick up Pepero"
 
 `subtask_agents.py` is the orchestrator: it decomposes the task into typed subtasks (legs), runs
 each through an agent instance, judges completion, retries failed legs with the failure reason in
-context, and hands off state between legs. No separate server process is needed — it calls the UCL
-server directly. (Its OpenRouter-era ancestor `subagent_run.py` is kept in `overhaul/deprecated/`.)
+context, and hands off state between legs. It calls the UCL model server directly and uses the
+separately started runner-local OCR daemon for receipt recognition. (Its OpenRouter-era ancestor
+`subagent_run.py` is kept in `overhaul/deprecated/`.)
 
 Before a run, sanity-check that the map artifacts are present:
 
@@ -162,6 +156,7 @@ list; summarized here:
 | `--reset-start` | off | Drive to the fixed spawn pose once before starting (eval-reproducibility). A plain run starts from the agent's current pose. |
 | `--restart-env` | off | Hard-reset the store to its initial state before starting (items back on shelves, checkouts undone, agent to spawn) so a fresh task doesn't inherit the last run's grabbed/checked-out items. Unlike `--reset-start`, which only moves the agent. |
 | `--ws-uri` | `$SARI_WS_URI`, else `ws://localhost:8080/commands` | Sandbox command endpoint. Sets `SARI_WS_URI` for this process. Distributed Sari Bench passes the URI of the sandbox it leased for the attempt, which is how several agents run against one machine at once. |
+| `--ocr-url` | `$SARI_OCR_URL`, else `http://127.0.0.1:9100` | Shared OCR service base URL. Its `/health` must pass before the first simulator command. |
 
 ### Distributed Sari Bench
 
@@ -172,6 +167,7 @@ not reimplement the agent. See **[`sari_bench/README.md`](sari_bench/README.md)*
 / sandbox / runner setup, the watch dashboard, and failure-handling semantics.
 
 ```bash
+uv run poe ocr-server  # separate terminal
 python -m sari_bench coordinator --port 9000
 python -m sari_bench run --prompts sari_bench/prompts/example_battery.json --coordinator ws://localhost:9000 --completion-guard vlm
 ```

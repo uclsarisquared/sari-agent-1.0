@@ -14,7 +14,7 @@ requires-python = ">=3.10,<3.11"
 dependencies = [
     # --- Agent runtime -----------------------------------------------------------
     "openai>=1.79.0",          # UCL vLLM server client (OpenAI-compatible)
-    "python-dotenv>=1.1.0",    # api.env. NB: not the `dotenv` package — see [tool.uv] note
+    "python-dotenv>=1.1.0",    # config.env. NB: not the `dotenv` package — see [tool.uv] note
     "loguru>=0.7.3",
     # --- Unity sim bridge --------------------------------------------------------
     "websockets>=15.0",
@@ -32,20 +32,25 @@ dependencies = [
     # 0.1.x caps pillow<11, which conflicts with the pillow 11.2.1 the rest of the repo was
     # measured on. It was unpinned in both requirements.txt files, so no pin is being broken.
     "moondream>=1.2",
+    # Region OCR of the POS screen (central ocr-server / perception.read_text_in_box). NOT optional:
+    # 2026-07-28 (user directive): read_text_in_box now RAISES when OCR can't run rather than
+    # returning [], because an empty read is indistinguishable from "nothing scanned" to the
+    # checkout callers. A dependency you must have for the checkout path to work at all does not
+    # belong behind an extra. Paddle wheels are large (~1GB with paddlex) and were kept opt-in for
+    # Apple Silicon; if they will not resolve there, drop these two lines locally rather than
+    # re-adding the extra, and expect the checkout path to fail loudly.
+    # Only the central daemon imports these; they remain base dependencies for now. Measured working:
+    # paddleocr 3.7.0 + paddlepaddle 3.3.1 on linux/x86_64. The >=3 floor is load-bearing.
+    "paddleocr>=3.0.0",
+    "paddlepaddle>=3.0.0",
     # --- Legacy root stack -------------------------------------------------------
     "litserve>=0.2.9",         # server.py
     "google-genai>=1.14.0",    # functions.py, comprehension.py
     "pynput>=1.7",             # keyboard_control.py, slamtest/manual_map.py
 ]
 
-[project.optional-dependencies]
-# PaddleOCR is lazy-imported inside perception._get_ocr(), so the agent runs without it.
-# Kept optional because paddlepaddle wheels are large and unreliable on Apple Silicon.
-#   uv sync --extra ocr
-ocr = [
-    "paddleocr>=2.8.0",
-    "paddlepaddle>=3.0.0rc1",
-]
+# NB: there is deliberately no `ocr` extra any more (removed 2026-07-28). paddleocr/paddlepaddle
+# moved into the base dependencies above — `uv sync` alone now installs them, no `--extra ocr`.
 
 [tool.uv]
 # Not an installable package — a collection of scripts run in place. Without this, uv would
@@ -59,9 +64,11 @@ package = false
 [dependency-groups]
 dev = [
     "poethepoet>=0.37.0",
+    "pytest>=8.3",
 ]
 
 [tool.poe.tasks]
+ocr-server = { cmd = "python -m sari_bench ocr-server", help = "Run the shared runner-local PaddleOCR service on 127.0.0.1:9100" }
 dbench-watch = { cmd = "python -m sari_bench watch --host 0.0.0.0", help = "Live dashboard for a running battery (run beside the runner)" }
 dbench-coordinator = { cmd = "python -m sari_bench coordinator --port 9000", help = "Run the sandbox registry" }
 dbench-status = { cmd = "python -m sari_bench status --coordinator ws://127.0.0.1:9000", help = "Print the current sandbox pool" }

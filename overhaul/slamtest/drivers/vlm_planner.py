@@ -104,7 +104,7 @@ from frontier_planner import (  # noqa: E402
 from mapping import normalize_deg  # noqa: E402
 
 # image_content_block/resolve_base_url are imported rather than re-vendored: they encode measured
-# server facts (the qwen data-URI block shape; UCL_BASE_URL being a bare host that needs :8000/v1)
+# server facts (the qwen data-URI block shape; OPENAI_API_URL being a bare host that needs :8000/v1)
 # and a second copy in this directory would drift from the probe's. post_chat is deliberately NOT
 # imported - it sys.exit()s on any HTTPError, which is right for a one-shot probe and catastrophic
 # for a 300-step live run, where one transient blip would kill the run and lose the map. Hence the
@@ -409,7 +409,7 @@ class _VLMClientMixin:
         self.model = model
         # Resolved at init, never trusted as a literal: the server 401s without the real
         # bearer (measured 2026-07-19), and the key may rotate - resolve_api_key reads
-        # $UCL_API, then sari_env_old's conda state.
+        # $OPENAI_API_KEY, then sari_env_old's conda state.
         self.api_key = resolve_api_key(api_key)
         self.timeout = timeout
         self.retries = retries

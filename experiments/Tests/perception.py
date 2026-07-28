@@ -14,7 +14,7 @@ from manipulation import grab_and_read_item
 from PIL import Image
 
 
-load_dotenv("api.env")
+load_dotenv("config.env")
 from overhaul.perception import detect_object_via_moondream
 
 def face_cardinal_direction(angle_deg):
@@ -223,7 +223,7 @@ def detect_object_via_gemini(target_name):
     import ast
     import dotenv
 
-    dotenv.load_dotenv('api.env')
+    dotenv.load_dotenv('config.env')
 
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -278,7 +278,7 @@ def detect_object_in_frame_gemini(target_name):
     import ast
     import dotenv
 
-    dotenv.load_dotenv('api.env')
+    dotenv.load_dotenv('config.env')
 
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 

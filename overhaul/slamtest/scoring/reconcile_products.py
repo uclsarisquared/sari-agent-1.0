@@ -41,7 +41,8 @@ _SLAM_DIR = os.path.dirname(_THIS_DIR)                         # slamtest
 if _SLAM_DIR not in sys.path:
     sys.path.insert(0, _SLAM_DIR)
 import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
-CATALOG_DIR = r"C:\Sari\SariSandboxMY\SariSandboxV2\Assets\Resources\Data"  # pinned, no glob
+from sim import sim_paths  # noqa: E402
+CATALOG_DIR = sim_paths.data_dir()   # $SARI_SANDBOX_DIR/Assets/Resources/Data (config.env)
 
 # Tokens that carry no identity: grammar, packaging, and the filler words annotators add.
 STOPWORDS = {"the", "a", "an", "in", "with", "of", "and", "flavored", "flavor", "pack",

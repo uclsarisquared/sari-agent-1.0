@@ -6,6 +6,7 @@
     watch         live dashboard for a running battery (run it beside the runner)
     report        flatten a battery into attempts.csv / legs.csv
     video         render an attempt's screenshots into a replay video
+    ocr-server    run the shared runner-local PaddleOCR daemon
 """
 
 from __future__ import annotations
@@ -92,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
         from sari_bench.video import main as video_main
 
         return video_main(rest)
+    if command == "ocr-server":
+        from overhaul.vision.ocr_server import main as ocr_server_main
+
+        return ocr_server_main(rest)
 
     print(f"Unknown command: {command}\n{USAGE}", file=sys.stderr)
     return 2

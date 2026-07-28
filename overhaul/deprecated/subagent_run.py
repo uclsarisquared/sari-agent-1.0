@@ -28,9 +28,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
+# Repo-root config.env, resolved from __file__ so it loads regardless of CWD.
 # (this file lives in overhaul/deprecated/, so the repo root is three levels up)
-load_dotenv(Path(__file__).resolve().parent.parent.parent / 'api.env')
+load_dotenv(Path(__file__).resolve().parent.parent.parent / 'config.env')
 
 # overhaul/ on sys.path so the runtime modules below still import from deprecated/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

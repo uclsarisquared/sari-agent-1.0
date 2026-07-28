@@ -18,7 +18,7 @@ and the two most informative inputs are already on disk from the capture walk:
         -> a bare wall the topology mislabelled "shelf". Expect "non_shelf". This is the case
            Stage 1 exists for; ~40% of shelf checkpoints look like this.
 
-Server: vLLM serving Qwen/Qwen3.6-27B over Chat Completions at <UCL_BASE_URL>:8000/v1, no key.
+Server: vLLM serving Qwen/Qwen3.6-27B over Chat Completions at <OPENAI_API_URL>:8000/v1, no key.
 """
 import argparse
 import base64
@@ -33,11 +33,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Repo-root api.env (overhaul/slamtest/annotate/ -> repo root is four parents up), resolved from
+# Repo-root config.env (overhaul/slamtest/annotate/ -> repo root is four parents up), resolved from
 # __file__ so the UCL creds load regardless of CWD - this module is the shared UCL resolver for
 # the slamtest tools (vlm_planner, explore_vlm import resolve_api_key/resolve_base_url from here),
 # and several of them are run standalone without agent.py's loader ever executing.
-load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / "api.env")
+load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / "config.env")
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))        # slamtest/annotate
 _SLAM_DIR = os.path.dirname(_THIS_DIR)                         # slamtest
@@ -70,39 +70,40 @@ def image_content_block(model, mime_type, base64_data):
 
 def resolve_api_key(explicit=None):
     """The qwen server REQUIRES a bearer key since 2026-07 (measured: /v1/models returns 401
-    without it - the old "vLLM ignores it" era is over). $UCL_API first; conda-meta/state
+    without it - the old "vLLM ignores it" era is over). $OPENAI_API_KEY first; conda-meta/state
     fallback because invoking sari_env_old's python.exe directly skips the env-var hooks.
-    Resolved at call time, never hardcoded, so a rotated key is picked up automatically.
-    Read as UCL_API_KEY first (api.env's spelling) then UCL_API (legacy env / conda state)."""
+    Resolved at call time, never hardcoded, so a rotated key is picked up automatically."""
     if explicit not in (None, "", "none"):
         key = explicit
     else:
-        key = os.environ.get("UCL_API_KEY") or os.environ.get("UCL_API")
+        key = os.environ.get("OPENAI_API_KEY")
     if not key:
         try:
             import json as _json
-            with open(r"C:/Sari/sari_env_old/conda-meta/state", encoding="utf-8") as f:
+            conda_state = os.getenv("SARI_CONDA_STATE", r"C:/Sari/sari_env_old/conda-meta/state")
+            with open(conda_state, encoding="utf-8") as f:
                 ev = _json.load(f).get("env_vars", {})
-            key = ev.get("UCL_API_KEY") or ev.get("UCL_API")
+            key = ev.get("OPENAI_API_KEY")
         except OSError:
             pass
     return key or "none"
 
 
 def resolve_base_url(explicit):
-    """UCL_BASE_URL is a bare host (e.g. "202.92.159.240"); the qwen server is :8000/v1.
+    """OPENAI_API_URL is a bare host (e.g. "202.92.159.240"); the qwen server is :8000/v1.
     Same env-then-conda-state resolution as resolve_api_key, for the same reason: invoking
     sari_env_old's python.exe directly skips the activation hooks that set the vars."""
-    raw = explicit or os.environ.get("UCL_BASE_URL")
+    raw = explicit or os.environ.get("OPENAI_API_URL")
     if not raw:
         try:
             import json as _json
-            with open(r"C:/Sari/sari_env_old/conda-meta/state", encoding="utf-8") as f:
-                raw = _json.load(f).get("env_vars", {}).get("UCL_BASE_URL")
+            conda_state = os.getenv("SARI_CONDA_STATE", r"C:/Sari/sari_env_old/conda-meta/state")
+            with open(conda_state, encoding="utf-8") as f:
+                raw = _json.load(f).get("env_vars", {}).get("OPENAI_API_URL")
         except OSError:
             pass
     if not raw:
-        sys.exit("no --base-url, no $UCL_BASE_URL, and no sari_env_old conda state to read")
+        sys.exit("no --base-url, no $OPENAI_API_URL, and no sari_env_old conda state to read")
     raw = raw.strip().rstrip("/")
     if not raw.startswith(("http://", "https://")):
         raw = f"http://{raw}"
@@ -131,9 +132,9 @@ def post_chat(base, payload, api_key, timeout):
 def main():
     p = argparse.ArgumentParser(description="Probe the Qwen server with one captured image.")
     p.add_argument("image", help="PNG from the capture walk")
-    p.add_argument("--base-url", default=None, help="Default: $UCL_BASE_URL, +:8000/v1")
+    p.add_argument("--base-url", default=None, help="Default: $OPENAI_API_URL, +:8000/v1")
     p.add_argument("--api-key", default=None,
-                   help="Bearer for the qwen server (default: $UCL_API, then sari_env_old's "
+                   help="Bearer for the qwen server (default: $OPENAI_API_KEY, then sari_env_old's "
                         "conda state). The server 401s without it - measured 2026-07-19.")
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--classify", action="store_true",

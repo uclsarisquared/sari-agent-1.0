@@ -13,7 +13,7 @@ exercised against the real shapes rather than a mock. What is being pinned down:
   4. the HTTP API serves state/frames/logs, and path traversal in an attempt key is refused;
   5. a rotated-aside requeue dir does not merge with the attempt that replaced it;
   6. every halt is announced exactly once whatever its outcome, and carries a replay clip inside the
-     upload budget - written beside, never over, the CLI's uncapped replay.mp4;
+     upload budget - written beside, never over, the dashboard/CLI replay.mp4;
   7. a watcher restart does not replay finishes that predate it into the channel;
   8. a human verdict is offered only where the AGENT chose to halt, is stored beside `success` and
      never over it, and reaches attempts.csv blank - not False - where nobody has looked;
@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import struct
 import sys
 import tempfile
 import time
@@ -47,6 +48,13 @@ _PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
     "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
 )
+
+
+def _complete_mp4(payload: bytes = b"") -> bytes:
+    def atom(name: bytes, body: bytes = b"") -> bytes:
+        return struct.pack(">I4s", len(body) + 8, name) + body
+
+    return atom(b"ftyp", b"isom\x00\x00\x02\x00") + atom(b"mdat", payload) + atom(b"moov")
 
 
 def _write(path: Path, text: str) -> None:
@@ -290,7 +298,75 @@ def test_discovery_prefers_newest_and_honours_pin() -> None:
 
         pinned = WatchState(bench_root=root, fixed_battery=older, discord=Discord(enabled=False))
         assert pinned.resolve_battery() == older
+        # The header's picker is how a reviewer reaches the other run, so the list of what exists
+        # may not depend on how the watcher was started.
+        listed = {entry["id"] for entry in pinned.snapshot()["discovered"]}
+        assert listed == {newer.name, older.name}, listed
         print("ok  auto-discovery takes the newest battery; --run-dir pins one")
+
+
+def test_a_browser_can_read_a_battery_the_watcher_is_not_watching() -> None:
+    """Picking another bench run in the header is a read: it must not move what the watcher follows."""
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        older = root / "20260725_100000"
+        newer = root / "20260725_160000"
+        make_attempt(older, "old", 1, steps=healthy_steps(2), state="finished", outcome="completed")
+        make_attempt(newer, "new", 1, steps=healthy_steps(3), pid=os.getpid())
+        os.utime(older, (time.time() - 500, time.time() - 500))
+
+        state = WatchState(bench_root=root, fixed_battery=None, discord=Discord(enabled=False),
+                           min_interval=0.0)
+        assert state.view()["battery_id"] == newer.name
+        assert state.view("newest")["battery_id"] == newer.name
+
+        other = state.view(older.name)
+        assert other["battery_id"] == older.name
+        assert [a["prompt_id"] for a in other["attempts"]] == ["old"]
+        assert other["watching_id"] == newer.name
+        # The watched battery is untouched by the detour, and its notifier keeps being driven.
+        assert state.battery == newer
+
+        # An id naming nothing on disk resolves to the watched battery rather than to a path.
+        for bogus in ("../..", "/etc", "nope"):
+            assert state.view(bogus)["battery_id"] == newer.name, bogus
+        assert state.battery_for("../..") == newer
+
+        # Attempt routes follow the same scope, or the reviewer would read one run's log under
+        # another run's tile.
+        assert state.log_tail("old/try01", battery_id=older.name)["lines"][-1] == "log line 49"
+        assert state.log_tail("old/try01")["lines"] == []
+        assert state.frame_path("old/try01", battery_id=older.name) is not None
+        assert state.frame_path("old/try01") is None
+        print("ok  a browser reads any battery on disk without moving the watched one")
+
+
+def test_a_running_battery_is_marked_live() -> None:
+    """The picker's green dot. `.runner.lock` is the exact signal; recency covers a resumed runner."""
+    from sari_bench.storage import RUNNER_LOCK, file_lock
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        make_attempt(battery, "p", 1, steps=healthy_steps(2), pid=os.getpid())
+        (battery / scan.BATTERY_MANIFEST).write_text("{}", encoding="utf-8")
+
+        with file_lock(battery / RUNNER_LOCK):
+            assert scan.battery_live(battery) is True, "a held runner lock did not read as live"
+        # Released, but everything in it was written a second ago, so the fallback still says live.
+        assert scan.battery_live(battery) is True
+
+        stale = time.time() - scan.LIVE_GRACE_SECONDS - 60
+        for path in (battery, battery / scan.BATTERY_MANIFEST, battery / RUNNER_LOCK):
+            os.utime(path, (stale, stale))
+        assert scan.battery_live(battery) is False, "a finished battery still read as live"
+
+        # A resumed runner holds no lock, and appending its first finish is what shows it is back.
+        (battery / scan.ATTEMPTS_INDEX).write_text("{}\n", encoding="utf-8")
+        assert scan.battery_live(battery) is True
+
+        described = scan.describe_batteries([battery])
+        assert described[0]["id"] == "b" and described[0]["live"] is True, described
+        print("ok  a battery with a live runner is marked live; a finished one is not")
 
 
 def test_rotated_requeue_dir_stays_separate() -> None:
@@ -320,6 +396,8 @@ def test_http_surface_and_traversal_refusal() -> None:
     with tempfile.TemporaryDirectory() as temp:
         battery = Path(temp) / "b"
         make_attempt(battery, "p", 1, steps=healthy_steps(5), pid=os.getpid())
+        other = Path(temp) / "b2"
+        make_attempt(other, "q", 1, steps=healthy_steps(2), pid=os.getpid())
         state = WatchState(bench_root=Path(temp), fixed_battery=battery,
                            discord=Discord(enabled=False), min_interval=0.0)
 
@@ -358,6 +436,22 @@ def test_http_surface_and_traversal_refusal() -> None:
                 f"{base}/api/attempt/p/try01/log?full=1", timeout=5
             ).read())
             assert full_log["lines"] == [f"log line {i}" for i in range(50)]
+
+            # `?battery=` is what the header's picker sends. Every route has to honour it, or the
+            # page would show one run's tiles over another run's frames and logs.
+            switched = json.loads(urllib.request.urlopen(
+                f"{base}/api/state?battery=b2", timeout=5
+            ).read())
+            assert switched["battery_id"] == "b2", switched["battery_id"]
+            assert switched["watching_id"] == "b"
+            scoped = json.loads(urllib.request.urlopen(
+                f"{base}/api/attempt/q/try01/log?lines=1&battery=b2", timeout=5
+            ).read())
+            assert scoped["lines"] == ["log line 49"], scoped["lines"]
+            unscoped = json.loads(urllib.request.urlopen(
+                f"{base}/api/attempt/q/try01/log", timeout=5
+            ).read())
+            assert unscoped["lines"] == [], "an unscoped key read another battery's log"
 
             page = urllib.request.urlopen(f"{base}/", timeout=5).read().decode()
             assert "const FRAME_POLL_MS = 250" in page
@@ -676,6 +770,83 @@ def test_replay_seed_suppresses_backfill() -> None:
         finally:
             worker.stop()
         print("ok  a watcher restart seeds old finishes silently and still catches new ones")
+
+
+def test_replay_worker_prioritizes_announcements_and_rejects_corrupt_clips() -> None:
+    from sari_bench import video
+    from sari_bench.watch.replay import RENDERING, ReplayNotifier
+
+    events: list[str] = []
+
+    class RecordingDiscord:
+        enabled = True
+
+        def attempt_finished(self, _attempt: dict[str, Any], *, video: Path | None = None) -> None:
+            events.append("posted")
+
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        archive_dir = root / "archive"
+        announce_dir = root / "announce"
+        archive_dir.mkdir()
+        announce_dir.mkdir()
+        # Nonempty is insufficient: a killed ffmpeg has no moov atom and must be replaced.
+        (archive_dir / video.REPLAY_NAME).write_bytes(b"\x00\x00\x00\x18ftypmp42partial")
+
+        worker = ReplayNotifier(RecordingDiscord())  # type: ignore[arg-type]
+        assert worker.enqueue("archive/try01", archive_dir) == RENDERING
+        assert worker.submit({
+            "key": "announce/try01",
+            "run_dir": str(announce_dir),
+            "end_reason": "halt_granted",
+        })
+
+        original_render = video.render
+        original_upload = video.render_for_upload
+
+        def fake_render(*_args: Any, **_kwargs: Any) -> None:
+            events.append("archive")
+            return None
+
+        def fake_upload(*_args: Any, **_kwargs: Any) -> None:
+            events.append("announcement")
+            return None
+
+        video.render = fake_render  # type: ignore[assignment]
+        video.render_for_upload = fake_upload  # type: ignore[assignment]
+        worker.start()
+        try:
+            worker._queue.join()
+        finally:
+            worker.stop()
+            video.render = original_render
+            video.render_for_upload = original_upload
+
+        assert events == ["announcement", "posted", "archive"], events
+    print("ok  notification clips outrank archive renders and corrupt mp4s are re-rendered")
+
+
+def test_full_replay_queue_falls_back_to_text_notification() -> None:
+    from sari_bench.watch.replay import QUEUE_MAXSIZE, ReplayNotifier
+
+    class EnabledDiscord:
+        enabled = True
+
+    with tempfile.TemporaryDirectory() as temp:
+        worker = ReplayNotifier(EnabledDiscord())  # type: ignore[arg-type]
+        root = Path(temp)
+        for index in range(QUEUE_MAXSIZE):
+            run_dir = root / str(index)
+            run_dir.mkdir()
+            worker.enqueue(f"p/try{index:02d}", run_dir)
+        key = "urgent/try01"
+        assert not worker.submit({
+            "key": key,
+            "run_dir": str(root),
+            "end_reason": "halt_granted",
+        })
+        assert key not in worker._claimed
+    print("ok  a full replay queue triggers immediate text-notification fallback")
 
 
 def test_finished_run_queues_dashboard_replay_without_discord() -> None:
@@ -1039,7 +1210,7 @@ def test_verdict_and_replay_over_http() -> None:
         battery = Path(temp) / "b"
         run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(6), state="finished",
                                outcome="completed", success=True, end_reason="halt_granted")
-        clip_bytes = b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8
+        clip_bytes = _complete_mp4(bytes(range(256)) * 8)
         (run_dir / video.REPLAY_NAME).write_bytes(clip_bytes)
         make_attempt(battery, "bare", 1, steps=healthy_steps(3), state="finished",
                      outcome="completed", success=True, end_reason="halt_granted", frames=False)
@@ -1135,7 +1306,7 @@ def test_verdict_and_replay_over_http() -> None:
             assert code == 400 and "finished" in json.loads(body)["error"], body
 
             retried: list[str] = []
-            state.retry = lambda key: (retried.append(key) or {
+            state.retry = lambda key, **_: (retried.append(key) or {
                 "ok": True, "key": key, "retry_state": "stopping"
             })  # type: ignore[method-assign]
             code, body, _ = request("/api/attempt/p/try01/retry", data=b"")
@@ -1312,6 +1483,8 @@ def main() -> int:
     test_close_out_leaves_the_last_word_to_a_live_runner()
     test_a_recycled_pid_is_not_mistaken_for_the_agent()
     test_discovery_prefers_newest_and_honours_pin()
+    test_a_browser_can_read_a_battery_the_watcher_is_not_watching()
+    test_a_running_battery_is_marked_live()
     test_rotated_requeue_dir_stays_separate()
     test_http_surface_and_traversal_refusal()
     test_log_cursor_appends_only_what_is_new()
@@ -1324,6 +1497,8 @@ def main() -> int:
     test_agent_error_is_failure_and_automatic_invalid()
     test_finish_attaches_replay_mp4()
     test_replay_seed_suppresses_backfill()
+    test_replay_worker_prioritizes_announcements_and_rejects_corrupt_clips()
+    test_full_replay_queue_falls_back_to_text_notification()
     test_finished_run_queues_dashboard_replay_without_discord()
     test_every_finished_attempt_is_reviewable()
     test_verdict_round_trip_and_refusals()

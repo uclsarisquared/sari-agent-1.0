@@ -6,8 +6,10 @@ A pipeline that maps a Unity grocery-store sim and annotates it into an **LLM-co
 checkpoint graph where each shelf node knows what products are on it, so an agent can answer *"find
 and pick up Pepero"* without a VLM ever doing spatial reasoning.
 
-The Unity project is a **separate repo**: `C:\Sari\SariSandboxMY\SariSandboxV2`. It is the sim and
-the ground-truth product catalog; this repo is the agent/mapping side.
+The Unity project is a **separate repo** (e.g. `SariSandboxV2`) at a path that differs per machine —
+set `SARI_SANDBOX_DIR` in `config.env` to point at it (see `overhaul/sim/sim_paths.py`; catalog
+grounding and the offline scoring/reconciliation scripts under `slamtest/scoring/` read it). It is
+the sim and the ground-truth product catalog; this repo is the agent/mapping side.
 
 ## The principle that explains most decisions here
 
@@ -75,7 +77,7 @@ CWD-relative by `agent_core.agent`; run everything from `overhaul/`).
   fully self-hosted run or to A/B annotation quality on identical captures. If you switch the
   annotator to qwen for a real pass, A/B qwen-vs-sonnet on the reviewed captures (cp015/cp017/cp067)
   first — quality was only ever measured on sonnet. The AGENT RUNTIME (per-step VLM/learner calls)
-  runs on the UCL vLLM server (`$UCL_BASE_URL:8000/v1`, bearer `$UCL_API_KEY` or legacy `$UCL_API`,
+  runs on the UCL vLLM server (`$OPENAI_API_URL:8000/v1`, bearer `$OPENAI_API_KEY`,
   `Qwen/Qwen3.6-27B`) — OpenRouter was retired for agent calls when its credits ran out.
 - **Map quality bar:** a good `grid_final.png` has **no grey holes** in the store interior.
 

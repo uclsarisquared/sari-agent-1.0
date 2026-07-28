@@ -31,7 +31,13 @@ if _ROOT not in sys.path:
 
 from sari_bench.coordinator import Coordinator
 from sari_bench import capture
-from sari_bench.runner import BenchmarkRunner, Prompt, ResumeError, load_prompts
+from sari_bench.runner import (
+    BenchmarkRunner,
+    OcrPreflightError,
+    Prompt,
+    ResumeError,
+    load_prompts,
+)
 from sari_bench.tests.test_coordinator import FakeSandbox
 from sari_bench.watch.notify import Discord
 from sari_bench.watch.server import WatchState
@@ -47,7 +53,8 @@ os.makedirs(run_dir, exist_ok=True)
 
 with open(os.path.join(run_dir, "liveness.json"), "w") as f:
     json.dump({"start": time.time(), "pid": os.getpid(),
-               "uri": os.environ.get("SARI_WS_URI", "")}, f)
+               "uri": os.environ.get("SARI_WS_URI", ""),
+               "ocr_url": os.environ.get("SARI_OCR_URL", "")}, f)
 
 # The real agent's token_meter rewrites this every few seconds, so it exists even for an attempt
 # that never reaches summary.json.
@@ -96,6 +103,11 @@ def _runner(url: str, prompts: list[Prompt], workspace: Path, **kwargs) -> Bench
         timeout_grace=1.0,
         capture_interval=0.0,
         capacity_poll_interval=0.05,
+        ocr_health_check=lambda _url: {
+            "ready": True,
+            "api_version": "v1",
+            "model": "fake-ocr",
+        },
     )
     options.update(kwargs)
     return BenchmarkRunner(
@@ -157,10 +169,14 @@ def test_completion_guard_is_threaded_into_agent_command_and_battery_config() ->
         index = command.index("--completion-guard")
         assert command[index + 1] == "vlm", command
         assert runner._semantic_config()["completion_guard"] == "vlm"
+        ocr_index = command.index("--ocr-url")
+        assert command[ocr_index + 1] == "http://127.0.0.1:9100"
+        assert runner._semantic_config()["ocr_url"] == "http://127.0.0.1:9100"
         runner.output_dir.mkdir(parents=True)
         runner._write_battery_manifest(1)
         battery = json.loads((runner.output_dir / "battery.json").read_text())
         assert battery["completion_guard"] == "vlm"
+        assert battery["ocr_url"] == "http://127.0.0.1:9100"
 
         # A legacy battery without this field means deterministic, never an implicit VLM switch.
         legacy = runner._semantic_config()
@@ -183,6 +199,38 @@ def test_completion_guard_is_threaded_into_agent_command_and_battery_config() ->
         legacy.pop("completion_guard")
         deterministic._validate_resume_config(legacy)
     print("ok  completion guard reaches the agent command and durable battery config")
+
+
+async def test_ocr_preflight_fails_before_coordinator_or_lease() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        reached_coordinator = False
+
+        def fail(_url):
+            from overhaul.vision.ocr_client import OcrUnavailable
+
+            raise OcrUnavailable("OCR is down")
+
+        runner = _runner(
+            "ws://127.0.0.1:1",
+            [Prompt(id="p", prompt="pick it up")],
+            workspace,
+            ocr_health_check=fail,
+        )
+
+        async def coordinator_probe():
+            nonlocal reached_coordinator
+            reached_coordinator = True
+
+        runner._wait_for_registered_sandbox = coordinator_probe
+        try:
+            await runner.run()
+        except OcrPreflightError as error:
+            assert "OCR is down" in str(error)
+        else:
+            raise AssertionError("battery proceeded without OCR")
+        assert reached_coordinator is False
+    print("ok  OCR preflight fails before coordinator contact or sandbox leasing")
 
 
 async def test_battery_runs_every_prompt_and_attempt() -> None:
@@ -208,7 +256,11 @@ async def test_battery_runs_every_prompt_and_attempt() -> None:
                 for attempt in (1, 2):
                     liveness = workspace / "runs" / prompt_id / f"try{attempt:02d}" / "liveness.json"
                     assert liveness.exists(), liveness
-                    assert json.loads(liveness.read_text())["uri"].endswith("/commands")
+                    live = json.loads(liveness.read_text())
+                    assert live["uri"].endswith("/commands")
+                    assert live["ocr_url"] == "http://127.0.0.1:9100"
+                    manifest = json.loads((liveness.parent / "attempt.json").read_text())
+                    assert manifest["ocr_url"] == "http://127.0.0.1:9100"
 
             # Reset-per-attempt: four attempts over two sandboxes means four resets.
             assert sum(s.reset_count for s in sandboxes) == 4
@@ -673,6 +725,8 @@ async def test_runner_closes_lease_and_pid_publication_races() -> None:
                     capture_interval=0.0,
                     agent_entry=base.agent_entry,
                     agent_cwd=base.agent_cwd,
+                    ocr_url=base.ocr_url,
+                    ocr_health_check=base.ocr_health_check,
                 )
                 runner.winner_on_call = winner_on_call
                 runner.winner_calls = 0
@@ -778,6 +832,7 @@ async def test_watcher_retry_replaces_a_finished_try_after_runner_exit() -> None
                 coordinator_url=url,
                 retry_agent_entry=str(workspace / "stub_agent.py"),
                 retry_agent_cwd=workspace,
+                retry_ocr_health_check=runner.ocr_health_check,
             )
             assert state.verdict("p1/try01", "pass", by="tester")["ok"] is True
             accepted = state.retry("p1/try01")
@@ -847,6 +902,9 @@ async def test_watcher_retry_stops_and_replaces_a_live_try() -> None:
                 coordinator_url=url,
                 retry_agent_entry=str(workspace / "stub_agent.py"),
                 retry_agent_cwd=workspace,
+                retry_ocr_health_check=lambda _url: {
+                    "ready": True, "api_version": "v1", "model": "fake-ocr"
+                },
             )
             assert state.retry("p1/try01")["ok"] is True
             await asyncio.wait_for(runner_task, timeout=60)
@@ -1127,6 +1185,7 @@ async def main() -> int:
     test_load_prompts_accepts_the_battery_schema()
     test_completion_guard_is_threaded_into_agent_command_and_battery_config()
     for test in (
+        test_ocr_preflight_fails_before_coordinator_or_lease,
         test_battery_runs_every_prompt_and_attempt,
         test_pool_size_bounds_concurrency,
         test_automatic_concurrency_fills_and_grows_with_the_fleet,

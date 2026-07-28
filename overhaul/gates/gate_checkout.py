@@ -104,7 +104,15 @@ def main():
     ap.add_argument("--two-hands", action="store_true",
                     help="grab an item in EACH hand and check both out in one fused pass "
                          "(checkout_held_items); logs a row per item to gate_checkout_2h.csv")
+    ap.add_argument("--ocr-url", default=None, help="OCR service base URL (else $SARI_OCR_URL/default).")
     args = ap.parse_args()
+
+    from vision.ocr_client import check_ocr_health
+    try:
+        check_ocr_health(args.ocr_url)
+    except Exception as error:
+        print(f"OCR preflight failed before simulator work: {error}")
+        return 1
 
     from sim.env import RequestScreenshot, SetHandsActive, TransformHands, default_uri
     from manip.manipulation import set_hand_pose, extend_arm_until_grabbed

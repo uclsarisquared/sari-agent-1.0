@@ -8,7 +8,7 @@ so it is where notification belongs.
 Everything here is best-effort and swallows its own errors. A webhook that 429s, a DNS failure, or
 a missing URL must never disturb the poll loop, let alone a battery.
 
-Configure with SARI_BENCH_DISCORD_WEBHOOK in api.env (or the environment).
+Configure with SARI_BENCH_DISCORD_WEBHOOK in config.env (or the environment).
 """
 
 from __future__ import annotations

@@ -15,8 +15,8 @@ from loguru import logger
 
 from reference import SYSTEM_INSTRUCTIONS_REF, BASE_SEMANTIC_MEMORY
 
-# Repo-root api.env, resolved from __file__ so it loads regardless of CWD.
-load_dotenv(Path(__file__).resolve().parent / 'api.env')
+# Repo-root config.env, resolved from __file__ so it loads regardless of CWD.
+load_dotenv(Path(__file__).resolve().parent / 'config.env')
 
 
 @dataclass

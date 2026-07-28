@@ -15,6 +15,8 @@ The load-bearing cases are the three the pre-6.3 keyword guards got WRONG and th
 """
 import os
 import sys
+import logging
+from unittest.mock import patch
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # overhaul/
 if _ROOT not in sys.path:
@@ -50,6 +52,15 @@ def _state(**over):
 
 def _granted(sub, state, final_text=""):
     return completion_predicate(sub, state, final_text)[0]
+
+
+class _LogCapture(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
 
 
 # --- parse_decomposition ---------------------------------------------------
@@ -102,6 +113,20 @@ def test_parse_count_garbage_dropped_and_zero_clamped():
     out = parse_decomposition(raw, "orig")
     assert "count" not in out[0]        # unparseable -> default-1 behaviour, not a crash
     assert out[1]["count"] == 1         # clamped to at least 1
+
+
+def test_bad_count_fallback_is_logged():
+    capture = _LogCapture()
+    sc.logger.addHandler(capture)
+    try:
+        parse_decomposition(
+            '[{"type":"pickup","target":"milk","count":"many","text":"Pick it up."}]',
+            "orig",
+        )
+    finally:
+        sc.logger.removeHandler(capture)
+    assert any("invalid pickup count" in message and "defaulting to 1" in message
+               for message in capture.messages)
 
 
 def test_parse_inspect_retains_required_query():
@@ -467,16 +492,41 @@ def test_category_grounding_absent_degrades_to_substring():
 
 
 def test_category_real_catalog_if_present():
-    # Integration against the live Unity catalog; a no-op (with a note) where the sim repo is absent.
+    # Integration against the live Unity catalog (SARI_SANDBOX_DIR in config.env); a no-op (with a
+    # note) where the sim repo is absent. Checks _CATALOG_LOADED, NOT lexicon truthiness -
+    # _CATEGORY_ALIASES always merges in 5 pseudo-categories, so the lexicon is truthy even with
+    # zero sim repo access; that used to make this "skip if absent" guard never actually skip.
     sc._CATEGORY_LEXICON = None      # force a real (re)load
     try:
-        if not sc._category_lexicon():
+        sc._category_lexicon()
+        if not sc._CATALOG_LOADED:
             print("(catalog absent - category integration check skipped)")
             return
         st = _state(leftGrippedState=True, gripped_name="LEMONSQUARE_MAMON_CHEESY_264G")
         assert _granted({"type": "pickup", "target": "Biscuits"}, st) is True
     finally:
         sc._CATEGORY_LEXICON = None  # don't leak the real lexicon into hermetic tests
+        sc._CATALOG_LOADED = False
+
+
+def test_category_catalog_load_failure_is_logged():
+    old_lex, old_generic, old_loaded = (
+        sc._CATEGORY_LEXICON, sc._GENERIC_NAMES, sc._CATALOG_LOADED
+    )
+    capture = _LogCapture()
+    sc.logger.addHandler(capture)
+    try:
+        sc._CATEGORY_LEXICON = None
+        sc._GENERIC_NAMES = None
+        with patch.object(sc, "categories_json", return_value="/definitely/missing/Categories.json"):
+            sc._category_lexicon()
+        assert sc._CATALOG_LOADED is False
+    finally:
+        sc.logger.removeHandler(capture)
+        sc._CATEGORY_LEXICON, sc._GENERIC_NAMES, sc._CATALOG_LOADED = (
+            old_lex, old_generic, old_loaded
+        )
+    assert any("failed to load Categories.json" in message for message in capture.messages)
 
 
 # --- cereal alias: catalog has NO 'Cereal' category (all filed under Biscuit), CLAUDE.md thread #5 ---

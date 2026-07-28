@@ -1,4 +1,4 @@
-api.env
+config.env
 .venv/
 __pycache__/
 base_semantic_memory.txt

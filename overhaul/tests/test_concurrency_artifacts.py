@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from PIL import Image
+import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -110,14 +111,12 @@ def test_depth_upload_uses_returned_frame_not_a_saved_screenshot(monkeypatch, tm
 def test_region_ocr_uses_in_memory_crop_and_creates_no_shared_crop(monkeypatch, tmp_path):
     seen = {}
 
-    class OCR:
-        @staticmethod
-        def ocr(source):
-            seen["source"] = source
-            return [[(None, ("TOTAL 12.34", 1.0))]]
+    def fake_ocr(source):
+        seen["source"] = source
+        return ["TOTAL 12.34"]
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(perception, "_get_ocr", lambda: OCR())
+    monkeypatch.setattr(perception, "ocr_lines", fake_ocr)
     frame = Image.new("RGB", (1920, 1080), "white")
     lines = perception.read_text_in_box(
         {"xmin": 100, "ymin": 100, "xmax": 300, "ymax": 250},
@@ -125,8 +124,41 @@ def test_region_ocr_uses_in_memory_crop_and_creates_no_shared_crop(monkeypatch, 
     )
 
     assert lines == ["TOTAL 12.34"]
-    assert getattr(seen["source"], "shape", None) is not None
+    assert isinstance(seen["source"], Image.Image)
+    assert seen["source"].size == (216, 162)  # exact 4% padding around the 200x150 box
     assert not (tmp_path / "screenshots" / "_ocr_crop.png").exists()
+
+
+def test_region_ocr_preserves_service_lines(monkeypatch):
+    monkeypatch.setattr(
+        perception,
+        "ocr_lines",
+        lambda _source: ["TOTAL 12.34", "CHANGE 0.66"],
+    )
+    lines = perception.read_text_in_box(
+        {"xmin": 100, "ymin": 100, "xmax": 300, "ymax": 250},
+        source_image=Image.new("RGB", (1920, 1080), "white"),
+    )
+
+    assert lines == ["TOTAL 12.34", "CHANGE 0.66"]
+
+
+def test_region_ocr_raises_instead_of_faking_an_empty_read(monkeypatch):
+    """A broken OCR service must NOT return [] — the checkout gates would read that as
+    'nothing new scanned'. A missing box is still a legitimate empty answer, not an error."""
+    def explode(_source):
+        raise perception.OcrUnavailable("connection refused")
+
+    monkeypatch.setattr(perception, "ocr_lines", explode)
+
+    with pytest.raises(perception.OcrUnavailable) as excinfo:
+        perception.read_text_in_box(
+            {"xmin": 100, "ymin": 100, "xmax": 300, "ymax": 250},
+            source_image=Image.new("RGB", (1920, 1080), "white"),
+        )
+    assert isinstance(excinfo.value.__cause__, perception.OcrUnavailable)
+    assert "ocr-server" in str(excinfo.value)
+    assert perception.read_text_in_box(None) == []
 
 
 def test_annotations_default_to_the_attempt_directory(monkeypatch, tmp_path):

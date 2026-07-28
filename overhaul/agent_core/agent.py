@@ -15,9 +15,9 @@ from PIL import Image
 from loguru import logger
 import ast
 
-# Repo-root api.env (overhaul/agent_core/ -> repo root is three parents up), resolved from
+# Repo-root config.env (overhaul/agent_core/ -> repo root is three parents up), resolved from
 # __file__ so it loads regardless of CWD or checkout location.
-load_dotenv(Path(__file__).resolve().parent.parent.parent / 'api.env')
+load_dotenv(Path(__file__).resolve().parent.parent.parent / 'config.env')
 
 from agent_core.sys_inst import (
     SYS_INST_ASSOCIATIVE_SEMANTIC,
@@ -133,31 +133,27 @@ class OpenRouterConfig:
 
 
 def _ucl_creds():
-    """UCL vLLM host + bearer key. Repo-root api.env (loaded at import above) is the canonical
+    """UCL vLLM host + bearer key. Repo-root config.env (loaded at import above) is the canonical
     source; the conda-meta/state fallback survives for the legacy path where sari_env_old's
     python.exe is invoked DIRECTLY (no `conda activate`), which does not run the env-var hooks.
 
-    The bearer is read as UCL_API_KEY first (api.env's spelling, matching its *_API_KEY
-    convention) then UCL_API (legacy env / conda state) - both are accepted so neither source
-    silently returns None.
-
     The host comes back BARE - no scheme, no trailing slash - because every caller builds
-    f"http://{host}:8000/v1" from it. MEASURED 2026-07-26: api.env held the scheme
+    f"http://{host}:8000/v1" from it. MEASURED 2026-07-26: config.env held the scheme
     ("http://202.92.159.240"), so that f-string produced "http://http://202.92.159.240:8000/v1",
     httpx tried to resolve the hostname `http`, and the SDK's retries turned a DNS failure into a
     ~35s APIConnectionError that Sari Bench could only record as a bare agent_error. The
     scheme-tolerant readers (annotate_probe.resolve_base_url, locate_task) already stripped it;
-    this path did not. Normalising here rather than in api.env fixes all three agent-runtime call
-    sites (ucl_qwen_config, orchestrator._llm_client, perception.CLIENT) at once and makes either
-    spelling of the var correct."""
-    host = os.getenv("UCL_BASE_URL")
-    key = os.getenv("UCL_API_KEY") or os.getenv("UCL_API")
+    this path did not. Normalising here rather than in config.env fixes all three agent-runtime call
+    sites (ucl_qwen_config, orchestrator._llm_client, perception.CLIENT) at once."""
+    host = os.getenv("OPENAI_API_URL")
+    key = os.getenv("OPENAI_API_KEY")
     if not (host and key):
         try:
-            with open(r"C:/Sari/sari_env_old/conda-meta/state", encoding="utf-8") as f:
+            conda_state = os.getenv("SARI_CONDA_STATE", r"C:/Sari/sari_env_old/conda-meta/state")
+            with open(conda_state, encoding="utf-8") as f:
                 sv = json.load(f).get("env_vars", {})
-            host = host or sv.get("UCL_BASE_URL")
-            key = key or sv.get("UCL_API_KEY") or sv.get("UCL_API")
+            host = host or sv.get("OPENAI_API_URL")
+            key = key or sv.get("OPENAI_API_KEY")
         except OSError:
             pass
     if host:
@@ -165,7 +161,7 @@ def _ucl_creds():
         # A port in the var would collide with the :8000 the callers append. Explicit error
         # beats another silent malformed-URL round trip.
         if ":" in host:
-            raise RuntimeError(f"UCL_BASE_URL must be a bare host without a port, got {host!r} "
+            raise RuntimeError(f"OPENAI_API_URL must be a bare host without a port, got {host!r} "
                                "(the code appends :8000/v1 itself)")
     return host, key
 
@@ -176,7 +172,7 @@ def ucl_qwen_config(temperature=0.5, mode='lean'):
     unaffected and stays pinned to `claude -p` sonnet/medium - see CLAUDE.md."""
     host, key = _ucl_creds()
     if not host:
-        raise RuntimeError("UCL_BASE_URL not found (looked in repo-root api.env, then "
+        raise RuntimeError("OPENAI_API_URL not found (looked in repo-root config.env, then "
                            "sari_env_old conda state)")
     # enable_thinking=False is LOAD-BEARING, not a tweak. MEASURED 2026-07-19: with the
     # default chat template this server thinks before answering - 245 completion tokens /

@@ -417,6 +417,11 @@ def align_to_scanner(nav, target_slant=0.85, max_lateral_iters=3, max_advance_it
     # ---- Loop 1: lateral alignment --------------------------------------------------------------
     for iters in range(1, max_lateral_iters + 1):
         res = center_to_scanner(debug_dir=debug_dir)
+        if res.get("outcome") == "detection_error":
+            return {"aligned": False, "slant": None, "residual_yaw": yaw_off,
+                    "checkpoint": cp_id, "iters": iters,
+                    "reason": "scan-pad detector returned malformed output after retries; "
+                    "visibility is unknown (not a not-detected result)"}
         if res.get("outcome") == "not_detected" or res.get("box") is None:
             return {"aligned": False, "slant": None, "residual_yaw": yaw_off, "checkpoint": cp_id,
                     "iters": iters, "reason": "scan pad not detected - re-approach the counter or "

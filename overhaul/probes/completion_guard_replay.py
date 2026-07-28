@@ -32,7 +32,7 @@ from openai import OpenAI
 from orchestrator.pickup_vlm_guard import classify_pickup
 from orchestrator.subtask_completion import completion_predicate
 
-load_dotenv(_ROOT.parent / "api.env")
+load_dotenv(_ROOT.parent / "config.env")
 
 
 def _load_manifest(path):
@@ -62,10 +62,10 @@ def _confusion(rows, key):
 
 
 def _runtime_client(base_url=None, api_key=None):
-    url = base_url or os.getenv("UCL_BASE_URL")
-    key = api_key or os.getenv("UCL_API_KEY") or os.getenv("UCL_API")
+    url = base_url or os.getenv("OPENAI_API_URL")
+    key = api_key or os.getenv("OPENAI_API_KEY")
     if not (url and key):
-        raise RuntimeError("set UCL_BASE_URL and UCL_API_KEY (or pass --base-url/--api-key)")
+        raise RuntimeError("set OPENAI_API_URL and OPENAI_API_KEY (or pass --base-url/--api-key)")
     if "://" not in url:
         url = f"http://{url}"
     parsed = urlsplit(url)

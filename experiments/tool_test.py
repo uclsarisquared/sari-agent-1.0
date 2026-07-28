@@ -9,7 +9,7 @@ Usage:
 
 Requires:
     - Sari sandbox (Unity) running at ws://localhost:8080/commands
-    - DA3_PATH env var set (or in api.env) pointing to Depth-Anything-3/src
+    - DA3_PATH env var set (or in config.env) pointing to Depth-Anything-3/src
 """
 
 import json
@@ -20,7 +20,7 @@ from datetime import datetime
 import numpy as np
 from dotenv import load_dotenv
 
-load_dotenv("api.env")
+load_dotenv("config.env")
 da3_path = os.getenv("DA3_PATH")
 if da3_path:
     sys.path.insert(0, da3_path)

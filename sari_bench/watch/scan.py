@@ -20,15 +20,22 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from sari_bench import capture
+from sari_bench.storage import RUNNER_LOCK
 from sari_bench.watch import health
 
 ATTEMPT_MANIFEST = "attempt.json"
 BATTERY_MANIFEST = "battery.json"
+ATTEMPTS_INDEX = "attempts.jsonl"
+
+# How stale the battery's own bookkeeping may be before a runner holding no lock - a resumed or
+# partial run - stops counting as live.
+LIVE_GRACE_SECONDS = 120.0
 
 # Run dirs look like <prompt_id>/try01, plus <prompt_id>/try01.requeue00 for rotated-aside ones.
 _TRY_DIR = re.compile(r"^try\d+(\.requeue\d+)?$")
@@ -124,7 +131,7 @@ class BatteryView:
     battery: dict[str, Any]
     attempts: list[dict[str, Any]]
     counts: dict[str, int]
-    discovered: list[dict[str, str]]
+    discovered: list[dict[str, Any]]
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -431,6 +438,70 @@ def find_batteries(root: Path) -> list[Path]:
     return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
+def _flocked(path: Path) -> bool:
+    """Whether some process holds an flock on `path`, asked without taking one.
+
+    Trying for the lock would answer the same question and is what the runner itself does - but the
+    runner asks non-blockingly and aborts if it loses, so a watcher holding that lock for even a
+    microsecond could stop a battery from starting. /proc/locks is the read-only way to ask: one line
+    per held lock, carrying the owner's device and inode.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return False
+    wanted = f"{os.major(stat.st_dev):02x}:{os.minor(stat.st_dev):02x}:{stat.st_ino}"
+    try:
+        with open("/proc/locks", encoding="utf-8") as handle:
+            for line in handle:
+                fields = line.split()
+                # "<n>: FLOCK ADVISORY WRITE <pid> <maj>:<min>:<inode> <start> <end>"
+                if len(fields) > 5 and fields[1] == "FLOCK" and fields[5] == wanted:
+                    return True
+    except OSError:
+        return False  # no procfs: the recency fallback is the only signal left
+    return False
+
+
+def battery_live(battery: Path, now: float | None = None) -> bool:
+    """Whether a runner is still working on this battery.
+
+    The exact signal is `.runner.lock`, which a full battery runner flocks for its whole life. A
+    resumed or partial runner is started without `initialize_battery` and so holds nothing, hence the
+    recency fallback on the battery's own bookkeeping. Deliberately O(1) per battery - this runs for
+    every battery on every state poll, so nothing here may walk the run dirs.
+    """
+    if _flocked(battery / RUNNER_LOCK):
+        return True
+
+    now = time.time() if now is None else now
+    newest = 0.0
+    for name in (BATTERY_MANIFEST, ATTEMPTS_INDEX, ""):
+        try:
+            newest = max(newest, (battery / name if name else battery).stat().st_mtime)
+        except OSError:
+            continue
+    return bool(newest) and (now - newest) < LIVE_GRACE_SECONDS
+
+
+def describe_batteries(paths: list[Path], now: float | None = None) -> list[dict[str, Any]]:
+    """The picker's view of every battery on disk: what to call it, and whether it is running."""
+    now = time.time() if now is None else now
+    described = []
+    for path in paths:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        described.append({
+            "id": path.name,
+            "path": str(path),
+            "live": battery_live(path, now),
+            "mtime": mtime,
+        })
+    return described
+
+
 def run_dirs_of(battery: Path) -> list[Path]:
     return sorted(
         sub
@@ -477,5 +548,5 @@ def scan_battery(battery: Path, now: float, *, discovered: list[Path] | None = N
         battery=_read_json(battery / BATTERY_MANIFEST),
         attempts=[attempt.as_dict() for attempt in attempts],
         counts=counts,
-        discovered=[{"id": p.name, "path": str(p)} for p in (discovered or [])],
+        discovered=describe_batteries(discovered or [], now),
     )

@@ -8,7 +8,7 @@ summary carried forward between legs.
 ## Prerequisites
 
 - The Unity sim must be in **Play mode**.
-- The UCL qwen vLLM server must be reachable (credentials loaded from `api.env` at the
+- The UCL qwen vLLM server must be reachable (credentials loaded from `config.env` at the
   repo root — three parents up from `orchestrator/`).
 - Run from the `overhaul` directory:
 
