@@ -21,7 +21,7 @@
     {
       "id": "hard_04",
       "family": "reasoning",
-      "prompt": "Get an alternative to Pancit Canton",
+      "prompt": "Get an an alternative to Pancit Canton",
       "looking_for": "a noodle product other than Pancit Canton held in either hand as a suitable alternative"
     },
     {
@@ -45,8 +45,8 @@
     {
       "id": "hard_08",
       "family": "reasoning",
-      "prompt": "Get a healthier option for Coca Cola",
-      "looking_for": "a lower-sugar or healthier alternative to Coca Cola held in either hand"
+      "prompt": "Get a healthier option for barbecue Vcut chips",
+      "looking_for": "a lower-sugar, lower-fat, or otherwise healthier alternative to barbecue Vcut chips held in either hand"
     },
     {
       "id": "hard_09",
@@ -57,13 +57,13 @@
     {
       "id": "hard_10",
       "family": "reasoning",
-      "prompt": "Compare Nestle Honey Stars and Koko Krunch and choose the one with fewer ingredients",
-      "looking_for": "Nestle Honey Stars and Koko Krunch compared by ingredient count, with the product having fewer ingredients held in either hand"
+      "prompt": "Compare Pocky and Pepero and choose the one with fewer distinct ingredients on the ingredient list. If tied, pick the 1st one.",
+      "looking_for": "Pocky and Pepero compared by distinct ingredient count, with the product having fewer distinct ingredients held in either hand, defaulting to Pocky if tied"
     },
     {
       "id": "hard_11",
       "family": "attribute",
-      "prompt": "Find biscuits with no added sugar or artificial ingredients",
+      "prompt": "Find a biscuit with no added sugar or artificial ingredients",
       "looking_for": "a biscuit product with no added sugar or artificial ingredients held in either hand"
     },
     {
@@ -81,38 +81,38 @@
     {
       "id": "hard_14",
       "family": "counting",
-      "prompt": "Find 3 biscuits with different sugar levels and scan them from lowest to highest",
+      "prompt": "Find 3 biscuits with different sugar levels and scan them from lowest to highest sugar level.",
       "looking_for": "three biscuit products with distinct sugar levels scanned at the self-checkout in ascending order of sugar content"
     },
     {
       "id": "hard_15",
       "family": "attribute",
-      "prompt": "Find the cheapest noodles",
-      "looking_for": "the lowest-priced noodle product held in either hand"
+      "prompt": "Find the cheapest noodles in the whole store",
+      "looking_for": "the lowest-priced noodle product in the entire store held in either hand"
     },
     {
       "id": "hard_16",
       "family": "attribute",
-      "prompt": "Find the most expensive canned food",
-      "looking_for": "the highest-priced canned food product held in either hand"
+      "prompt": "Find the most expensive canned food in the whole store",
+      "looking_for": "the highest-priced canned food product in the entire store held in either hand"
     },
     {
       "id": "hard_17",
       "family": "attribute",
-      "prompt": "Find the biggest chips",
-      "looking_for": "the largest-sized chips product held in either hand"
+      "prompt": "Find the biggest chips in the whole store",
+      "looking_for": "the largest-sized chips product in the entire store held in either hand"
     },
     {
       "id": "hard_18",
       "family": "attribute",
-      "prompt": "Find the smallest biscuits",
-      "looking_for": "the smallest-sized biscuit product held in either hand"
+      "prompt": "Find the smallest biscuit in the whole store",
+      "looking_for": "the smallest-sized biscuit product in the entire store held in either hand"
     },
     {
       "id": "hard_19",
-      "family": "attribute",
-      "prompt": "Get the newest product in chips",
-      "looking_for": "the most recently released chips product held in either hand"
+      "family": "reasoning",
+      "prompt": "Checkout 3 items that could make a nice meal that could make 2 people feel full. You have a budget of 300 pesos.",
+      "looking_for": "three items forming a suitable, filling meal for two people with a combined price under 300 php all scanned and bagged at the self-checkout"
     }
   ]
 }
