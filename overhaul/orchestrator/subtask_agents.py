@@ -25,6 +25,7 @@ Map awareness (Phase 6.3 #1/#3/#4):
 
 Usage:
     python subtask_agents.py "get the green Piattos and bring it to the checkout counter"
+    python subtask_agents.py --config ../runconfig.toml --task "..."
     python subtask_agents.py --task "..." --arm graph --max-steps 150 --max-minutes 40
     python subtask_agents.py --task "..." --arm vlm      # control arm (old VLM navigation)
     python subtask_agents.py --task "..." --arm graph-advised  # per-hop advisor-VLM drive
@@ -61,10 +62,13 @@ import time
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _OVERHAUL_DIR = os.path.dirname(_THIS_DIR)
+_REPO_ROOT = os.path.dirname(_OVERHAUL_DIR)
 # Entry point: `python orchestrator/subtask_agents.py` puts orchestrator/ (not overhaul/) on
 # sys.path, so the package imports below need the root added explicitly — before the first one.
 if _OVERHAUL_DIR not in sys.path:
     sys.path.insert(0, _OVERHAUL_DIR)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from sim import chime  # cross-platform run-completion beep (was winsound: Windows-only)
 from datetime import datetime
@@ -73,6 +77,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from sari_runconfig import RunConfigError, load_run_config
 
 # Repo-root config.env (overhaul/orchestrator/ -> repo root is three parents up), resolved from
 # __file__ so it loads regardless of CWD.
@@ -131,6 +136,16 @@ from orchestrator.subtask_planning import (
     plan_legs,
     order_legs,
 )
+from orchestrator.task_response import (
+    attach_findings,
+    finalize_response_memory,
+    new_response_memory,
+    record_attempt,
+    save_response_memory,
+    set_planned_subtasks,
+    synthesize_response,
+    write_response_artifact,
+)
 
 ORCHESTRATOR_MODEL = "Qwen/Qwen3.6-27B"  # UCL qwen (OpenRouter retired 2026-07-19)
 
@@ -152,18 +167,22 @@ def _llm_client() -> OpenAI:
     return OpenAI(base_url=f"http://{host}:8000/v1", api_key=key, max_retries=0)
 
 
-def _llm_call(client: OpenAI, system: str, user: str) -> str:
-    resp = call_with_api_retries(
-        lambda: client.chat.completions.create(
-            model=ORCHESTRATOR_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": user},
-            ],
-            temperature=0.3,
-            timeout=120,
+def _llm_call(client: OpenAI, system: str, user: str, role: str) -> str:
+    """One orchestrator-level completion. `role` is which reasoner to bill it to - this helper serves
+    the decomposer, findings reporter, and final responder, which are separately measurable, so the
+    caller must say which one it is rather than letting them pool into one unreadable number."""
+    with token_meter.role(role):
+        resp = call_with_api_retries(
+            lambda: client.chat.completions.create(
+                model=ORCHESTRATOR_MODEL,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user},
+                ],
+                temperature=0.3,
+                timeout=120,
+            )
         )
-    )
     return resp.choices[0].message.content
 
 
@@ -174,7 +193,7 @@ def decompose_task(client: OpenAI, task: str) -> list:
     goto); any untypeable element degrades to `{"type": "unknown"}` inside parse_decomposition, which
     run_leg then handles with the OLD keyword guards. The A/B that validated this prompt lives in
     tests/ab_decompose.py (11/11 clean on the four-family battery, 2026-07-23)."""
-    raw = _llm_call(client, TYPED_DECOMPOSER_SYSTEM, f"Task: {task}")
+    raw = _llm_call(client, TYPED_DECOMPOSER_SYSTEM, f"Task: {task}", token_meter.ROLE_DECOMPOSER)
     subtasks = parse_decomposition(raw, task)
     if any(s.get("type") == "unknown" for s in subtasks):
         print("[WARN] Decomposition had untypeable element(s) — those legs fall back to keyword guards "
@@ -211,7 +230,7 @@ def generate_findings_summary(
         f"Final agent state:\n{json.dumps(final_state, indent=2, default=str)}\n\n"
         f"New semantic memory entries learned during this subtask:\n{new_semantic_entries}"
     )
-    return _llm_call(client, system, user)
+    return _llm_call(client, system, user, token_meter.ROLE_FINDINGS)
 
 
 # ---------------------------------------------------------------------------
@@ -352,9 +371,26 @@ def _inspection_action_batch(actions, times):
     return batch
 
 
+# Macro-result keys that must never reach a log row or the model prompt: `steps` is per-primitive
+# logging, `frame_b64` is a full-resolution screenshot the completion guard consumes in code. Both
+# sinks (the macro's own log rows and _model_facing_state) go through the helper below.
+_INSPECTION_RESULT_DROP = ("steps", "frame_b64")
+
+
+def _inspection_macro_summary(result: dict) -> dict:
+    """The loggable/model-facing view of an inspection macro result."""
+    return {k: v for k, v in result.items() if k not in _INSPECTION_RESULT_DROP}
+
+
 def _run_held_item_inspection_macro(
         agent, query, state, log_event=None, frames_dir=None, hand="auto"):
-    """Deterministically sweep a held item until a fresh VLM context finds the requested label."""
+    """Deterministically sweep a held item until a fresh VLM context finds the requested label.
+
+    A non-blocked result that found the label carries `frame_b64`: the exact frame whose visibility
+    gate passed. run_leg files it in the leg's inspection evidence ledger so a multi-item inspect
+    can be verified across frames (see subtask_completion.inspection_evidence_gap); nothing else
+    reads it, and _inspection_macro_summary keeps it out of logs and the prompt.
+    """
     held_sides = [
         side for side in ("left", "right")
         if isinstance(state, dict) and state.get(f"{side}GrippedState")
@@ -435,8 +471,7 @@ def _run_held_item_inspection_macro(
             "hand": hand,
             **cleanup,
         })
-        emit({"event": "inspection_macro_end", **{
-            key: value for key, value in result.items() if key != "steps"}})
+        emit({"event": "inspection_macro_end", **_inspection_macro_summary(result)})
         return result
 
     if frames_dir:
@@ -495,8 +530,7 @@ def _run_held_item_inspection_macro(
             "pre_inspection_reset": pre_reset,
             "steps": [],
         }
-        emit({"event": "inspection_macro_end", **{
-            key: value for key, value in result.items() if key != "steps"}})
+        emit({"event": "inspection_macro_end", **_inspection_macro_summary(result)})
         return result
 
     present_action = f"present_{hand}_item_for_inspection"
@@ -638,11 +672,13 @@ def _run_held_item_inspection_macro(
         initial_ocr = ocr_locked_frame(locked_image_bytes, pass_index, phase)
         best_ocr_lines = list(initial_ocr["lines"])
         latest_ocr_lines = list(initial_ocr["lines"])
+        # The most recent locked frame, kept current as the hand moves closer: whichever frame this
+        # branch finally returns on is the evidence frame the completion guard replays.
+        locked_b64 = base64.b64encode(locked_image_bytes).decode("utf-8")
 
         # Re-run the strict gate on this exact locked frame with PaddleOCR as untrusted auxiliary
         # text. This can confirm legibility without moving, but cannot relax the front-facing test.
         if latest_ocr_lines:
-            locked_b64 = base64.b64encode(locked_image_bytes).decode("utf-8")
             ocr_verdict = classify_inspection_visibility(
                 agent.vlm_agent.client,
                 agent.vlm_agent.config.model_id,
@@ -676,10 +712,10 @@ def _run_held_item_inspection_macro(
                     "vlm_calls": vlm_calls,
                     "ocr_lines": latest_ocr_lines,
                     "reason": ocr_verdict.get("reason"),
+                    "frame_b64": locked_b64,
                     "steps": steps,
                 }
-                emit({"event": "inspection_macro_end", **{
-                    key: value for key, value in result.items() if key != "steps"}})
+                emit({"event": "inspection_macro_end", **_inspection_macro_summary(result)})
                 return result
 
         for closer_stage in range(pass_index + 1, _INSPECTION_MAX_PASSES + 1):
@@ -729,7 +765,7 @@ def _run_held_item_inspection_macro(
                 best_ocr_lines = list(latest_ocr_lines)
 
             check_index += 1
-            legible, _image_b64, _image_bytes = check_visible(
+            legible, locked_b64, _image_bytes = check_visible(
                 check_index, closer_stage, "locked_closer", closer_stage,
                 image_bytes=closer_image, ocr_text=latest_ocr_lines)
             if legible.get("match") and legible.get("conclusive"):
@@ -748,10 +784,10 @@ def _run_held_item_inspection_macro(
                     "vlm_calls": vlm_calls,
                     "ocr_lines": latest_ocr_lines or best_ocr_lines,
                     "reason": legible.get("reason"),
+                    "frame_b64": locked_b64,
                     "steps": steps,
                 }
-                emit({"event": "inspection_macro_end", **{
-                    key: value for key, value in result.items() if key != "steps"}})
+                emit({"event": "inspection_macro_end", **_inspection_macro_summary(result)})
                 return result
 
         # The target label is still facing the camera at the closest allowed position. Preserve that
@@ -775,10 +811,10 @@ def _run_held_item_inspection_macro(
                 "requested label is facing the camera at the closest inspection position but "
                 "remains illegible; attempt a best-effort read from the current frame"
             ),
+            "frame_b64": locked_b64,
             "steps": steps,
         }
-        emit({"event": "inspection_macro_end", **{
-            key: value for key, value in result.items() if key != "steps"}})
+        emit({"event": "inspection_macro_end", **_inspection_macro_summary(result)})
         return result
 
     check_index = 0
@@ -801,10 +837,10 @@ def _run_held_item_inspection_macro(
                 "checks": check_index,
                 "vlm_calls": vlm_calls,
                 "reason": verdict.get("reason"),
+                "frame_b64": image_b64,
                 "steps": steps,
             }
-            emit({"event": "inspection_macro_end", **{
-                key: value for key, value in result.items() if key != "steps"}})
+            emit({"event": "inspection_macro_end", **_inspection_macro_summary(result)})
             return result
         presence = check_label_presence(
             image_b64, check_index, pass_index, "initial", 0)
@@ -845,10 +881,10 @@ def _run_held_item_inspection_macro(
                     "checks": check_index,
                     "vlm_calls": vlm_calls,
                     "reason": verdict.get("reason"),
+                    "frame_b64": image_b64,
                     "steps": steps,
                 }
-                emit({"event": "inspection_macro_end", **{
-                    key: value for key, value in result.items() if key != "steps"}})
+                emit({"event": "inspection_macro_end", **_inspection_macro_summary(result)})
                 return result
             presence = check_label_presence(
                 image_b64, check_index, pass_index, phase, turn_index)
@@ -1170,8 +1206,10 @@ def _model_facing_state(state: dict) -> dict:
     if isinstance(lc, dict) and "steps" in lc:
         view["last_checkout"] = {k: v for k, v in lc.items() if k != "steps"}
     li = view.get("last_inspection")
-    if isinstance(li, dict) and "steps" in li:
-        view["last_inspection"] = {k: v for k, v in li.items() if k != "steps"}
+    if isinstance(li, dict):
+        # `frame_b64` MUST be dropped here, not merely trimmed for size: it is a full-resolution
+        # base64 screenshot, and the actor already sees that frame as its own image input.
+        view["last_inspection"] = _inspection_macro_summary(li)
     return view
 
 
@@ -1337,7 +1375,8 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
     m = {"type": leg.get("type"), "text": leg_text, "t_manip": None, "t_grip": None,
          "t_checkout": None, "success": False, "timesteps": 0, "llm_calls": 0, "errors": 0,
          "completion_guard": completion_guard,
-         "halts_refused": 0, "halt_forced": False, "corrective_release": None, "end_reason": None}
+         "halts_refused": 0, "halt_forced": False, "corrective_release": None, "end_reason": None,
+         "completion_evidence": None, "reported_answer": None}
 
     state = _fresh_agent_state()
     # The leg's STARTING checkpoint counts as visited (the post-action refresh only records positions
@@ -1380,6 +1419,12 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
     compare_frames = {}
     compare_guard = None
     last_inspection_result = None
+    # Per-leg inspection evidence ledger, keyed by hand (2026-07-29). One entry per successful
+    # inspect_held_item run: the frame whose visibility gate passed, plus the SKU it showed. A
+    # multi-item inspect ("which of these two has less sugar") reads one label per turn, so the
+    # completion guard must judge the accumulated frames TOGETHER - a single frame can never show
+    # both labels front-facing, and the old one-frame guard therefore refused every such STOP.
+    inspection_evidence = {}
     targeted_vlm_pickup = (
         completion_guard == "vlm"
         and leg.get("type") == "pickup"
@@ -1412,9 +1457,18 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
         step_inspect_guard = None
         step_unknown_guard = None
         if leg.get("type") == "inspect":
-            # This closure is bound to the exact frame passed to execute_lean below. Its cache makes
-            # identical STOP/backstop checks within this step one VLM call, and inspection ignores
-            # --completion-guard because inspection is mandatory-VLM in both modes.
+            # This closure is bound to the exact frame passed to execute_lean below, PLUS every
+            # earlier frame this leg proved a label in (the evidence ledger - a two-item comparison
+            # is only verifiable across frames). Its cache makes identical STOP/backstop checks
+            # within this step one VLM call, and inspection ignores --completion-guard because
+            # inspection is mandatory-VLM in both modes.
+            evidence_frames = [
+                {"label": (f"{inspection_evidence[side]['sku'] or 'held item'} "
+                           f"({side} hand, step {inspection_evidence[side]['step']})"),
+                 "image_b64": inspection_evidence[side]["image_b64"]}
+                for side in ("left", "right") if side in inspection_evidence
+            ]
+
             def _log_inspect_verdict(query, auxiliary_context, verdict, reused):
                 if not reused:
                     m["llm_calls"] += 1
@@ -1423,7 +1477,8 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
                      "guard": "inspect", "match": row.get("match"),
                      "reason": row.get("reason"), "conclusive": row.get("conclusive"),
                      "latency_ms": row.get("latency_ms"), "query": query,
-                     "auxiliary_context": auxiliary_context, "reused": reused})
+                     "auxiliary_context": auxiliary_context, "reused": reused,
+                     "evidence_frames": [frame["label"] for frame in evidence_frames]})
 
             step_inspect_guard = make_inspect_guard(
                 agent.vlm_agent.client,
@@ -1431,6 +1486,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
                 agent.vlm_agent.config,
                 imageb64,
                 on_verdict=_log_inspect_verdict,
+                evidence_frames=evidence_frames,
             )
         if targeted_vlm_unknown:
             def _log_unknown_verdict(task, auxiliary_context, verdict, reused):
@@ -1624,6 +1680,11 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
             if granted:
                 m["success"] = True
                 m["end_reason"] = "halt_granted"
+                m["completion_evidence"] = reason
+                # This is safe to surface only after the same predicate that judges completion has
+                # granted the STOP. Observation/inspection answers used to disappear at this point,
+                # leaving the task-level responder nothing verified to tell the user.
+                m["reported_answer"] = reported_answer or None
                 print(f"[LEG {leg_idx} DONE] halt granted: {reason}")
                 break
             halt_refusals += 1
@@ -1771,6 +1832,26 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
                 inspection_result = res
                 last_inspection_result = res
                 m["llm_calls"] += int(res.get("vlm_calls") or 0)
+                # File the winning frame under the hand it read. `label_visible` covers BOTH useful
+                # outcomes - a legible read and a locked-but-illegible best-effort read - because the
+                # actor is told to answer from either; a sweep that never found the label has no
+                # frame worth replaying to the guard.
+                ev_hand = res.get("hand")
+                if (not res.get("blocked") and res.get("label_visible")
+                        and res.get("frame_b64") and ev_hand in ("left", "right")):
+                    inspection_evidence[ev_hand] = {
+                        "hand": ev_hand,
+                        "sku": gripped_names.get(ev_hand),
+                        "step": step,
+                        "label_legible": bool(res.get("label_legible")),
+                        "best_effort_read": bool(res.get("best_effort_read")),
+                        "image_b64": res["frame_b64"],
+                    }
+                    log({"event": "inspection_evidence_recorded", "step": step, "hand": ev_hand,
+                         "sku": gripped_names.get(ev_hand),
+                         "label_legible": bool(res.get("label_legible")),
+                         "best_effort_read": bool(res.get("best_effort_read")),
+                         "hands_covered": sorted(inspection_evidence)})
             if raw_action in _GRAB_ACTIONS and not res.get("blocked"):
                 # blocked = wrong-mode, not a distance failure; a measured move/crouch/bail/recenter
                 # carries its own recovery in last_reach - only a reachable-but-missed grab is a failure.
@@ -1797,6 +1878,17 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
                 m["t_checkout"] = round(time.time() - t0, 1)
         if last_inspection_result is not None:
             state["last_inspection"] = last_inspection_result
+        # Evidence for a hand that has since let go (or swapped items) is no longer evidence about
+        # what it holds now, so drop it before the predicate reads the ledger.
+        for ev_hand in [side for side in inspection_evidence
+                        if not state.get(f"{side}GrippedState")]:
+            inspection_evidence.pop(ev_hand, None)
+        # The predicate + the actor see the ledger WITHOUT the frames - just which held item was read
+        # when. Only the next step's inspect-guard closure is handed the images themselves.
+        state["inspection_evidence"] = [
+            {k: v for k, v in inspection_evidence[side].items() if k != "image_b64"}
+            for side in ("left", "right") if side in inspection_evidence
+        ]
         # 6.3 #1: localise from the live pose the state refresh just fetched (no extra sim round-trip) +
         # the frozen map. Feeds the goto predicate and grows the task-level visit trace (compare).
         near = sm.nearest_checkpoint((state["translation"][0], state["translation"][2]))
@@ -1888,6 +1980,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
         if not targeted_vlm_pickup and goal_met_streak >= COMPLETION_BACKSTOP:
             m["success"] = True
             m["end_reason"] = "completed_no_stop"
+            m["completion_evidence"] = met_reason
             print(f"[LEG {leg_idx} DONE] completion backstop: goal measurably held for "
                   f"{goal_met_streak} steps without a STOP — ending leg (success). {met_reason}")
             log({"event": "completed_no_stop", "step": step, "streak": goal_met_streak,
@@ -2045,6 +2138,10 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     os.environ["SARI_RUN_DIR"] = run_dir
     if ocr_url:
         os.environ["SARI_OCR_URL"] = ocr_url
+    response_memory = new_response_memory(task)
+    # This first write happens before service/model/simulator setup. A later forced termination may
+    # prevent a final answer, but it should still leave the original request available for diagnosis.
+    save_response_memory(run_dir, response_memory)
 
     # OCR is a required shared service, even for tasks that may not reach checkout. Fail before the
     # first simulator command so a missing daemon cannot consume a sandbox lease or alter sim state.
@@ -2088,6 +2185,10 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     resolve_call = make_resolve_call(resolver_backend)
     legs, n_resolves = plan_legs(sm, resolve_call, subtasks)
     task_llm += n_resolves
+    # The plan is already valuable diagnostic state. Persist it before any optional reset or other
+    # simulator traffic; ordering below may update the sequence, at which point it is saved again.
+    set_planned_subtasks(response_memory, legs)
+    save_response_memory(run_dir, response_memory)
 
     # -- hard STORE reset (OPT-IN, default off): put the shelves back before the task starts, so a
     #    fresh run doesn't inherit items a previous run grabbed/checked out. Done FIRST (before the
@@ -2115,6 +2216,8 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     # Order independent pickup->checkout pairs from where the agent ACTUALLY is (spawn if we reset,
     # else its current pose) - not an assumed spawn corner.
     legs = order_legs(sm, legs, _current_nearest_cp(sm))
+    set_planned_subtasks(response_memory, legs)
+    save_response_memory(run_dir, response_memory)
 
     print(f"[ORCHESTRATOR] {len(legs)} leg(s) (resolver calls: {n_resolves}):")
     for i, lg in enumerate(legs, 1):
@@ -2165,13 +2268,25 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                 carried_names = (m.get("final_state") or {}).get("gripped_names")
                 task_llm += m["llm_calls"]
                 # Per-leg token cost, so a leg that spun to its cap is visibly the expensive one.
-                # A retried leg's rows are separate, exactly like its llm_calls.
+                # A retried leg's rows are separate, exactly like its llm_calls. `tokens_by_role`
+                # splits the same window by reasoner, so "this leg was expensive" can be followed by
+                # "because it kept re-running perception" without re-instrumenting anything.
                 leg_tokens = token_meter.delta(tokens_before)
                 leg_rows.append({**{k: v for k, v in m.items()
                                     if k not in ("final_state", "new_semantic_entries")},
                                  "attempt": attempt,
                                  "tokens_in": leg_tokens["tokens_in"],
-                                 "tokens_out": leg_tokens["tokens_out"]})
+                                 "tokens_out": leg_tokens["tokens_out"],
+                                 "tokens_by_role": leg_tokens["by_role"]})
+                record_attempt(
+                    response_memory,
+                    leg_number=i + 1,
+                    attempt_number=attempt,
+                    subtask=leg,
+                    metrics=m,
+                    episodic_reflection=getattr(agent.vlm_agent, "episodic_memory", ""),
+                )
+                save_response_memory(run_dir, response_memory)
                 token_meter.dump()
                 print(f"### leg {i+1} attempt {attempt} {m['end_reason']}: success={m['success']} "
                       f"t_grip={m['t_grip']} t_checkout={m['t_checkout']} steps={m['timesteps']} "
@@ -2191,17 +2306,59 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
                     client, completed_subtask=leg.get("text", ""),
                     final_state=m["final_state"], new_semantic_entries=m["new_semantic_entries"])
                 task_llm += 1
+                attach_findings(response_memory, i + 1, attempt, findings)
+                save_response_memory(run_dir, response_memory)
                 print(f"[FINDINGS SUMMARY]\n{findings}\n")
                 cumulative_context += f"\n\n--- LEG {i + 1} FINDINGS ---\n{findings}"
     finally:
+        active_error = sys.exc_info()[1]
+        if active_error is not None:
+            # An unexpected exception may still reach this finalization block. It must never leave a
+            # successful task verdict behind or let the responder claim the unrun remainder worked.
+            task_success = False
+        # Final response synthesis is one logical LLM call for the whole original task, regardless
+        # of how many subtasks or retry attempts ran. The responder sees only the compact journal;
+        # its helper catches model failures and deterministically produces a non-empty answer.
+        finalize_response_memory(response_memory, success=task_success, planned_subtasks=legs)
+        if active_error is not None and not response_memory["final"].get("failure_reason"):
+            response_memory["final"]["failure_reason"] = (
+                f"{type(active_error).__name__}: {active_error}"
+            )
+        save_response_memory(run_dir, response_memory)
+        task_llm += 1
+        response, response_source = synthesize_response(
+            response_memory,
+            lambda system, user: _llm_call(
+                client, system, user, token_meter.ROLE_RESPONDER
+            ),
+        )
+        response_memory["response"] = response
+        response_memory["response_source"] = response_source
+        save_response_memory(run_dir, response_memory)
+        write_response_artifact(run_dir, response)
+
         # Whole-run token cost: prompt (in) / completion (out) across EVERY reasoner, incl. the
         # decomposer, the resolver, per-step perception and the findings summaries - not just the
-        # legs' own deltas, which miss the between-leg work. by_model splits actor from advisor when
-        # they ever stop being the same model.
+        # legs' own deltas, which miss the between-leg work. by_model would split actor from advisor
+        # only if they ever stopped being the same model, which is why by_role exists instead: it is
+        # what makes an ablation able to say which component the tokens it removed were going to.
         token_totals = token_meter.totals()
         summary = {"task": task, "arm": arm, "completion_guard": completion_guard,
                    "ocr_url": resolved_ocr_url,
+                   "run_config": {
+                       "arm": arm,
+                       "max_steps": caps[0],
+                       "max_minutes": caps[1],
+                       "resolver_backend": resolver_backend,
+                       "completion_guard": completion_guard,
+                       "leg_retries": leg_retries,
+                       "map_dir": str(Path(output_dir).resolve()) if output_dir else None,
+                       "reset_start": reset_start,
+                       "restart_env": restart_env,
+                       "ocr_url": resolved_ocr_url,
+                   },
                    "success": task_success,
+                   "response": response, "response_source": response_source,
                    "legs_planned": len(legs),
                    "legs_completed": sum(1 for r in leg_rows if r.get("success")),
                    "resolver_calls": n_resolves, "llm_calls": task_llm,
@@ -2229,6 +2386,7 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
               f"llm={task_llm}  tokens in/out={token_totals['tokens_in']}/{token_totals['tokens_out']}  "
               f"wall={summary['wall_s']}s  -> {out_path}")
         print("-" * 40)
+        print(f"[RESPONSE]\n{response}")
         try:
             if agent._graph_nav:
                 agent._graph_nav[1].close()
@@ -2238,59 +2396,85 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     return summary
 
 
-def main():
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config")
+    config_args, _ = config_parser.parse_known_args(argv)
+    config = None
+    if config_args.config:
+        try:
+            config = load_run_config(config_args.config)
+        except RunConfigError as error:
+            config_parser.error(str(error))
+
+    def configured(section, key, fallback=None):
+        return config.get(section, key, fallback) if config else fallback
+
     ap = argparse.ArgumentParser(description="Long-horizon typed-subtask orchestrator.")
+    ap.add_argument(
+        "--config",
+        help="TOML run configuration. Explicit command-line flags override configured values.",
+    )
     ap.add_argument("task", nargs="?", default=None,
                     help="the long-horizon task (or use --task)")
     ap.add_argument("--task", dest="task_opt", default=None, help="the long-horizon task")
-    ap.add_argument("--arm", choices=["vlm", "graph", "graph-advised"], default="graph",
+    ap.add_argument("--arm", choices=["vlm", "graph", "graph-advised"],
+                    default=configured("agent", "arm", "graph"),
                     help="navigation arm (default graph - the measured-better navigator; "
                          "graph-advised drives each graph hop through a per-hop advisor VLM)")
-    ap.add_argument("--max-steps", type=int, default=150, help="per-leg step cap")
-    ap.add_argument("--max-minutes", type=float, default=40.0, help="per-leg wall-clock cap")
-    ap.add_argument("--out", default=None, help="summary.json path (default: <run-dir>/summary.json)")
-    ap.add_argument("--run-dir", default=None)
-    ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"], default="qwen")
+    ap.add_argument("--max-steps", type=int, default=configured("limits", "max_steps", 150),
+                    help="per-leg step cap")
+    ap.add_argument("--max-minutes", type=float,
+                    default=configured("limits", "max_minutes", 40.0),
+                    help="per-leg wall-clock cap")
+    ap.add_argument("--out", default=configured("output", "summary"),
+                    help="summary.json path (default: <run-dir>/summary.json)")
+    ap.add_argument("--run-dir", default=configured("output", "run_dir"))
+    ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"],
+                    default=configured("agent", "resolver_backend", "qwen"))
     ap.add_argument("--completion-guard", choices=["deterministic", "vlm"],
-                    default="deterministic",
+                    default=configured("agent", "completion_guard", "deterministic"),
                     help="optional pickup/compare/unknown completion backend "
                          "(default deterministic; inspect is always VLM-verified)")
-    ap.add_argument("--output-dir", default=None,
+    ap.add_argument("--output-dir", default=configured("environment", "map_dir"),
                     help="slamtest output dir to load the map from (topology/annotations/grid). "
                          "Default: $SARI_MAP_DIR, else slamtest/output (StoreMap's "
                          "DEFAULT_OUTPUT_DIR).")
-    ap.add_argument("--leg-retries", type=int, default=1,
+    ap.add_argument("--leg-retries", type=int, default=configured("agent", "leg_retries", 1),
                     help="how many times to RETRY a failed leg with the failure reason in context "
                          "before aborting the task (orchestrator-level self-correction; 0 restores "
                          "the old abort-on-first-failure behaviour)")
-    ap.add_argument("--reset-start", action="store_true",
+    ap.add_argument("--reset-start", action=argparse.BooleanOptionalAction,
+                    default=configured("environment", "reset_start", False),
                     help="drive to the fixed spawn pose once before starting (eval-reproducibility; "
                          "OFF by default - a plain run starts from the agent's current pose)")
-    ap.add_argument("--restart-env", action="store_true",
+    ap.add_argument("--restart-env", action=argparse.BooleanOptionalAction,
+                    default=configured("environment", "restart_env", False),
                     help="hard-reset the STORE to its initial state before starting (Unity's "
                          "ResetEnvironment: items back on shelves, prior checkouts undone, agent to "
                          "spawn). OFF by default - use it so a fresh task doesn't inherit the last "
                          "run's grabbed/checked-out items. (Unlike --reset-start, which only moves "
                          "the agent.)")
-    ap.add_argument("--ws-uri", default=None,
+    ap.add_argument("--ws-uri", default=configured("environment", "ws_uri"),
                     help="sandbox command endpoint, e.g. ws://host:51923/commands. Sets SARI_WS_URI "
                          "for this process. Default: $SARI_WS_URI, else ws://localhost:8080/commands. "
                          "Distributed Sari Bench passes the URI of the sandbox it leased for this "
                          "attempt, which is how several agents run against one machine at once.")
     ap.add_argument(
         "--ocr-url",
-        default=None,
+        default=configured("environment", "ocr_url"),
         help="OCR service base URL. Resolution: this flag, $SARI_OCR_URL, then "
              "http://127.0.0.1:9100.",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     # Must be set before anything reads it. sim.env resolves the default per call, not at import,
     # so setting it here still takes effect in the already-imported module.
     if args.ws_uri:
         os.environ["SARI_WS_URI"] = args.ws_uri
 
-    task = args.task_opt or args.task or input("Task: ")
+    task = args.task_opt or args.task or configured("agent", "task") or input("Task: ")
     orchestrate(task, arm=args.arm, caps=(args.max_steps, args.max_minutes), out=args.out,
                 run_dir=args.run_dir, resolver_backend=args.resolver_backend,
                 reset_start=args.reset_start, restart_env=args.restart_env,

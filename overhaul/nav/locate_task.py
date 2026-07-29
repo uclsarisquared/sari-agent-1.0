@@ -177,6 +177,22 @@ VERIFIER_SYS = (
 
 # ---------------------------------------------------------------------------- backends
 
+def _meter(model, body):
+    """Reports one raw-HTTP completion to the token meter.
+
+    This backend posts with ``requests``, so agent_core.token_meter's OpenAI-SDK patch never sees
+    it - which means the advisor's and the resolver's tokens were missing from every run's totals
+    until this call existed, not merely unattributed. The import is lazy and swallowed: slamtest
+    tools import this module on sys.paths where agent_core is not present, and accounting is never
+    a reason to fail a call that already succeeded.
+    """
+    try:
+        from agent_core import token_meter
+        token_meter.record_external(model, (body or {}).get("usage"))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def claude_json(system, prompt, schema, image_paths=(), model="sonnet", effort="medium",
                 timeout=240.0):
     """One `claude -p` call -> (dict, envelope). Images ride via absolute paths in the prompt +
@@ -255,6 +271,7 @@ def qwen_json(system, prompt, schema, image_paths=(), model="Qwen/Qwen3.6-27B", 
     resp = requests.post(url, json=payload, timeout=timeout, headers=headers)
     resp.raise_for_status()
     body = resp.json()
+    _meter(model, body)
     text = body["choices"][0]["message"]["content"]
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end < 0:

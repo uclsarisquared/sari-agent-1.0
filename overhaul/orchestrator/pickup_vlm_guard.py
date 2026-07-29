@@ -8,6 +8,23 @@ to that client with a fresh two-message context, never through the actor's histo
 import json
 import time
 
+from agent_core import token_meter
+
+
+def _guard_call(client, kwargs):
+    """One classifier request, billed to the `guard` role.
+
+    Disables the OpenAI SDK's own automatic retries without mutating the shared actor client;
+    fake/minimal clients used by offline tests need not implement ``with_options``. Every classifier
+    in this module goes through here, which is also what makes the guards a single line item in the
+    per-role token accounting - an ablation that drops the completion guard reads its saving off
+    that one row.
+    """
+    request_client = (client.with_options(max_retries=0)
+                      if callable(getattr(client, "with_options", None)) else client)
+    with token_meter.role(token_meter.ROLE_GUARD):
+        return request_client.chat.completions.create(**kwargs)
+
 
 GUARD_SYSTEM = (
     "You are a strict pickup-completion classifier for a grocery-store robot. Decide whether the "
@@ -18,12 +35,20 @@ GUARD_SYSTEM = (
 )
 
 INSPECT_GUARD_SYSTEM = (
-    "You are a visual inspection verifier for a grocery-store robot. Given the exact image the "
-    "robot used, an observation QUERY, and the robot's REPORTED ANSWER, decide whether the image "
-    "plausibly supports that answer. This is read-only reporting: do not infer manipulation or "
+    "You are a visual inspection verifier for a grocery-store robot. You receive one or more images "
+    "the robot actually used, in the order it observed them, an observation QUERY, and the robot's "
+    "REPORTED ANSWER. Decide whether those images, CONSIDERED TOGETHER, plausibly support that "
+    "answer. A robot holds one item per hand and can only turn ONE item's printed label toward the "
+    "camera at a time, so when the query spans several items each item's supporting evidence will "
+    "normally come from a DIFFERENT image: judge each claimed reading against whichever supplied "
+    "image shows that item, and never reject an answer merely because no single image shows every "
+    "item at once. Every item, value, or reading the answer asserts must still be supported by some "
+    "supplied image; if any item the query needs has no image showing its relevant label, return "
+    "match=false. This is read-only reporting: do not infer manipulation or "
     "physical-state completion. If the query concerns nutritional facts, ingredients, an expiration "
     "date, or other printed item text, require the relevant printed surface to directly face the "
-    "camera and be visible in this image; the sandbox's rendered textures are frequently low-"
+    "camera and be visible in the supplied image that supports it; the sandbox's rendered textures "
+    "are frequently low-"
     "resolution, so exact character-by-character legibility is NOT required — a label that is "
     "visibly present and facing the camera, even if small, slightly blurred, or only partly sharp, "
     "is sufficient support as long as the reported answer is plausible given what can be made out. "
@@ -133,11 +158,7 @@ def classify_pickup(client, model, config, image_b64, held_sku, target,
     if extra_body:
         kwargs["extra_body"] = extra_body
     try:
-        # Disable the OpenAI SDK's own automatic retries without mutating the shared actor client.
-        # Fake/minimal clients used by offline tests need not implement with_options.
-        request_client = (client.with_options(max_retries=0)
-                          if callable(getattr(client, "with_options", None)) else client)
-        response = request_client.chat.completions.create(**kwargs)
+        response = _guard_call(client, kwargs)
         parsed = json.loads(response.choices[0].message.content)
         if (not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}
                 or type(parsed.get("match")) is not bool
@@ -152,20 +173,44 @@ def classify_pickup(client, model, config, image_b64, held_sku, target,
 
 
 def classify_inspection(client, model, config, image_b64, query, answer, auxiliary_context,
-                        image_media_type="image/png"):
-    """Verify a free-form inspection answer against one actor-visible frame, failing closed."""
+                        image_media_type="image/png", evidence_frames=None):
+    """Verify a free-form inspection answer against the actor-visible frame plus earlier evidence.
+
+    A multi-item inspect leg is UNVERIFIABLE from one frame (2026-07-29, measured): a robot can only
+    turn one held item's printed label toward the camera at a time, so a two-item sugar comparison
+    reads item A at step N and item B at step M and no single frame ever shows both. The guard used
+    to see only the current frame and refused every STOP until the refusal cap - correct about the
+    image, wrong about the unit of evidence. `evidence_frames` is the leg's ordered ledger of frames
+    that already satisfied the inspection macro's visibility gate, each `{"label", "image_b64"}`;
+    they are sent BEFORE the current frame, mirroring classify_compare's labeled-candidate layout.
+    Empty/absent evidence reproduces the original single-image request exactly.
+    """
     started = time.monotonic()
+    content = []
+    for index, frame in enumerate(evidence_frames or [], 1):
+        label = str((frame or {}).get("label") or "").strip()
+        frame_b64 = str((frame or {}).get("image_b64") or "").strip()
+        if not frame_b64:
+            continue   # a ledger entry with no frame is context-only; never send an empty image
+        content.extend([
+            {"type": "text", "text": f"EVIDENCE {index}: {label or 'earlier observation'}"},
+            {"type": "image_url",
+             "image_url": {"url": f"data:{image_media_type};base64,{frame_b64}"}},
+        ])
+    if content:
+        content.append({"type": "text", "text": "CURRENT FRAME:"})
+    content.extend([
+        {"type": "image_url",
+         "image_url": {"url": f"data:{image_media_type};base64,{image_b64}"}},
+        {"type": "text", "text": (
+            f"QUERY: {query}\nREPORTED ANSWER: {answer}\n"
+            f"AUXILIARY CONTEXT: {json.dumps(auxiliary_context, ensure_ascii=False, default=str)}\n"
+            "Do the supplied images conclusively support the reported answer?"
+        )},
+    ])
     messages = [
         {"role": "system", "content": INSPECT_GUARD_SYSTEM},
-        {"role": "user", "content": [
-            {"type": "image_url",
-             "image_url": {"url": f"data:{image_media_type};base64,{image_b64}"}},
-            {"type": "text", "text": (
-                f"QUERY: {query}\nREPORTED ANSWER: {answer}\n"
-                f"AUXILIARY CONTEXT: {json.dumps(auxiliary_context, ensure_ascii=False, default=str)}\n"
-                "Does the image conclusively support the reported answer?"
-            )},
-        ]},
+        {"role": "user", "content": content},
     ]
     kwargs = {
         "model": model,
@@ -182,9 +227,7 @@ def classify_inspection(client, model, config, image_b64, query, answer, auxilia
     if extra_body:
         kwargs["extra_body"] = extra_body
     try:
-        request_client = (client.with_options(max_retries=0)
-                          if callable(getattr(client, "with_options", None)) else client)
-        response = request_client.chat.completions.create(**kwargs)
+        response = _guard_call(client, kwargs)
         parsed = json.loads(response.choices[0].message.content)
         if (not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}
                 or type(parsed.get("match")) is not bool
@@ -236,9 +279,7 @@ def classify_inspection_visibility(client, model, config, image_b64, query,
     if extra_body:
         kwargs["extra_body"] = extra_body
     try:
-        request_client = (client.with_options(max_retries=0)
-                          if callable(getattr(client, "with_options", None)) else client)
-        response = request_client.chat.completions.create(**kwargs)
+        response = _guard_call(client, kwargs)
         parsed = json.loads(response.choices[0].message.content)
         if (not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}
                 or type(parsed.get("match")) is not bool
@@ -299,9 +340,7 @@ def classify_inspection_label_presence(client, model, config, image_b64, query,
     if extra_body:
         kwargs["extra_body"] = extra_body
     try:
-        request_client = (client.with_options(max_retries=0)
-                          if callable(getattr(client, "with_options", None)) else client)
-        response = request_client.chat.completions.create(**kwargs)
+        response = _guard_call(client, kwargs)
         parsed = json.loads(response.choices[0].message.content)
         if (not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}
                 or type(parsed.get("match")) is not bool
@@ -373,9 +412,7 @@ def classify_compare(client, model, config, candidate_frames, criterion, answer,
         extra_body = getattr(config, "extra_body", None)
         if extra_body:
             kwargs["extra_body"] = extra_body
-        request_client = (client.with_options(max_retries=0)
-                          if callable(getattr(client, "with_options", None)) else client)
-        response = request_client.chat.completions.create(**kwargs)
+        response = _guard_call(client, kwargs)
         parsed = json.loads(response.choices[0].message.content)
         if (not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}
                 or type(parsed.get("match")) is not bool
@@ -423,9 +460,7 @@ def classify_unknown(client, model, config, image_b64, task, claim, auxiliary_co
     if extra_body:
         kwargs["extra_body"] = extra_body
     try:
-        request_client = (client.with_options(max_retries=0)
-                          if callable(getattr(client, "with_options", None)) else client)
-        response = request_client.chat.completions.create(**kwargs)
+        response = _guard_call(client, kwargs)
         parsed = json.loads(response.choices[0].message.content)
         if (not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}
                 or type(parsed.get("match")) is not bool
@@ -441,8 +476,17 @@ def classify_unknown(client, model, config, image_b64, task, claim, auxiliary_co
                 "conclusive": False, "latency_ms": round(latency, 1)}
 
 
-def make_inspect_guard(client, model, config, image_b64, on_verdict=None):
-    """Return an image-bound, per-step cached callback matching ``predicate_inspect``'s contract."""
+def make_inspect_guard(client, model, config, image_b64, on_verdict=None, evidence_frames=None):
+    """Return an image-bound, per-step cached callback matching ``predicate_inspect``'s contract.
+
+    ``evidence_frames`` is the leg's accumulated inspection ledger (see ``classify_inspection``); it
+    is fixed for the lifetime of this per-step closure, so the cache key need not cover it.
+    """
+    frames = [
+        {"label": str((frame or {}).get("label") or ""),
+         "image_b64": str((frame or {}).get("image_b64") or "")}
+        for frame in (evidence_frames or [])
+    ]
     cache = {}
 
     def guard(query, answer, auxiliary_context):
@@ -457,7 +501,8 @@ def make_inspect_guard(client, model, config, image_b64, on_verdict=None):
             verdict = dict(cached) if isinstance(cached, dict) else cached
         else:
             verdict = classify_inspection(
-                client, model, config, image_b64, query, answer, auxiliary_context)
+                client, model, config, image_b64, query, answer, auxiliary_context,
+                evidence_frames=frames)
             cache[key] = dict(verdict) if isinstance(verdict, dict) else verdict
             guard.call_count += 1
         if callable(on_verdict):

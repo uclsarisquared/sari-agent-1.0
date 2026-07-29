@@ -135,3 +135,34 @@ def test_cleanup_logs_one_summary_without_inverse_rotation_events(
     assert rotations == []
     assert rows[-1]["event"] == "inspect_cleanup"
     assert rows[-1]["restored"] is True
+
+
+def test_inspection_evidence_frames_never_reach_a_log_row_or_the_prompt():
+    """`frame_b64` is a full-resolution screenshot the completion guard consumes IN CODE.
+
+    Two independent sinks must drop it: the macro's own `inspection_macro_end` log row, and the
+    model-facing state view (the actor already receives that frame as its image input, so shipping
+    it again as base64 text would cost thousands of tokens per step for nothing).
+    """
+    result = {
+        "blocked": False,
+        "hand": "left",
+        "label_visible": True,
+        "label_legible": True,
+        "frame_b64": "AAAABBBBCCCC",
+        "steps": [{"check_index": 1}],
+    }
+    summary = SA._inspection_macro_summary(result)
+    assert "frame_b64" not in summary and "steps" not in summary
+    assert summary["label_legible"] is True
+
+    view = SA._model_facing_state({
+        "last_inspection": dict(result),
+        "inspection_evidence": [{"hand": "left", "sku": "COKE", "step": 4}],
+        "visited_checkpoints": {1, 2},
+    })
+    assert "frame_b64" not in view["last_inspection"]
+    assert "steps" not in view["last_inspection"]
+    assert "visited_checkpoints" not in view
+    # The frame-free ledger IS shown: it tells the actor which held item it has already read.
+    assert view["inspection_evidence"] == [{"hand": "left", "sku": "COKE", "step": 4}]

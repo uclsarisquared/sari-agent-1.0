@@ -33,6 +33,8 @@ from agent_core import agent as A
 from agent_core.sys_inst import SYS_INST_ASSOCIATIVE_SEMANTIC
 
 _ORIG = {"SetHandsActive": env.SetHandsActive, "ResetHands": env.ResetHands,
+         "ToggleLeftGrip": env.ToggleLeftGrip, "ToggleRightGrip": env.ToggleRightGrip,
+         "TransformHands_env": env.TransformHands,
          "set_hand_pose": M.set_hand_pose,
          "set_hand_transform": M.set_hand_transform, "TransformHands": M.TransformHands}
 
@@ -46,6 +48,9 @@ try:
         yield
         env.SetHandsActive = _ORIG["SetHandsActive"]
         env.ResetHands = _ORIG["ResetHands"]
+        env.ToggleLeftGrip = _ORIG["ToggleLeftGrip"]
+        env.ToggleRightGrip = _ORIG["ToggleRightGrip"]
+        env.TransformHands = _ORIG["TransformHands_env"]
         M.set_hand_pose = _ORIG["set_hand_pose"]
         M.set_hand_transform = _ORIG["set_hand_transform"]
         M.TransformHands = _ORIG["TransformHands"]
@@ -173,6 +178,48 @@ def test_inspection_restoration_keeps_pose_unknown_when_reset_fails():
     else:
         raise AssertionError("ResetHands failure should propagate to run_leg cleanup")
     assert a._hand_pose is None
+
+
+def test_inspection_restoration_opens_closed_empty_hand_without_releasing_carried_item():
+    s = Spies()
+    toggled = []
+    env.ResetHands = lambda: {
+        "leftTranslation": (-0.14, -0.08, 0.25),
+        "rightTranslation": (0.18, -0.09, 0.27),
+        "leftRotation": (0, 0, 90),
+        "rightRotation": (0, 0, 0),
+        "leftGrippedState": False,
+        "leftHoldingItem": False,
+        "leftGripClosedState": True,
+        "rightGrippedState": True,
+        "rightHoldingItem": True,
+        "rightGripClosedState": True,
+    }
+    env.ToggleLeftGrip = lambda: toggled.append("left") or {"gripped": False}
+    env.ToggleRightGrip = lambda: toggled.append("right") or {"gripped": False}
+    env.TransformHands = lambda *_args: {
+        "leftTranslation": (-0.14, -0.08, 0.25),
+        "rightTranslation": (0.18, -0.09, 0.27),
+        "leftRotation": (0, 0, 90),
+        "rightRotation": (0, 0, 0),
+        "leftGrippedState": False,
+        "leftHoldingItem": False,
+        "leftGripClosedState": False,
+        "rightGrippedState": True,
+        "rightHoldingItem": True,
+        "rightGripClosedState": True,
+    }
+    a = _agent()
+
+    result = a._restore_hands_after_inspection()
+
+    assert toggled == ["left"]
+    assert result["restored"] is True
+    assert result["recovered_ghost_grips"] == ["left"]
+    assert result["hands"]["left"]["gripped"] is False
+    assert result["hands"]["right"]["holding_item"] is True
+    assert a._hand_pose == "rest"
+    assert s.active == [True]
 
 
 def test_semantic_response_preserves_structured_reported_answer():

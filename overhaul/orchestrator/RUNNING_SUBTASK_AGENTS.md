@@ -19,10 +19,14 @@ cd C:/Sari/sari-agent-1.0/overhaul
 ## Basic usage
 
 ```bash
-python orchestrator/subtask_agents.py "get the green Piattos and bring it to the checkout counter"
+python orchestrator/subtask_agents.py --config ../runconfig.toml \
+  "get the green Piattos and bring it to the checkout counter"
 ```
 
 If no task is given on the command line, it prompts interactively (`Task: `).
+The root `runconfig.toml` documents the standalone settings under `[agent]`, `[limits]`,
+`[environment]`, and `[output]`, plus distributed-runner settings under `[bench]`. Explicit flags
+override configured values. Paths in TOML are resolved relative to that file.
 
 ## Arguments
 
@@ -30,6 +34,7 @@ All arguments are optional except the task itself.
 
 | Argument | Default | Meaning |
 |---|---|---|
+| `--config PATH` | none | TOML run configuration; explicit CLI flags override it |
 | `task` (positional) or `--task "..."` | interactive prompt | The long-horizon task in plain English |
 | `--arm {vlm, graph, graph-advised}` | `graph` | Navigation arm. `graph` is the measured-better graph navigator; `vlm` is the old VLM-navigation control arm; `graph-advised` drives each graph hop through a per-hop advisor VLM |
 | `--max-steps N` | `150` | Step cap **per leg** (not per task) |
@@ -72,7 +77,13 @@ python orchestrator/subtask_agents.py --task "..." --reset-start
   per leg and resets the refusal budget; a failed leg is retried per `--leg-retries` with
   the failure reason in context.
 - **Inspection is read-only and fail-closed:** an `inspect` leg must report a non-empty
-  answer that the image-bound VLM guard conclusively verifies against the actor's frame.
+  answer that the image-bound VLM guard conclusively verifies against the actor's frame
+  **plus every label the leg has already inspected**. Each successful `inspect_held_item` run files
+  its winning frame in a per-leg evidence ledger (`inspection_evidence`, logged as
+  `inspection_evidence_recorded`), and the guard replays the whole ledger with the current frame —
+  a two-item comparison is only verifiable across frames, since one held item faces the camera at a
+  time. With an item in **each** hand, a STOP is refused deterministically (no VLM call) until every
+  held item has been inspected, and the refusal names the hand still to read.
   For an already-held item, the actor sees only the restricted `inspect_held_item` macros—not raw
   presentation, movement, or rotation tools. It can auto-select a held hand or explicitly choose
   `inspect_held_item_left` / `inspect_held_item_right` when both hands carry items. The macro

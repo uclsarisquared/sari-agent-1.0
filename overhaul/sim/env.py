@@ -269,18 +269,40 @@ def TransformHands(leftTranslation: Tuple[float],
     
     lines, extracted_state = _v1_or_raise(result, "TransformHands", 4, 9)
     object_hovered_over_left = lines[2].split(": ")[-1]
-    is_gripped_state_left = lines[3].split(": ")[-1].strip() == "True"
+    is_grip_closed_left = lines[3].split(": ")[-1].strip() == "True"
     object_hovered_over_right = lines[7].split(": ")[-1]
-    is_gripped_state_right = lines[8].split(": ")[-1].strip() == "True"
+    is_grip_closed_right = lines[8].split(": ")[-1].strip() == "True"
+
+    # Current simulator builds append the physical attachment state to the legacy reply.  The old
+    # `*GrippedState` fields only described the gripper toggle: a hand that lost/dropped its item
+    # could remain "gripped" forever, making resolve_grab_hand treat it as occupied and poisoning
+    # every later grab.  Preserve compatibility with older builds, but when the stronger signal is
+    # available make the long-standing public fields mean what their callers/documentation assume:
+    # an item is actually attached to that hand.
+    labelled = {}
+    for line in lines:
+        if ": " in line:
+            key, value = line.split(": ", 1)
+            labelled[key.strip().lower()] = value.strip()
+    is_holding_left = (
+        labelled.get("left hand holding item", str(is_grip_closed_left)).lower() == "true"
+    )
+    is_holding_right = (
+        labelled.get("right hand holding item", str(is_grip_closed_right)).lower() == "true"
+    )
     current_state = {
         'leftTranslation': tuple(map(float, extracted_state[0].split(', '))),
         'leftRotation': tuple(map(float, extracted_state[1].split(', '))),
         'rightTranslation': tuple(map(float, extracted_state[2].split(', '))),
         'rightRotation': tuple(map(float, extracted_state[3].split(', '))),
         'leftHoveredObject': object_hovered_over_left,
-        'leftGrippedState': is_gripped_state_left,
+        'leftGrippedState': is_holding_left,
+        'leftHoldingItem': is_holding_left,
+        'leftGripClosedState': is_grip_closed_left,
         'rightHoveredObject': object_hovered_over_right,
-        'rightGrippedState': is_gripped_state_right, 
+        'rightGrippedState': is_holding_right,
+        'rightHoldingItem': is_holding_right,
+        'rightGripClosedState': is_grip_closed_right,
     }
     return current_state
 

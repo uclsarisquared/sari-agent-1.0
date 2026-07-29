@@ -24,6 +24,10 @@ GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to gr
 # the bounding-box/centering client - qwen-VL replaces Gemini here, identically in BOTH A/B
 # arms; bbox quality vs Gemini is unmeasured and shared, so it cannot skew the arms.
 from agent_core.agent import _ucl_creds, call_with_api_retries
+# Every LLM call in this module is perception's cost - bbox, centering and OCR-bbox reasoning alike.
+# The role blocks wrap call_with_api_retries, not the lambda inside it, so a flaky call's retries are
+# billed to perception as well; the server charged for them.
+from agent_core import token_meter
 _UCL_HOST, _UCL_KEY = _ucl_creds()
 MODEL_NAME = "Qwen/Qwen3.6-27B"
 CLIENT = OpenAI(
@@ -126,15 +130,16 @@ def extract_text_from_image(image_path):
 
 def find_most_similar_bbox_to_target_name(target_name, ocr_result):
     bboxes = '\n'.join([f'* {box}' for box in ocr_result])
-    resp = call_with_api_retries(
-        lambda: CLIENT.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": f"{FIND_MOST_SIMILAR_OCR_BBOX_PROMPT}\n\ntarget_name={target_name}\n\n{bboxes}"}],
-            temperature=0.5,
-            max_tokens=400,
-            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+    with token_meter.role(token_meter.ROLE_PERCEPTION):
+        resp = call_with_api_retries(
+            lambda: CLIENT.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": f"{FIND_MOST_SIMILAR_OCR_BBOX_PROMPT}\n\ntarget_name={target_name}\n\n{bboxes}"}],
+                temperature=0.5,
+                max_tokens=400,
+                extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+            )
         )
-    )
     annotated_bbox = resp.choices[0].message.content
 
     match = re.search(EXTRACTABLE_JSON_PATTERN, annotated_bbox)
@@ -288,18 +293,19 @@ def _bbox_dict_px(box_2d):
 
 
 def _bbox_request(image, target_info, prompt, max_tokens, temperature):
-    return call_with_api_retries(
-        lambda: CLIENT.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": [
-                _encode_image(image),
-                {"type": "text", "text": f"{prompt}\n\ntarget_info={target_info}\n\n"},
-            ]}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
-        )
-    ).choices[0].message.content
+    with token_meter.role(token_meter.ROLE_PERCEPTION):
+        return call_with_api_retries(
+            lambda: CLIENT.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": [
+                    _encode_image(image),
+                    {"type": "text", "text": f"{prompt}\n\ntarget_info={target_info}\n\n"},
+                ]}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+            )
+        ).choices[0].message.content
 
 
 def _parsed_bbox_response(image, target_info, prompt, max_tokens, temperature):
@@ -1063,18 +1069,19 @@ def detect_object_via_gemini(target_name):
               "{'box_2d': box_2d, 'label': label_name}\n"
               "```\n\n")
 
-    resp = call_with_api_retries(
-        lambda: client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": [
-                _encode_image(im),
-                {"type": "text", "text": prompt},
-            ]}],
-            temperature=0.5,
-            max_tokens=400,
-            extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+    with token_meter.role(token_meter.ROLE_PERCEPTION):
+        resp = call_with_api_retries(
+            lambda: client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": [
+                    _encode_image(im),
+                    {"type": "text", "text": prompt},
+                ]}],
+                temperature=0.5,
+                max_tokens=400,
+                extra_body={'chat_template_kwargs': {'enable_thinking': False}},
+            )
         )
-    )
     annotated_bbox = resp.choices[0].message.content
 
     json_pattern = r'```json\n(.*?)\n```'

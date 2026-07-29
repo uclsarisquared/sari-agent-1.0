@@ -118,6 +118,57 @@ def test_inspection_uses_bound_frame_query_answer_and_auxiliary_context():
     assert "needs rotation" in system and "match=false" in system
 
 
+def test_inspection_sends_earlier_evidence_frames_before_the_current_frame():
+    """A two-item label comparison is only verifiable ACROSS frames (2026-07-29 regression)."""
+    client = _Client('{"match": true, "reason": "Hello Panda\'s panel reads 12g"}')
+    evidence = [
+        {"label": "PEPERO_DOUBLE_CHOCO (left hand, step 12)", "image_b64": "pepero-frame"},
+        {"label": "HELLO_PANDA (right hand, step 21)", "image_b64": "panda-frame"},
+    ]
+    result = classify_inspection(
+        client, "m", CONFIG, "current-frame", "Which has less sugar?",
+        "Pepero: 24g; Hello Panda: 12g; Hello Panda has less.", {"nearest_checkpoint": 17},
+        evidence_frames=evidence)
+    assert result["match"] is True and result["conclusive"] is True
+    content = client.completions.calls[0]["messages"][1]["content"]
+    assert content[0]["text"] == "EVIDENCE 1: PEPERO_DOUBLE_CHOCO (left hand, step 12)"
+    assert content[1]["image_url"]["url"].endswith("pepero-frame")
+    assert content[2]["text"] == "EVIDENCE 2: HELLO_PANDA (right hand, step 21)"
+    assert content[3]["image_url"]["url"].endswith("panda-frame")
+    assert content[4]["text"] == "CURRENT FRAME:"
+    assert content[5]["image_url"]["url"].endswith("current-frame")
+    assert "Which has less sugar?" in content[6]["text"]
+    system = client.completions.calls[0]["messages"][0]["content"]
+    assert "CONSIDERED TOGETHER" in system
+    assert "never reject an answer merely because no single image shows every item" in system
+
+
+def test_inspection_without_evidence_keeps_the_single_image_request_shape():
+    """No ledger yet must reproduce the pre-2026-07-29 request exactly - no empty evidence slots."""
+    client = _Client('{"match": true, "reason": "three bags are visible"}')
+    classify_inspection(
+        client, "m", CONFIG, "current-frame", "How many?", "Three.", {},
+        evidence_frames=[{"label": "no frame captured", "image_b64": ""}])
+    content = client.completions.calls[0]["messages"][1]["content"]
+    assert len(content) == 2
+    assert content[0]["image_url"]["url"].endswith("current-frame")
+    assert "How many?" in content[1]["text"]
+
+
+def test_inspect_guard_replays_its_bound_evidence_frames_on_every_call():
+    client = _Client('{"match": true, "reason": "supported"}',
+                     '{"match": true, "reason": "supported"}')
+    guard = make_inspect_guard(
+        client, "m", CONFIG, "actor-frame",
+        evidence_frames=[{"label": "COKE (left hand, step 4)", "image_b64": "coke-frame"}])
+    guard("Which is cheaper?", "Coke", {})
+    guard("Which is cheaper?", "Sprite", {})
+    for call in client.completions.calls:
+        content = call["messages"][1]["content"]
+        assert content[0]["text"] == "EVIDENCE 1: COKE (left hand, step 4)"
+        assert content[1]["image_url"]["url"].endswith("coke-frame")
+
+
 def test_inspection_failure_is_inconclusive_and_fails_closed():
     result = classify_inspection(
         _Client(TimeoutError("slow")), "m", CONFIG, "frame", "What date?", "2027-01-01", {})
@@ -291,3 +342,35 @@ def test_unknown_failure_and_guard_cache_fail_closed():
     assert guard("task", "done", {})["match"] is False
     assert guard("task", "done", {})["match"] is False
     assert guard.call_count == 1 and len(client.completions.calls) == 1
+
+
+def test_every_classifier_bills_its_call_to_the_guard_role():
+    """The guards must be one line item in the per-role token accounting, or an ablation that drops
+    them cannot read its own saving. Asserted at the moment of the request - the meter itself reads
+    the role from inside the SDK patch, which a fake client never reaches."""
+    from agent_core import token_meter
+
+    seen = []
+
+    class _RoleSpy(_Completions):
+        def create(self, **kwargs):
+            seen.append(token_meter.current_role())
+            return super().create(**kwargs)
+
+    def _client(payload):
+        client = _Client(payload)
+        client.completions = _RoleSpy([payload])
+        client.chat = SimpleNamespace(completions=client.completions)
+        return client
+
+    ok = '{"match": true, "reason": "visible"}'
+    classify_pickup(_client(ok), "m", CONFIG, "f", "SKU", "target")
+    classify_inspection(_client(ok), "m", CONFIG, "f", "query", "answer", {})
+    classify_inspection_visibility(_client(ok), "m", CONFIG, "f", "query")
+    classify_inspection_label_presence(_client(ok), "m", CONFIG, "f", "query")
+    classify_compare(_client(ok), "m", CONFIG, [("A", "fa"), ("B", "fb")], "cheaper", "A", {})
+    classify_unknown(_client(ok), "m", CONFIG, "f", "task", "claim", {})
+
+    assert seen == [token_meter.ROLE_GUARD] * 6, seen
+    # ...and the role does not leak past the call: the next thing the runtime does is not a guard.
+    assert token_meter.current_role() == token_meter.UNATTRIBUTED

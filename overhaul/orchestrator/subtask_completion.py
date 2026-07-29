@@ -822,13 +822,54 @@ def predicate_unknown(sub: dict, state: dict, final_text: str = "",
     return True, f"{deterministic_reason}; VLM verified completion ({verdict['reason'].strip()})"
 
 
+def inspection_evidence_gap(state: dict) -> list:
+    """Held hands a two-item inspect leg has not yet read a label from - ``[]`` when none.
+
+    Deterministic pre-check for the multi-item inspection failure measured 2026-07-29: with an item
+    in each hand, the agent read one label, reported the comparison, and the single-frame VLM guard
+    refused ("the other item's label is not visible in the image") - advice the agent CANNOT act on,
+    because only one held item can face the camera at a time. The gap check answers the actionable
+    question instead: which held item has no evidence frame yet.
+
+    SCOPED to two gripped hands ON PURPOSE. A single-held-item (or hands-free) inspect leg keeps its
+    pre-2026-07-29 behaviour exactly - it may legitimately be answered from the shelf view without
+    the held-item macro ever running, and blocking that would be a new false refusal. `state
+    ['inspection_evidence']` is run_leg's per-leg ledger of frames that passed the inspection macro's
+    visibility gate; a hand whose ledger SKU no longer matches what it holds counts as uncovered (the
+    item was swapped), and an absent ledger leaves every gripped hand uncovered.
+    """
+    state = state if isinstance(state, dict) else {}
+    gripped = [side for side in ("left", "right") if state.get(f"{side}GrippedState")]
+    if len(gripped) < 2:
+        return []
+    names = state.get("gripped_names")
+    names = names if isinstance(names, dict) else {}
+    evidence = state.get("inspection_evidence")
+    evidence = evidence if isinstance(evidence, list) else []
+    gaps = []
+    for side in gripped:
+        held = str(names.get(side) or "").strip()
+        covered = any(
+            isinstance(row, dict) and row.get("hand") == side
+            and (not held or not str(row.get("sku") or "").strip()
+                 or str(row["sku"]).strip() == held)
+            for row in evidence
+        )
+        if not covered:
+            gaps.append({"hand": side, "sku": held or None})
+    return gaps
+
+
 def predicate_inspect(sub: dict, state: dict, final_text: str = "",
                       inspect_guard=None) -> tuple:
     """Grant an observation/reporting leg only on a conclusive positive injected VLM verdict.
 
     The callback is deliberately image-agnostic here: the runtime binds it to the exact screenshot
-    used by the actor. Missing inputs, callback failures, and malformed/inconclusive results all
-    refuse completion. A blank answer is rejected before the callback is touched.
+    used by the actor, plus the leg's accumulated evidence frames. Missing inputs, callback failures,
+    and malformed/inconclusive results all refuse completion. A blank answer is rejected before the
+    callback is touched, and so is a two-item leg with an unread held item (see
+    ``inspection_evidence_gap``) - a free refusal that tells the agent which item to inspect next
+    instead of spending a VLM call to say the frame is insufficient.
     """
     answer = str(final_text or "").strip()
     if not answer:
@@ -836,13 +877,26 @@ def predicate_inspect(sub: dict, state: dict, final_text: str = "",
     query = str((sub or {}).get("query") or "").strip()
     if not query:
         return False, "inspection not complete: no inspection query is available"
+    gaps = inspection_evidence_gap(state)
+    if gaps:
+        unread = ", ".join(
+            f"{gap['hand']} hand ({gap['sku'] or 'unknown item'})" for gap in gaps)
+        return False, (
+            f"inspection not complete: you are holding two items but have not read a label from "
+            f"the {unread} yet - run inspect_held_item_{gaps[0]['hand']} and read that item before "
+            f"you STOP (each item must be inspected in its own turn; they cannot both face the "
+            f"camera at once)")
     if not callable(inspect_guard):
         return False, "inspection not complete: VLM inspection guard is unavailable"
     names = state.get("gripped_names")
+    evidence = state.get("inspection_evidence")
     aux = {
         "gripped_name": state.get("gripped_name"),
         "gripped_names": dict(names) if isinstance(names, dict) else names,
         "nearest_checkpoint": state.get("nearest_checkpoint"),
+        # Which earlier frame shows which item, so the verdict can attribute each reading. Frame
+        # bytes never travel here - the guard closure holds them.
+        "inspection_evidence": list(evidence) if isinstance(evidence, list) else None,
     }
     try:
         verdict = inspect_guard(query, answer, aux)

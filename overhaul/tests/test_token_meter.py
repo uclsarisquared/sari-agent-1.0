@@ -100,7 +100,96 @@ def test_delta_measures_one_leg():
         server.shutdown()
 
     leg = token_meter.delta(before)
-    assert leg == {"tokens_in": 200, "tokens_out": 40, "calls": 2}, leg
+    assert leg == {"tokens_in": 200, "tokens_out": 40, "calls": 2,
+                   "by_role": {token_meter.UNATTRIBUTED:
+                               {"tokens_in": 200, "tokens_out": 40, "calls": 2}}}, leg
+
+
+def test_roles_attribute_calls_and_total_to_the_whole():
+    """The point of roles: an ablation must be able to read off what one component was costing."""
+    token_meter.install()
+    token_meter.reset()
+    server, base_url = _server()
+    try:
+        client = OpenAI(base_url=base_url, api_key="test")
+        with token_meter.role(token_meter.ROLE_ACTOR):
+            _call(client)
+            _call(client)
+        with token_meter.role(token_meter.ROLE_GUARD):
+            _call(client)
+        _call(client)   # outside any block: unattributed, never dropped and never guessed at
+    finally:
+        server.shutdown()
+
+    by_role = token_meter.totals()["by_role"]
+    assert by_role[token_meter.ROLE_ACTOR] == {"tokens_in": 200, "tokens_out": 40, "calls": 2}
+    assert by_role[token_meter.ROLE_GUARD] == {"tokens_in": 100, "tokens_out": 20, "calls": 1}
+    assert by_role[token_meter.UNATTRIBUTED] == {"tokens_in": 100, "tokens_out": 20, "calls": 1}
+    # The rows must re-total to the whole, or a share column computed from them is a lie.
+    assert sum(row["calls"] for row in by_role.values()) == token_meter.totals()["calls"]
+    assert sum(row["tokens_in"] for row in by_role.values()) == token_meter.totals()["tokens_in"]
+
+
+def test_innermost_role_wins_and_resets_after_a_failure():
+    """Perception called from inside an actor step is perception's cost, and a call that raised must
+    not leave its role behind for the next one."""
+    token_meter.install()
+    token_meter.reset()
+    server, base_url = _server()
+    try:
+        client = OpenAI(base_url=base_url, api_key="test")
+        with token_meter.role(token_meter.ROLE_ACTOR):
+            with token_meter.role(token_meter.ROLE_PERCEPTION):
+                _call(client)
+            _call(client)
+        try:
+            with token_meter.role(token_meter.ROLE_GUARD):
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+        assert token_meter.current_role() == token_meter.UNATTRIBUTED
+        _call(client)
+    finally:
+        server.shutdown()
+
+    by_role = token_meter.totals()["by_role"]
+    assert by_role[token_meter.ROLE_PERCEPTION]["calls"] == 1, by_role
+    assert by_role[token_meter.ROLE_ACTOR]["calls"] == 1, by_role
+    assert token_meter.ROLE_GUARD not in by_role, by_role
+    assert by_role[token_meter.UNATTRIBUTED]["calls"] == 1, by_role
+
+
+def test_record_external_counts_the_raw_http_backends():
+    """nav.locate_task's qwen backend posts with `requests` and never touches the patched SDK, so
+    without this path the advisor and the map resolver are missing from the totals entirely."""
+    token_meter.install()
+    token_meter.reset()
+    token_meter.record_external("Qwen/Qwen3.6-27B",
+                                {"prompt_tokens": 700, "completion_tokens": 30},
+                                token_meter.ROLE_ADVISOR)
+    totals = token_meter.totals()
+    assert totals["calls"] == 1, totals
+    assert totals["tokens_total"] == 730, totals
+    assert totals["by_role"][token_meter.ROLE_ADVISOR]["tokens_in"] == 700, totals["by_role"]
+    # A body with no usage block is counted as untracked, exactly like a streamed SDK response.
+    token_meter.record_external("Qwen/Qwen3.6-27B", None, token_meter.ROLE_ADVISOR)
+    assert token_meter.totals()["untracked_calls"] == 1, token_meter.totals()
+
+
+def test_responder_has_a_dedicated_token_role():
+    token_meter.install()
+    token_meter.reset()
+    token_meter.record_external(
+        "Qwen/Qwen3.6-27B",
+        {"prompt_tokens": 250, "completion_tokens": 30},
+        token_meter.ROLE_RESPONDER,
+    )
+    assert token_meter.ROLE_RESPONDER in token_meter.ROLES
+    assert token_meter.totals()["by_role"][token_meter.ROLE_RESPONDER] == {
+        "tokens_in": 250,
+        "tokens_out": 30,
+        "calls": 1,
+    }
 
 
 def test_dump_writes_tokens_json():

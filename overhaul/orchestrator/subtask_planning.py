@@ -39,8 +39,10 @@ def _resolve_target(sm, resolve_call, target):
     Returns {'candidates': [ids], 'target_name': str, 'tier': str}; empty candidates on any failure
     (honest - a doomed leg the orchestrator can flag)."""
     from nav import locate_task
+    from agent_core import token_meter
     try:
-        resolution, _ = locate_task.resolve(resolve_call, sm, str(target))
+        with token_meter.role(token_meter.ROLE_RESOLVER):
+            resolution, _ = locate_task.resolve(resolve_call, sm, str(target))
     except Exception as e:  # noqa: BLE001 - a dead resolver shouldn't crash planning
         print(f"[PLAN] resolve failed for {target!r}: {type(e).__name__}: {e}")
         return {"candidates": [], "target_name": str(target), "tier": "unresolvable"}

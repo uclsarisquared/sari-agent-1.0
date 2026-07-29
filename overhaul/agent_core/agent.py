@@ -25,6 +25,10 @@ from agent_core.sys_inst import (
     SYS_INST_VLM_LEAN
 )
 from agent_core.memory import base_semantic_memory
+# Per-role token attribution. The meter counts every SDK call whether or not it is tagged; the
+# `role` blocks below only decide WHICH reasoner each call is billed to, so an ablation can read
+# off what the component it removed was actually costing. Import-cheap and sim-free.
+from agent_core import token_meter
 from toolset.actions_str import (
     NAVIGATION_ACTIONS,
     PERCEPTION_ACTIONS,
@@ -342,7 +346,10 @@ class VLMAgent(BaseAgent):
             {"role": "system", "content": SYS_INST_VLM_LEAN},
             *self.history,
         ]
-        reply = self._api_call_with_retry(self.client, messages)
+        # Around the retry helper, not inside it, so the retries of a flaky actor call are billed to
+        # the actor too - they are what the server was really charged for.
+        with token_meter.role(token_meter.ROLE_ACTOR):
+            reply = self._api_call_with_retry(self.client, messages)
         self.history.append({"role": "assistant", "content": reply})
         return reply
 
@@ -534,20 +541,62 @@ class EmbodiedAgent:
         self._hand_pose = None
 
     def _restore_hands_after_inspection(self):
-        """Atomically restore Unity's canonical hand translations/rotations after inspection."""
+        """Restore canonical transforms and clear any closed-but-empty ("ghost") grippers.
+
+        Unity tracks the grip toggle separately from the held-item attachment.  If an inspection
+        move loses the item, the old state channel can therefore leave a hand closed and report it
+        as occupied forever.  That prevents every later grab.  Current simulator builds expose both
+        signals; after ResetHands, open only a gripper that is closed *without* an attached item.
+        Legitimate carried items remain untouched.
+        """
         self._set_hands(True)
         self._hand_pose = None
-        from sim.env import ResetHands
+        from sim.env import (
+            ResetHands,
+            ToggleLeftGrip,
+            ToggleRightGrip,
+            TransformHands,
+        )
 
         state = ResetHands()
+        recovered_ghost_grips = []
+        toggles = {"left": ToggleLeftGrip, "right": ToggleRightGrip}
+        for side in ("left", "right"):
+            holding_key = f"{side}HoldingItem"
+            closed_key = f"{side}GripClosedState"
+            # Older simulator replies do not expose attachment state.  Do not guess there: opening
+            # a genuinely held item would be worse than retaining the legacy behavior.
+            if holding_key not in state or closed_key not in state:
+                continue
+            if state[closed_key] and not state[holding_key]:
+                toggles[side]()
+                recovered_ghost_grips.append(side)
+
+        if recovered_ghost_grips:
+            zero = (0, 0, 0)
+            state = TransformHands(zero, zero, zero, zero)
+            still_ghosted = [
+                side for side in recovered_ghost_grips
+                if state.get(f"{side}GripClosedState")
+                and not state.get(f"{side}HoldingItem")
+            ]
+            if still_ghosted:
+                raise RuntimeError(
+                    "could not open closed-but-empty inspection hand(s): "
+                    + ", ".join(still_ghosted)
+                )
+
         self._hand_pose = "rest"
         return {
             "restored": True,
+            "recovered_ghost_grips": recovered_ghost_grips,
             "hands": {
                 side: {
                     "translation": state.get(f"{side}Translation"),
                     "rotation": state.get(f"{side}Rotation"),
                     "gripped": state.get(f"{side}GrippedState"),
+                    "holding_item": state.get(f"{side}HoldingItem"),
+                    "grip_closed": state.get(f"{side}GripClosedState"),
                 }
                 for side in ("left", "right")
             },
@@ -619,7 +668,8 @@ class EmbodiedAgent:
                     _resolve_call = lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im)
                 else:
                     _resolve_call = lambda s, p, sc, im=(): locate_task.qwen_json(s, p, sc, im)
-                resolution, _ = locate_task.resolve(_resolve_call, sm, main_task)
+                with token_meter.role(token_meter.ROLE_RESOLVER):
+                    resolution, _ = locate_task.resolve(_resolve_call, sm, main_task)
                 self._nav_resolution = resolution
                 cands = resolution.get("candidates") or []
                 self._nav_candidates = [c for c in cands if c in sm.by_id]
@@ -739,8 +789,9 @@ class EmbodiedAgent:
                    if advice is not None else "")
             )
             try:
-                result, _env = _ask(ADVISOR_SYS, prompt, ADVISOR_SCHEMA,
-                                    (("current view", shot),))
+                with token_meter.role(token_meter.ROLE_ADVISOR):
+                    result, _env = _ask(ADVISOR_SYS, prompt, ADVISOR_SCHEMA,
+                                        (("current view", shot),))
             except Exception as e:  # noqa: BLE001 - one dead call degrades, never strands
                 logger.warning(f"[advised-nav] advisor call failed ({type(e).__name__}: {e}); "
                                f"taking the advice hop")
@@ -864,22 +915,26 @@ class EmbodiedAgent:
 
     def _call_associative(self, system_instruction: str, image: Optional[Image.Image], text: str) -> str:
         content = _build_content(image, "## CURRENT OBSERVATION\n", text)
-        return self.associative_learner._api_call_with_retry(
-            self.associative_learner.client,
-            [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": content},
-            ],
-        )
+        with token_meter.role(token_meter.ROLE_SEMANTIC):
+            return self.associative_learner._api_call_with_retry(
+                self.associative_learner.client,
+                [
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": content},
+                ],
+            )
 
     def _call_episodic(self, history_text: str) -> str:
-        return self.associative_learner._api_call_with_retry(
-            self.associative_learner.client,
-            [
-                {"role": "system", "content": SYS_INST_ASSOCIATIVE_EPISODIC},
-                {"role": "user", "content": history_text},
-            ],
-        )
+        # Split from the semantic pass even though both run on the same learner and the same client:
+        # they are separately removable, and telling them apart is the point of the roles.
+        with token_meter.role(token_meter.ROLE_EPISODIC):
+            return self.associative_learner._api_call_with_retry(
+                self.associative_learner.client,
+                [
+                    {"role": "system", "content": SYS_INST_ASSOCIATIVE_EPISODIC},
+                    {"role": "user", "content": history_text},
+                ],
+            )
 
     def execute_lean(self, request, timestep):
         main_task = request['task']

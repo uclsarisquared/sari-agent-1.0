@@ -200,7 +200,58 @@ def test_inspect_positive_and_negative_verdicts_receive_auxiliary_context():
         "gripped_name": "COKE",
         "gripped_names": {"left": "COKE", "right": None},
         "nearest_checkpoint": 32,
+        "inspection_evidence": None,
     }
+
+
+def _two_held(evidence=None):
+    return _state(leftGrippedState=True, rightGrippedState=True,
+                  gripped_names={"left": "PEPERO_DOUBLE_CHOCO", "right": "HELLO_PANDA"},
+                  inspection_evidence=evidence if evidence is not None else [])
+
+
+def test_inspect_two_held_items_refuses_the_unread_hand_without_a_vlm_call():
+    """The MEASURED 2026-07-29 failure: one label read, the guard could only see one item.
+
+    The refusal must now name the item still to inspect - advice the agent can act on - instead of
+    spending a VLM call to say the single frame does not show both labels.
+    """
+    calls = []
+    guard = lambda *args: calls.append(args) or {  # noqa: E731
+        "match": True, "reason": "ok", "conclusive": True}
+    sub = {"type": "inspect", "query": "Which has less sugar?"}
+    read_left = [{"hand": "left", "sku": "PEPERO_DOUBLE_CHOCO", "step": 12}]
+    granted, reason = predicate_inspect(
+        sub, _two_held(read_left), "Hello Panda has less sugar.", guard)
+    assert granted is False
+    assert calls == []
+    assert "right hand (HELLO_PANDA)" in reason
+    assert "inspect_held_item_right" in reason
+    # Both read -> the gate is silent and the multi-frame VLM verdict decides.
+    read_both = read_left + [{"hand": "right", "sku": "HELLO_PANDA", "step": 21}]
+    assert predicate_inspect(
+        sub, _two_held(read_both), "Hello Panda has less sugar.", guard)[0] is True
+    assert len(calls) == 1
+    assert calls[0][2]["inspection_evidence"] == read_both
+
+
+def test_inspect_evidence_gap_ignores_stale_skus_and_leaves_single_item_legs_alone():
+    sub = {"type": "inspect", "query": "What date?"}
+    guard = lambda *_: {"match": True, "reason": "ok", "conclusive": True}  # noqa: E731
+    # A ledger entry for an item that hand no longer holds is not evidence about what it holds now.
+    swapped = [{"hand": "left", "sku": "SOME_OTHER_SKU", "step": 3},
+               {"hand": "right", "sku": "HELLO_PANDA", "step": 21}]
+    assert predicate_inspect(sub, _two_held(swapped), "2027-01-01", guard)[0] is False
+    # One hand (or none) held: unchanged pre-2026-07-29 behaviour - the leg may legitimately be
+    # answered from the shelf view without the held-item macro ever running.
+    one_hand = _state(leftGrippedState=True, gripped_names={"left": "PEPERO_DOUBLE_CHOCO"})
+    assert predicate_inspect(sub, one_hand, "2027-01-01", guard)[0] is True
+    assert predicate_inspect(sub, _state(), "2027-01-01", guard)[0] is True
+    # No ledger at all with two hands full still refuses, naming the first uncovered hand.
+    assert sc.inspection_evidence_gap(_two_held(None)) == [
+        {"hand": "left", "sku": "PEPERO_DOUBLE_CHOCO"},
+        {"hand": "right", "sku": "HELLO_PANDA"},
+    ]
 
 
 def test_inspect_missing_inputs_guard_failures_and_bad_verdicts_fail_closed():
