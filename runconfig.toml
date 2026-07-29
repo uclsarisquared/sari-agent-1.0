@@ -1,0 +1,87 @@
+# Sari runtime configuration.
+#
+# Both entrypoints accept this file:
+#   uv run python overhaul/orchestrator/subtask_agents.py --config runconfig.toml --task "..."
+#   uv run python -m sari_bench run --config runconfig.toml
+#
+# Explicit command-line flags override this file. Relative paths are resolved from this file,
+# regardless of the directory from which the command is launched.
+
+[agent]
+# Optional fixed task. Usually leave this commented and pass the prompt on the command line.
+# task = "Pick up Ritz Crackers"
+
+# Navigation strategy: "graph", "vlm", or "graph-advised".
+arm = "graph"
+
+# Backend VLM used to resolve a target to map checkpoints: "qwen" or "claude-cli".
+resolver_backend = "qwen"
+
+# Pickup/compare/unknown completion verification: "deterministic" or "vlm".
+# Inspect tasks are VLM-verified in either mode.
+completion_guard = "vlm"
+
+# Failed-leg retries before the entire task is aborted.
+leg_retries = 1
+
+[limits]
+# Standalone-agent limits. Both caps apply independently to each leg.
+max_steps = 30
+max_minutes = 40.0
+
+[environment]
+# Map artifacts used by graph navigation.
+map_dir = "overhaul/slamtest/output_runs/run_0724_164652"
+
+# Move only the agent back to its fixed spawn pose before the run.
+reset_start = false
+
+# Reset the entire store, including item and checkout state, before the run.
+restart_env = false
+
+# Optional service overrides. If omitted, environment variables and built-in defaults are used.
+# ws_uri = "ws://localhost:8080/commands"
+# ocr_url = "http://127.0.0.1:9100"
+
+[output]
+# Optional standalone output locations. If omitted, the agent creates its normal timestamped run.
+# run_dir = "overhaul/runs/debug"
+# summary = "overhaul/runs/debug/summary.json"
+
+[bench]
+# Prompt battery and attempts per prompt.
+prompts = "sari_bench/prompts/easy_prompts.json"
+tries = 5
+
+# Whole-attempt harness timeout and the agent's independent per-leg timeout, in minutes.
+time_limit = 120.0
+per_leg_minutes = 40.0
+
+# Coordinator and sandbox startup behavior. Zero startup timeout waits indefinitely.
+coordinator = "ws://127.0.0.1:9000"
+sandbox_startup_timeout = 30.0
+
+# Optional battery destination. Without it, results use bench_runs/<timestamp>[_<name>].
+# output_dir = "bench_runs/my_ablation"
+name = ""
+
+# Resume requires output_dir to name an existing compatible battery.
+resume = false
+
+# Maximum parallel attempts. If omitted, concurrency tracks the registered sandbox fleet.
+# concurrency = 4
+
+# Supplementary screenshot interval in seconds. Zero disables supplementary capture.
+capture_interval = 0.25
+
+# Optional comma-separated prompt IDs from the selected battery.
+# only = "easy_01,easy_03"
+
+# Agent settings used for every attempt in this battery. These are intentionally explicit because
+# battery defaults differ from the short standalone debug defaults above.
+max_steps = 150
+arm = "graph"
+map_dir = "overhaul/slamtest/output_runs/run_0724_164652"
+# ocr_url = "http://127.0.0.1:9100"
+leg_retries = 1
+completion_guard = "vlm"

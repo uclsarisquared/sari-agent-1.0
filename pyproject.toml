@@ -15,6 +15,7 @@ dependencies = [
     # --- Agent runtime -----------------------------------------------------------
     "openai>=1.79.0",          # UCL vLLM server client (OpenAI-compatible)
     "python-dotenv>=1.1.0",    # config.env. NB: not the `dotenv` package — see [tool.uv] note
+    "tomli>=2.0.0",            # Python 3.10 TOML reader for runconfig.toml
     "loguru>=0.7.3",
     # --- Unity sim bridge --------------------------------------------------------
     "websockets>=15.0",
@@ -72,31 +73,12 @@ ocr-server = { cmd = "python -m sari_bench ocr-server", help = "Run the shared r
 dbench-watch = { cmd = "python -m sari_bench watch --host 0.0.0.0", help = "Live dashboard for a running battery (run beside the runner)" }
 dbench-coordinator = { cmd = "python -m sari_bench coordinator --port 9000", help = "Run the sandbox registry" }
 dbench-status = { cmd = "python -m sari_bench status --coordinator ws://127.0.0.1:9000", help = "Print the current sandbox pool" }
-dbench-run = { cmd = """
-    python -m sari_bench run
-        --prompts sari_bench/prompts/${difficulty}_prompts.json
-        --tries 5
-        --time-limit 120
-        --per-leg-minutes 40
-	--completion-guard vlm
-        --coordinator ws://127.0.0.1:9000
-        --sandbox-startup-timeout 30
-        --arm graph
-        --map-dir overhaul/slamtest/output_runs/run_0724_164652
-""", help = "Run a prompt-difficulty battery across the fleet (needs a coordinator running)", args = [
-    { name = "difficulty", positional = true, default = "easy", choices = [
-        "easy",
-        "medium",
-        "hard",
-    ], help = "Prompt difficulty battery to run" },
-] }
+context-budget = { cmd = "python tools/context_budget_report.py", cwd = "overhaul", help = "Where the context window goes, measured off bench_runs (add --deep for the full retention sweep)" }
+dbench-run = { cmd = "python -m sari_bench run --config runconfig.toml", help = "Run the configured prompt battery across the fleet (needs a coordinator running)" }
 debug-run = { cmd = """
     python orchestrator/subtask_agents.py
+    --config ../runconfig.toml
     --task "${prompt}"
-    --arm graph
-    --completion-guard vlm
-    --max-steps 30
-    --output-dir slamtest/output_runs/run_0724_164652
 """, cwd = "overhaul", help = "Repro a single subtask standalone (default prompt: Get this item)", args = [
     { name = "prompt", positional = true, default = "Get this item", help = "Task prompt to run, e.g. 'Pick up Ritz Crackers'" },
 ] }

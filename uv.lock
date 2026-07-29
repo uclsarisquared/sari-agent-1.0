@@ -1853,6 +1853,7 @@ dependencies = [
     { name = "pynput" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "tomli" },
     { name = "websockets" },
 ]
 
@@ -1877,6 +1878,7 @@ requires-dist = [
     { name = "pynput", specifier = ">=1.7" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "requests", specifier = ">=2.32.3" },
+    { name = "tomli", specifier = ">=2.0.0" },
     { name = "websockets", specifier = ">=15.0" },
 ]
 
