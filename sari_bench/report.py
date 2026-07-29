@@ -1,8 +1,13 @@
 """Flattens a battery into CSVs: ``python -m sari_bench report``.
 
-Two files, not one. Attempts and legs are different grains - an attempt has a variable number of
-legs, so folding them into one row either truncates or explodes, and neither pivots. They join on
-``run_dir``.
+Three files, not one. Attempts, legs and per-role token spend are different grains - an attempt has
+a variable number of legs and a variable set of reasoners, so folding them into one row either
+truncates or explodes, and neither pivots. They all join on ``run_dir``.
+
+``roles.csv`` is long-format on purpose (one row per attempt PER ROLE, not one column per role):
+that is what makes "tokens by arm by role" a two-click pivot, and it means a reasoner added or
+removed agent-side changes the row count rather than the header - so an old CSV and a new one still
+stack.
 
 Both inputs are written incrementally (the canonical ``attempts.jsonl`` index as attempts finish,
 each attempt's own ``summary.json`` at its exit), so this is runnable mid-battery and a battery
@@ -54,6 +59,16 @@ LEG_COLUMNS = [
     "corrective_release", "t_manip", "t_grip", "t_checkout", "wall_s", "run_dir",
 ]
 
+# One row per (attempt, role). `share_in`/`share_out` are the role's fraction of THIS attempt's
+# metered spend, which is the column an ablation actually reads: absolute tokens move with task
+# length, the share does not. They are computed against the summed role rows rather than the
+# attempt's `tokens_in`, so they total to 1.0 even where the two disagree (see `_role_rows`).
+ROLE_COLUMNS = [
+    "battery_id", "prompt_id", "attempt", "arm", "family", "outcome", "success_final",
+    "role", "tokens_in", "tokens_out", "tokens_total", "calls", "share_in", "share_out",
+    "run_dir",
+]
+
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -84,6 +99,62 @@ def _tokens_of(run_dir: Path, recorded: dict[str, Any], summary: dict[str, Any])
         if isinstance(source, dict) and ("tokens_in" in source or "tokens_out" in source):
             return int(source.get("tokens_in") or 0), int(source.get("tokens_out") or 0)
     return 0, 0
+
+
+def _roles_of(run_dir: Path, recorded: dict[str, Any], summary: dict[str, Any]
+              ) -> dict[str, dict[str, int]]:
+    """The attempt's per-role token spend, from the same authority chain as ``_tokens_of``.
+
+    The key differs per source only because each writer names it for its own context: the runner
+    records ``tokens_by_role`` on the attempt row, while the agent's summary.json and tokens.json
+    both carry the meter's own ``by_role`` block. Empty when nothing recorded roles - an attempt from
+    before per-role accounting contributes no rows to roles.csv rather than a row of zeroes.
+    """
+    tokens = summary.get("tokens") if isinstance(summary.get("tokens"), dict) else {}
+    for raw in (recorded.get("tokens_by_role"), tokens.get("by_role"), summary.get("by_role"),
+                scan._read_json(run_dir / "tokens.json").get("by_role")):
+        rows = scan.normalize_by_role(raw)
+        if rows:
+            return rows
+    return {}
+
+
+def role_rows(attempt_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expands ``collect``'s attempt rows into the long-format (attempt x role) grain.
+
+    Reads the per-attempt block ``collect`` stashes under the private ``_tokens_by_role`` key rather
+    than re-walking the run dirs: one traversal, one authority chain, no way for the two CSVs to
+    disagree about what an attempt spent. Every writer here passes ``extrasaction="ignore"``, so the
+    private key never reaches attempts.csv.
+    """
+    rows: list[dict[str, Any]] = []
+    for attempt in attempt_rows:
+        by_role = attempt.get("_tokens_by_role") or {}
+        # Denominators from the role rows themselves, not from the attempt's `tokens_in`: an attempt
+        # whose agent died mid-run can have a totals line newer than its role lines, and a share
+        # column that does not sum to 1.0 would read as a measurement error rather than as skew.
+        total_in = sum(row["tokens_in"] for row in by_role.values())
+        total_out = sum(row["tokens_out"] for row in by_role.values())
+        for name in scan.sorted_roles(by_role):
+            row = by_role[name]
+            rows.append({
+                "battery_id": attempt["battery_id"],
+                "prompt_id": attempt["prompt_id"],
+                "attempt": attempt["attempt"],
+                "arm": attempt["arm"],
+                "family": attempt["family"],
+                "outcome": attempt["outcome"],
+                "success_final": attempt["success_final"],
+                "role": name,
+                "tokens_in": row["tokens_in"],
+                "tokens_out": row["tokens_out"],
+                "tokens_total": row["tokens_in"] + row["tokens_out"],
+                "calls": row["calls"],
+                "share_in": round(row["tokens_in"] / total_in, 4) if total_in else "",
+                "share_out": round(row["tokens_out"] / total_out, 4) if total_out else "",
+                "run_dir": attempt["run_dir"],
+            })
+    return rows
 
 
 def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -185,6 +256,10 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             "collapse_signals": (view.health or {}).get("summary", ""),
             "run_dir": str(run_dir),
             "error": recorded.get("error", ""),
+            # Private, and dropped by every DictWriter here (extrasaction="ignore"). It rides the
+            # attempt row so `role_rows` can expand the (attempt x role) grain without a second
+            # traversal of the battery - see role_rows.
+            "_tokens_by_role": _roles_of(run_dir, recorded, summary),
         })
 
         for index, leg in enumerate(summary.get("legs") or []):
@@ -256,12 +331,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[sari-bench report] newest battery: {battery}")
 
     attempts, legs = collect(battery.resolve())
+    roles = role_rows(attempts)
     out_dir = (args.out_dir or battery).resolve()
     _write_csv(out_dir / "attempts.csv", ATTEMPT_COLUMNS, attempts)
     _write_csv(out_dir / "legs.csv", LEG_COLUMNS, legs)
+    _write_csv(out_dir / "roles.csv", ROLE_COLUMNS, roles)
     successes = sum(1 for row in attempts if row["success"])
     print(f"[sari-bench report] {len(attempts)} attempt(s) ({successes} successful), "
-          f"{len(legs)} leg(s) -> {out_dir}/attempts.csv, {out_dir}/legs.csv")
+          f"{len(legs)} leg(s), {len(roles)} role row(s) -> {out_dir}/attempts.csv, "
+          f"{out_dir}/legs.csv, {out_dir}/roles.csv")
+
+    # Which reasoner the battery's tokens actually went to. Printed rather than left to the CSV
+    # because it is the line an ablation is run to read, and because a battery whose attempts
+    # recorded no roles at all should say so out loud instead of writing an empty file quietly.
+    metered = sum(1 for row in attempts if row["_tokens_by_role"])
+    if metered:
+        per_role: dict[str, int] = {}
+        for row in roles:
+            per_role[row["role"]] = per_role.get(row["role"], 0) + row["tokens_total"]
+        grand = sum(per_role.values()) or 1
+        ranked = sorted(per_role.items(), key=lambda item: -item[1])
+        share = ", ".join(f"{name} {value * 100 // grand}%" for name, value in ranked)
+        print(f"[sari-bench report] tokens by role over {metered}/{len(attempts)} attempt(s) "
+              f"with role accounting: {share}")
+    elif attempts:
+        print("[sari-bench report] no attempt recorded per-role tokens "
+              "(agent predates role accounting); roles.csv is empty")
 
     # The predicate-vs-human line. Disagreements are the number the review flow exists to surface, so
     # it gets its own line rather than a column nobody opens the CSV to find.

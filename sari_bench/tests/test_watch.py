@@ -175,6 +175,30 @@ def test_scan_ranks_worst_first_and_reads_step_state() -> None:
         print("ok  scan reads live step state and ranks collapsing attempts first")
 
 
+def test_scan_carries_the_agents_final_response() -> None:
+    """response.txt reaches the tile, is absent (not empty) mid-run, and cannot bloat the payload."""
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "20260725_150000"
+        _write(battery / "battery.json", json.dumps({"planned_attempts": 3}))
+        answered = make_attempt(battery, "answered", 1, steps=healthy_steps(3), state="finished",
+                                outcome="completed", success=True)
+        _write(answered / scan.RESPONSE_FILE, "I found the milk on the back wall and bought it.\n")
+        make_attempt(battery, "midrun", 1, steps=healthy_steps(), pid=os.getpid())
+        chatty = make_attempt(battery, "chatty", 1, steps=healthy_steps(3), state="finished",
+                              outcome="completed")
+        _write(chatty / scan.RESPONSE_FILE, "x" * (scan.RESPONSE_MAX_CHARS + 500))
+
+        rows = {a["prompt_id"]: a for a in scan.scan_battery(battery, time.time()).as_dict()["attempts"]}
+        assert rows["answered"]["response"] == "I found the milk on the back wall and bought it.", \
+            rows["answered"]["response"]
+        # Absent, not empty-with-a-block: an attempt still running has not answered yet.
+        assert rows["midrun"]["response"] == "", rows["midrun"]["response"]
+        assert len(rows["chatty"]["response"]) == scan.RESPONSE_MAX_CHARS + 1, \
+            len(rows["chatty"]["response"])
+        assert rows["chatty"]["response"].endswith("…")
+        print("ok  the agent's final response reaches the dashboard, bounded")
+
+
 def test_orphaned_attempt_is_not_shown_as_live() -> None:
     with tempfile.TemporaryDirectory() as temp:
         battery = Path(temp) / "b"
@@ -303,6 +327,52 @@ def test_discovery_prefers_newest_and_honours_pin() -> None:
         listed = {entry["id"] for entry in pinned.snapshot()["discovered"]}
         assert listed == {newer.name, older.name}, listed
         print("ok  auto-discovery takes the newest battery; --run-dir pins one")
+
+
+def test_rename_moves_the_dir_and_refuses_while_anything_is_writing() -> None:
+    """The picker's pencil. A battery's id IS its directory name, so a rename is a `mv`."""
+    from sari_bench.storage import RUNNER_LOCK, file_lock
+
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        battery = root / "20260725_100000"
+        make_attempt(battery, "p", 1, steps=healthy_steps(2), state="finished", outcome="completed")
+        (battery / scan.BATTERY_MANIFEST).write_text("{}", encoding="utf-8")
+        stale = time.time() - scan.LIVE_GRACE_SECONDS - 60
+        for path in (battery / scan.BATTERY_MANIFEST, battery):
+            os.utime(path, (stale, stale))
+
+        state = WatchState(bench_root=root, fixed_battery=None, discord=Discord(enabled=False),
+                           min_interval=0.0)
+        assert state.snapshot()["battery_id"] == battery.name
+
+        # An unknown id must be an error, never a fallback onto the watched battery: falling back
+        # here would rename the wrong directory and answer as though it had worked.
+        assert state.rename_battery("does_not_exist", "whatever")["ok"] is False
+        assert battery.is_dir(), "a rename of an unknown id touched the watched battery"
+
+        assert state.rename_battery(battery.name, "  ../;  ")["ok"] is False, "a traversal was taken"
+        assert not (root.parent / "..").is_symlink()
+
+        renamed = state.rename_battery(battery.name, "budget meals/v2")
+        assert renamed["ok"] and renamed["battery_id"] == "budget-meals-v2", renamed
+        assert not battery.exists() and (root / "budget-meals-v2").is_dir()
+        # The rename moved the run the watcher follows. It has to still be following it, and by the
+        # new name, or the next poll reads this as a battery that has just appeared.
+        assert state.battery == root / "budget-meals-v2"
+        assert state.snapshot()["battery_id"] == "budget-meals-v2"
+
+        moved = root / "budget-meals-v2"
+        (root / "taken").mkdir()
+        assert state.rename_battery(moved.name, "taken")["ok"] is False, "clobbered a sibling dir"
+        assert moved.is_dir()
+
+        with file_lock(moved / RUNNER_LOCK):
+            refused = state.rename_battery(moved.name, "while-running")
+        assert refused["ok"] is False and "runner" in refused["error"], refused
+        assert moved.is_dir(), "a live battery was renamed out from under its runner"
+
+        print("ok  a bench run renames on disk, and not while a runner or retry holds it")
 
 
 def test_a_browser_can_read_a_battery_the_watcher_is_not_watching() -> None:
@@ -1365,6 +1435,25 @@ def test_verdict_and_replay_over_http() -> None:
             assert code == 202 and json.loads(body)["ok"] is True, body
             assert retried == ["p/try01"]
 
+            # Renaming over HTTP, last because it moves the directory every assert above named.
+            # A live battery is refused, so the fixture has to look finished first.
+            stale = time.time() - scan.LIVE_GRACE_SECONDS - 60
+            for path in (battery / scan.BATTERY_MANIFEST, battery / scan.ATTEMPTS_INDEX, battery):
+                if path.exists():
+                    os.utime(path, (stale, stale))
+            code, body, _ = request("/api/battery/rename",
+                                    data=json.dumps({"battery": "b", "name": "ablation run"}).encode())
+            assert code == 200, (code, body[:200])
+            assert json.loads(body)["battery_id"] == "ablation-run", body
+            assert (Path(temp) / "ablation-run").is_dir() and not battery.exists()
+            # --run-dir held the old path. If it did not move too, the watcher is now pinned to a
+            # directory that no longer exists and every later poll answers with nothing.
+            assert state.fixed_battery == Path(temp) / "ablation-run"
+            assert json.loads(request("/api/state")[1])["battery_id"] == "ablation-run"
+            code, body, _ = request("/api/battery/rename",
+                                    data=json.dumps({"battery": "gone", "name": "x"}).encode())
+            assert code == 400 and json.loads(body)["ok"] is False, body
+
             assert posts == [], "the dashboard review flow posted to Discord"
         finally:
             server.shutdown()
@@ -1482,6 +1571,86 @@ def test_report_csv_route_matches_the_cli() -> None:
     print("ok  /api/report.csv serves the CLI's attempts.csv as a named download")
 
 
+def test_roles_grain_reports_per_reasoner_token_spend() -> None:
+    """The ablation export: one row per attempt PER ROLE, from tokens.json's `by_role` block.
+
+    What is pinned is the thing the whole per-role change exists for - that a battery can answer
+    "what was the guard costing us" - plus the two honest-reporting rules around it: an attempt with
+    no role block contributes no rows at all (not a row of zeroes, which would read as "that
+    component was free"), and the shares total to 1.0 over the rows that do exist.
+    """
+    import csv
+    import io
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from threading import Thread
+
+    from sari_bench.report import ROLE_COLUMNS, collect, role_rows
+    from sari_bench.watch.server import Handler
+
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        metered = make_attempt(battery, "metered", 1, steps=healthy_steps(3), state="finished",
+                               outcome="completed", success=True, end_reason="halt_granted")
+        _write(metered / "summary.json", json.dumps({"success": True, "legs": []}))
+        _write(metered / "tokens.json", json.dumps({
+            "tokens_in": 900, "tokens_out": 100, "calls": 6, "untracked_calls": 0,
+            "by_role": {
+                "guard": {"tokens_in": 300, "tokens_out": 20, "calls": 2},
+                "actor": {"tokens_in": 600, "tokens_out": 80, "calls": 4},
+            },
+            "tokens_total": 1000,
+        }))
+        # An attempt from before per-role accounting: totals only, no `by_role` at all.
+        legacy = make_attempt(battery, "legacy", 1, steps=healthy_steps(3), state="finished",
+                              outcome="completed", success=True, end_reason="halt_granted")
+        _write(legacy / "tokens.json", json.dumps({"tokens_in": 500, "tokens_out": 50, "calls": 3}))
+
+        attempts, _legs = collect(battery)
+        rows = role_rows(attempts)
+        assert [row["prompt_id"] for row in rows] == ["metered", "metered"], rows
+        # Pipeline order, not insertion or alphabetical order: actor comes before guard.
+        assert [row["role"] for row in rows] == ["actor", "guard"], rows
+        assert [row["tokens_total"] for row in rows] == [680, 320], rows
+        assert [row["calls"] for row in rows] == [4, 2], rows
+        assert round(sum(row["share_in"] for row in rows), 6) == 1.0, rows
+        # The join key back to attempts.csv, and the arm an ablation groups by.
+        assert rows[0]["run_dir"] == str(metered) and rows[0]["arm"] == "graph"
+
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+        Handler.state = state
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{server.server_port}/api/report.csv?grain=roles", timeout=10
+            ) as response:
+                assert response.status == 200
+                assert response.headers["Content-Disposition"] == 'attachment; filename="b-roles.csv"'
+                body = response.read().decode("utf-8")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        expected = io.StringIO(newline="")
+        writer = csv.DictWriter(expected, fieldnames=ROLE_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+        assert body == expected.getvalue(), "the roles route and the CLI produced different CSVs"
+
+    served = list(csv.DictReader(io.StringIO(body)))
+    assert list(served[0]) == ROLE_COLUMNS, "the roles route drifted from the CLI's columns"
+    # The private carrier key must never surface in an exported CSV.
+    assert "_tokens_by_role" not in body
+    print("ok  /api/report.csv?grain=roles serves the per-reasoner token grain")
+
+
+def test_responder_role_is_ordered_after_findings() -> None:
+    roles = {"unattributed": {}, "responder": {}, "findings": {}, "actor": {}}
+    assert scan.sorted_roles(roles) == ["actor", "findings", "responder", "unattributed"]
+
+
 def test_multipart_upload_round_trip() -> None:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from threading import Thread
@@ -1530,11 +1699,13 @@ def test_multipart_upload_round_trip() -> None:
 def main() -> int:
     test_health_separates_healthy_from_collapsed()
     test_scan_ranks_worst_first_and_reads_step_state()
+    test_scan_carries_the_agents_final_response()
     test_orphaned_attempt_is_not_shown_as_live()
     test_orphan_is_closed_out_rather_than_stranded()
     test_close_out_leaves_the_last_word_to_a_live_runner()
     test_a_recycled_pid_is_not_mistaken_for_the_agent()
     test_discovery_prefers_newest_and_honours_pin()
+    test_rename_moves_the_dir_and_refuses_while_anything_is_writing()
     test_a_browser_can_read_a_battery_the_watcher_is_not_watching()
     test_a_running_battery_is_marked_live()
     test_rotated_requeue_dir_stays_separate()
@@ -1562,6 +1733,7 @@ def main() -> int:
     test_verdict_and_replay_over_http()
     test_report_carries_the_human_verdict()
     test_report_csv_route_matches_the_cli()
+    test_roles_grain_reports_per_reasoner_token_spend()
     test_multipart_upload_round_trip()
     print("\nAll watch tests passed.")
     return 0

@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from sari_bench import capture, video
+from sari_bench import capture, storage, video
 from sari_bench.protocol import DEFAULT_COORDINATOR_PORT
 from sari_bench.storage import edit_json_locked
 from sari_bench.watch import health, notify, replay as replay_mod, scan
@@ -133,6 +133,63 @@ class WatchState:
             if battery.name == battery_id:
                 return battery
         return self.resolve_battery()
+
+    def rename_battery(self, battery_id: str, new_name: str) -> dict[str, Any]:
+        """Renames a battery's directory. The id IS the directory name, so this renames the run.
+
+        Unlike `battery_for`, an id that names nothing is an error rather than a fallback to the
+        watched battery: falling back on a read shows the wrong page, but falling back on a rename
+        would rename the wrong directory - and there would be no way to tell from the answer.
+
+        Refused while a runner is working, because everything under the battery is open by absolute
+        path in eight agent subprocesses that were told where to write before the rename happened.
+        """
+        wanted = storage.battery_dir_name(new_name)
+        if not wanted:
+            return {"ok": False, "error": "a name needs letters, digits, dot, dash or underscore"}
+
+        with self._lock:
+            match = next(
+                (b for b in scan.find_batteries(self.bench_root) if b.name == battery_id), None
+            )
+            if match is None:
+                return {"ok": False, "error": f"no bench run named {battery_id!r}"}
+            if match.name == wanted:
+                return {"ok": True, "battery_id": wanted, "renamed": False}
+            target = self.bench_root / wanted
+            if target.exists():
+                return {"ok": False, "error": f"{wanted} already exists under bench_runs/"}
+            if scan.battery_live(match):
+                return {"ok": False, "error": "its runner is still working - stop it first"}
+            # A retry holds a run dir the same way a runner does, and it was handed that path when
+            # it was queued. Renaming under it produces a subprocess writing into a directory nobody
+            # will ever read again.
+            busy = next(
+                (key for key, job in self._retry_jobs.items()
+                 if job.get("battery_id") == battery_id and job.get("state") != "error"),
+                None,
+            )
+            if busy:
+                return {"ok": False, "error": f"a retry is still {self._retry_jobs[busy]['state']} "
+                                              f"{busy} in this run"}
+            try:
+                match.rename(target)
+            except OSError as error:
+                return {"ok": False, "error": f"{error!r}"}
+
+            # Everything the watcher holds this battery by is a path or an id, and both just moved.
+            # Carrying `self.battery` across is what keeps `snapshot` from reading the rename as a
+            # new battery and announcing a finished run's start over again.
+            if self.fixed_battery == match:
+                self.fixed_battery = target
+            if self.battery == match:
+                self.battery = target
+            for job in self._retry_jobs.values():
+                if job.get("battery_id") == battery_id:
+                    job["battery_id"] = wanted
+            self._invalidate_locked()
+        _log(f"renamed bench run {battery_id} -> {wanted}")
+        return {"ok": True, "battery_id": wanted, "renamed": True}
 
     def _invalidate_locked(self) -> None:
         """Drops every cached payload. The caller must hold `self._lock`."""
@@ -451,6 +508,7 @@ class WatchState:
                   "end_reasons": end_reasons} if summary else {},
             tokens_in=int(tokens.get("tokens_in") or 0),
             tokens_out=int(tokens.get("tokens_out") or 0),
+            tokens_by_role=scan.normalize_by_role(tokens.get("by_role")),
             llm_calls=int(summary.get("llm_calls") or 0),
         )
 
@@ -463,6 +521,7 @@ class WatchState:
             "wall_seconds": result.wall_seconds,
             "tokens_in": result.tokens_in,
             "tokens_out": result.tokens_out,
+            "tokens_by_role": result.tokens_by_role,
             "ended_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ended)),
             "finalized_at": stamped,
             # So the record is never mistaken for one its runner produced: the runtime is measured to
@@ -1260,12 +1319,13 @@ class Handler(BaseHTTPRequestHandler):
         """The `?battery=` a request carries, naming the run the browser is looking at."""
         return parse_qs(query).get("battery", [""])[0]
 
-    def _report_csv(self, battery_id: str = "") -> None:
-        """The same attempts.csv `python -m sari_bench report` writes, served as a download.
+    def _report_csv(self, battery_id: str = "", grain: str = "attempts") -> None:
+        """The same CSVs `python -m sari_bench report` writes, served as a download.
 
-        `report.collect` is the one implementation of this flattening and it does no output I/O, so
-        the button and the CLI cannot drift. It re-scans every run dir, which costs a second or two
-        on a large battery - fine for a click, which is why this is not on the 2s poll path.
+        `grain` picks which one: "attempts" (default) or "roles", the long-format per-reasoner token
+        spend. `report.collect` is the one implementation of this flattening and it does no output
+        I/O, so the buttons and the CLI cannot drift. It re-scans every run dir, which costs a second
+        or two on a large battery - fine for a click, which is why this is not on the 2s poll path.
         """
         battery = self.state.battery_for(battery_id)
         if battery is None:
@@ -1280,15 +1340,19 @@ class Handler(BaseHTTPRequestHandler):
         from sari_bench import report
 
         rows, _legs = report.collect(battery)
+        if grain == "roles":
+            rows, columns = report.role_rows(rows), report.ROLE_COLUMNS
+        else:
+            grain, columns = "attempts", report.ATTEMPT_COLUMNS
         buffer = io.StringIO(newline="")
-        writer = csv.DictWriter(buffer, fieldnames=report.ATTEMPT_COLUMNS, extrasaction="ignore")
+        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
         self._send(
             200,
             buffer.getvalue().encode("utf-8"),
             "text/csv; charset=utf-8",
-            {"Content-Disposition": f'attachment; filename="{battery.name}-attempts.csv"'},
+            {"Content-Disposition": f'attachment; filename="{battery.name}-{grain}.csv"'},
         )
 
     def do_GET(self) -> None:  # noqa: N802
@@ -1306,7 +1370,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/report.csv":
-            self._report_csv(battery_id)
+            self._report_csv(battery_id, parse_qs(parsed.query).get("grain", [""])[0])
             return
 
         if path.startswith("/api/attempt/"):
@@ -1364,6 +1428,13 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
         battery_id = self._battery_param(parsed.query)
+        if path == "/api/battery/rename":
+            body = self._body()
+            result = self.state.rename_battery(
+                str(body.get("battery") or battery_id), str(body.get("name") or "")
+            )
+            self._json(result, code=200 if result.get("ok") else 400)
+            return
         if path.startswith("/api/attempt/"):
             rest = path[len("/api/attempt/"):]
             if rest.endswith("/verdict/clear"):

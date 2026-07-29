@@ -17,14 +17,13 @@
   header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: .2px; }
   .muted { color: var(--dim); font-size: 12.5px; }
   .pill { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--dim); }
-  /* The two header controls are pills that happen to be buttons: same shape as the read-only tags
-     they replaced, so the header still reads as a row of labels rather than a toolbar. They opt out
+  /* The battery picker is a pill that happens to be a button: same shape as the read-only tags
+     beside it, so the header still reads as a row of labels rather than a toolbar. It opts out
      of the header's baseline alignment because an inline-flex box whose first child is an empty dot
      has no useful baseline to hand it. */
   button.pill { display: inline-flex; align-items: center; align-self: center; gap: 6px;
                 background: transparent; line-height: 1.45; cursor: pointer; }
   button.pill:hover { background: #262b33; color: var(--ink); }
-  #mode[aria-checked="true"] { color: #bcd8f2; border-color: #2f4a66; background: rgba(79,143,208,.12); }
   .caret { font-size: 9px; opacity: .7; }
   /* A live battery is the one fact worth spending motion on: nothing else on the page animates, so
      the blink reads as "a runner is working here" from across the room. */
@@ -46,6 +45,13 @@
   .menu .m-note { color: var(--dim); font-size: 11.5px; }
   .menu .m-empty { color: var(--dim); cursor: default; }
   .menu .m-empty:hover { background: none; }
+  /* Renaming is a deliberate act on a row whose whole surface already means "switch to this run",
+     so the button stays out of the way until the row is under the cursor or its own key focus. */
+  .menu .m-edit { border: 0; background: transparent; color: var(--dim); cursor: pointer;
+                  padding: 0 2px; font-size: 12px; line-height: 1; opacity: 0; }
+  .menu li:hover .m-edit, .menu .m-edit:focus-visible { opacity: 1; }
+  .menu .m-edit:hover { color: var(--ink); }
+  .menu .m-edit[disabled] { display: none; }
   main { padding: 16px; display: grid; gap: 14px;
          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
   /* `display: grid` beats the hidden attribute's UA rule, so the inactive tab needs saying twice. */
@@ -117,6 +123,22 @@
      rather than five and a sliver. */
   .card pre.term { height: 108px; overflow-y: auto; }
 
+  /* The agent's final answer to the prompt. It is the agent speaking, not another readout, so it is
+     set as a quotation - speaker rule, quote marks, italics - and never as a row in the tables
+     beside it. Sits directly under the terminal wherever an attempt is shown, because it is the
+     last thing the run said. */
+  .resp { margin: 10px 12px 0; padding: 6px 10px; border-left: 3px solid var(--accent, #4b8bd6);
+          border-radius: 0 6px 6px 0; background: rgba(75,139,214,.10); font-size: 12px;
+          line-height: 1.45; }
+  /* `display: block` on the children would otherwise outrank the hidden attribute's UA rule. */
+  .resp[hidden] { display: none; }
+  .resp .resp-label { display: block; margin-bottom: 2px; color: var(--dim); font-size: 10px;
+                      letter-spacing: .07em; text-transform: uppercase; }
+  .resp .resp-text { display: block; color: var(--ink); font-style: italic;
+                     white-space: pre-wrap; word-break: break-word; }
+  .resp .resp-text::before { content: "\201C"; }
+  .resp .resp-text::after { content: "\201D"; }
+
   /* Human verdict. Deliberately a second row, below the log/kill row: it is a different kind of
      action - a judgement about the run, not a thing done to it. */
   .verdict { padding: 0 12px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -125,6 +147,11 @@
   button.vote.on[data-verdict="fail"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
   button.vote.on[data-verdict="invalid"] { background: #2b3038; border-color: #3a414c; color: #c3cbd6; }
   button.vote.on[data-verdict="already_successful"] { background: #16351f; border-color: #24503a; color: #7fb894; }
+  /* The other three verdicts lead with a glyph; this one leads with a letter, which reads as the
+     first word of the label unless it is set apart. Mono and bold makes it a mark like ✓ and ✗ -
+     and the same letter as the keyboard shortcut for it. */
+  button.vote .vkey { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                      font-weight: 700; }
   button.link { background: none; border: none; color: var(--dim); padding: 5px 2px; text-decoration: underline; }
   button.link:hover { background: none; color: var(--ink); }
   .mismatch { background: rgba(224,162,63,.12); color: #e8c48d; }
@@ -208,6 +235,17 @@
                       background: #1a1d23; }
   table.ov tfoot .lbl { color: var(--dim); font-weight: 500; }
 
+  /* The per-role token breakdown. Hairline rules and no top border, so the block reads as a
+     breakdown OF the total tokens line above it rather than as more totals beside it. */
+  table.ov tfoot tr.role td { border-top: 1px solid var(--line); font-weight: 500; }
+  table.ov tfoot tr.role .lbl { padding-left: 1.6em; }
+  table.ov tfoot tr.role .share { color: var(--dim); font-weight: 500; }
+  /* The share bar: a background gradient on the cell, so no extra element is needed per row and
+     nothing can wrap away from the number it belongs to. */
+  table.ov tfoot tr.role .lbl span.bar { display: inline-block; height: .55em; margin-left: .6em;
+                                         background: var(--accent, #4b8bd6); border-radius: 2px;
+                                         vertical-align: baseline; min-width: 1px; }
+
   /* The hover card. pointer-events off so it can sit under the cursor without stealing the
      mouseover that keeps it alive. */
   #ov-tip { position: fixed; z-index: 30; display: none; pointer-events: none; width: 320px;
@@ -225,6 +263,11 @@
   #ov-tip dt { color: var(--dim); }
   #ov-tip dd { margin: 0; font-variant-numeric: tabular-nums; overflow: hidden;
                text-overflow: ellipsis; white-space: nowrap; }
+  /* The hover card is 320px of glance, so the quote is clamped: enough to know what the agent
+     answered, and the cell's overlay for the rest of a long one. */
+  #ov-tip .resp { margin: 7px 0 0; font-size: 11.5px; }
+  #ov-tip .resp .resp-text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+                             overflow: hidden; }
   #ov-tip .tip-hint { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
                       color: var(--dim); }
   #ov-tip .tip-hint[hidden] { display: none; }
@@ -257,7 +300,17 @@
   .overlay-head { padding: 10px 14px; display: flex; gap: 12px; align-items: baseline;
                   border-bottom: 1px solid var(--line); }
   #modal .overlay-box { width: min(1100px, 100%); }
-  #modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+  /* The overlay scrolls, and left alone WebKit paints its default light scrollbar down the side of
+     a dark panel. Firefox takes the two-colour shorthand; WebKit needs the parts spelled out, the
+     way pre.term already does for the terminals. */
+  #modal-body { flex: 1; min-height: 0; overflow-y: auto;
+                scrollbar-color: #4a5260 var(--panel); scrollbar-width: thin; }
+  #modal-body::-webkit-scrollbar { width: 10px; height: 10px; background: var(--panel); }
+  #modal-body::-webkit-scrollbar-track,
+  #modal-body::-webkit-scrollbar-corner { background: var(--panel); }
+  #modal-body::-webkit-scrollbar-thumb { background: #4a5260; border: 2px solid var(--panel);
+                                         border-radius: 999px; }
+  #modal-body::-webkit-scrollbar-thumb:hover { background: #657080; }
   /* Short enough that the rows sit above the fold under it - the clip and the numbers are read
      together, and a reviewer should not have to scroll to find out what they just watched. */
   #modal-media { position: relative; display: grid; place-items: center; min-height: min(48vh, 320px);
@@ -286,6 +339,11 @@
                   background: #1d2a22; color: #c5e8d0; box-shadow: 0 10px 28px rgba(0,0,0,.45);
                   opacity: 0; transform: translateY(-6px); transition: opacity .16s ease, transform .16s ease; }
   .notification.on { opacity: 1; transform: translateY(0); }
+  /* The stack ignores the mouse so it never swallows a click meant for a card beneath it. One that
+     offers to do something has to take its clicks back. */
+  .notification.act { pointer-events: auto; cursor: pointer; text-align: left; width: 100%;
+                      font: inherit; border-color: #2f4a66; background: #1d2532; color: #cfe0f2; }
+  .notification.act:hover { background: #243040; }
 </style>
 </head>
 <body>
@@ -297,7 +355,6 @@
     </button>
     <ul class="menu" id="battery-menu" role="listbox" hidden></ul>
   </span>
-  <button class="pill" id="mode" data-act="mode-toggle" role="switch" aria-checked="false">—</button>
   <span class="tabs">
     <button class="tab on" data-act="tab" data-tab="live">live</button>
     <button class="tab" data-act="tab" data-tab="overview">overview</button>
@@ -311,6 +368,8 @@
 <section id="overview" hidden>
   <div class="ov-bar">
     <a class="btn" href="/api/report.csv" download>export to CSV</a>
+    <a class="btn" href="/api/report.csv?grain=roles" data-grain="roles" download
+       title="one row per attempt per reasoner — tokens, calls and share of the attempt's spend">export tokens by role</a>
     <span class="muted" id="ov-note"></span>
     <span class="muted ov-hint">hover a try cell and press <kbd>P</kbd> pass, <kbd>F</kbd> fail,
       <kbd>E</kbd> invalid, <kbd>A</kbd> already successful, <kbd>R</kbd> retry</span>
@@ -336,7 +395,16 @@
         <button id="modal-play" data-act="replay-start" aria-label="Render and play replay"
                 title="Play replay">▶</button>
       </div>
-      <div id="modal-note">Replay is queued automatically when the run finishes. Click ▶ to play.</div>
+      <!-- Empty and hidden at rest: the ▶ button already says what to do, and how the clip gets
+           made is the watcher's business. It speaks only while a render is in flight or has failed. -->
+      <div id="modal-note" style="display:none"></div>
+      <!-- Log first, then the answer it ends in, and only then the numbers. A reviewer watches the
+           clip and reads what the agent did and said; leg/step/action are what they check after. -->
+      <pre class="term" id="modal-log"></pre>
+      <div class="resp" id="modal-resp" hidden>
+        <span class="resp-label">agent response</span>
+        <span class="resp-text" id="modal-resp-text"></span>
+      </div>
       <dl class="rows" id="modal-rows">
         <dt>leg</dt><dd data-ref="leg"></dd>
         <dt>step</dt><dd data-ref="step"></dd>
@@ -348,7 +416,6 @@
         <dt>sandbox</dt><dd data-ref="sandbox"></dd>
         <dt data-ref="endLabel" hidden>end</dt><dd data-ref="end" hidden></dd>
       </dl>
-      <pre class="term" id="modal-log"></pre>
     </div>
     <div id="modal-foot">
       <span class="muted">verdict:</span>
@@ -356,8 +423,8 @@
       <button class="vote" data-act="verdict" data-verdict="fail" id="modal-no">✗ fail</button>
       <button class="vote" data-act="verdict" data-verdict="invalid" id="modal-invalid">⊘ invalid</button>
       <button class="vote" data-act="verdict" data-verdict="already_successful"
-              id="modal-already">A already successful</button>
-      <button class="link" data-act="verdict-clear" id="modal-clear" hidden>clear</button>
+              id="modal-already"><b class="vkey">A</b> already successful</button>
+      <button class="link" data-act="verdict-clear" id="modal-clear" hidden>clear grade</button>
       <span class="muted" id="modal-verdict" style="margin-left:auto"></span>
     </div>
   </div>
@@ -404,8 +471,11 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "
 const isLive = a => a.state === "starting" || a.state === "running";
 
 // -- which battery this page is reading ------------------------------------------------------
-// null means follow-the-newest; a string pins one bench run for this browser only. The server keeps
-// watching (and notifying about) whatever it was started on either way, so switching here is a read.
+// The page holds one bench run and stays on it: a view that swaps itself out mid-review because the
+// fleet started something else loses the reader's place for a run they were not reading. A newer run
+// announces itself in the notification stack instead, and moving is a click. null only ever means
+// "nothing picked yet" - the first payload pins whatever the server answered with. The server keeps
+// watching (and notifying about) whatever it was started on regardless, so switching here is a read.
 let batteryChoice = localStorage.getItem("sari.battery") || null;
 // The concrete id the last payload came from. Attempt routes are scoped with this rather than with
 // `newest`, so a battery appearing mid-poll can never split a frame request from the state it came with.
@@ -425,17 +495,23 @@ const api = (key, path, params) => {
 const setText = (el, value) => { const s = String(value); if (el.textContent !== s) el.textContent = s; };
 const setHTML = (el, value) => { if (el.innerHTML !== value) el.innerHTML = value; };
 
-function notify(message) {
-  const el = document.createElement("div");
-  el.className = "notification";
+// `onClick` turns the banner into a button and makes it wait: an offer the reader has to be able to
+// take is worth nothing if it expires while they are reading the card underneath it.
+function notify(message, onClick) {
+  const el = document.createElement(onClick ? "button" : "div");
+  el.className = "notification" + (onClick ? " act" : "");
   el.setAttribute("role", "status");
   el.textContent = message;
   document.getElementById("notifications").appendChild(el);
   requestAnimationFrame(() => el.classList.add("on"));
-  setTimeout(() => {
+
+  const dismiss = () => {
     el.classList.remove("on");
     setTimeout(() => el.remove(), 180);
-  }, 5000);
+  };
+  if (onClick) el.addEventListener("click", () => { dismiss(); onClick(); });
+  else setTimeout(dismiss, 5000);
+  return dismiss;
 }
 
 // Keep the disagreement in its banner without visually reactivating the completed card. An invalid
@@ -459,17 +535,10 @@ const VERDICT_WORD = { pass: "success", fail: "fail", invalid: "invalid",
 const TIP_BATTERY =
   "One benchmark run: a prompt set, a fixed number of tries per prompt, and everything the harness "
   + "recorded for them under bench_runs/. This is that run's directory name — usually its start "
-  + "timestamp — and every tile and row on this page belongs to it. Click to read any other run on "
-  + "disk; a blinking green dot marks one whose runner is still working.";
-
-const TIP_MODE = {
-  auto: "This page follows the newest battery directory under bench_runs/ and moves to a newer one "
-    + "by itself as soon as the fleet starts it, which is why the view can change under you. Picking "
-    + "a run from the list switches this to `pinned`.",
-  pinned: "This page is holding one battery and will stay on it even after a newer one begins. Click "
-    + "to go back to `auto-discover` and follow the newest run again. Either way it is only this "
-    + "browser's view: the watcher keeps posting notifications for the battery it was started on.",
-};
+  + "timestamp — and every tile and row on this page belongs to it. The page holds this run and "
+  + "will not leave it on its own, even after a newer battery begins — that one announces itself in "
+  + "the corner instead. Click to read any other run on disk; a blinking green dot marks one whose "
+  + "runner is still working.";
 
 // How a finished try ended, as the runner scored it.
 const OUTCOME_TIPS = {
@@ -681,6 +750,10 @@ const CARD_HTML = `
   <img class="frame" alt="latest frame" hidden>
   <div class="frame none">no frame yet</div>
   <pre class="term"></pre>
+  <div class="resp" data-ref="resp" hidden>
+    <span class="resp-label">agent response</span>
+    <span class="resp-text" data-ref="respText"></span>
+  </div>
   <div class="sig" hidden>
     <div class="sig-title" data-ref="sigTitle"></div>
     <div class="sig-summary" data-ref="sigSummary"></div>
@@ -706,8 +779,8 @@ const CARD_HTML = `
     <button class="vote" data-act="verdict" data-verdict="pass">✓ success</button>
     <button class="vote" data-act="verdict" data-verdict="fail">✗ fail</button>
     <button class="vote" data-act="verdict" data-verdict="invalid">⊘ invalid</button>
-    <button class="vote" data-act="verdict" data-verdict="already_successful">A already successful</button>
-    <button class="link" data-act="verdict-clear" hidden>clear</button>
+    <button class="vote" data-act="verdict" data-verdict="already_successful"><b class="vkey">A</b> already successful</button>
+    <button class="link" data-act="verdict-clear" hidden>clear grade</button>
     <span class="muted spacer" data-ref="unreviewed">unreviewed</span>
   </div>`;
 
@@ -741,8 +814,17 @@ function buildCard(a) {
            term: newTerm(root.querySelector("pre.term")) };
 }
 
+// The agent's closing answer, shared by the card, the hover card and the detail overlay. Hidden
+// entirely while there is none rather than shown empty: an attempt still running has not answered
+// yet, and one that died never will - neither is the agent saying nothing.
+function setResponse(box, textEl, a) {
+  const text = (a && a.response) || "";
+  box.hidden = !text;
+  if (text) setText(textEl, text);
+}
+
 // The leg/step/action block, shared by the card and the detail overlay so the two can never drift.
-// `tokens` only exists in the overlay's copy, hence the guard.
+// `tokens` only exists in the overlay's copy - setTok carries the guard for it.
 function setRows(refs, a) {
   const live = isLive(a);
   setText(refs.leg, `${a.leg ?? "—"} ${a.leg_type || ""}`);
@@ -752,7 +834,7 @@ function setRows(refs, a) {
   setText(refs.held, a.gripped_name ?? a.gripped ?? "—");
   setText(refs.elapsed, fmtMin(a.elapsed_seconds)
     + (live && a.remaining_seconds !== null ? " · " + fmtMin(a.remaining_seconds) + " left" : ""));
-  if (refs.tokens) setText(refs.tokens, fmtTok(a));
+  setTok(refs.tokens, a);
   setText(refs.sandbox, a.sandbox_id || "—");
   refs.endLabel.hidden = refs.end.hidden = !a.end_reason;
   if (a.end_reason) setText(refs.end, a.end_reason);
@@ -791,6 +873,8 @@ function patchCard(entry, a) {
   } else {
     refs.mismatch.hidden = true;
   }
+
+  setResponse(refs.resp, refs.respText, a);
 
   const showSig = live && lvl !== "ok" && a.health.summary;
   refs.sig.hidden = !showSig;
@@ -913,6 +997,51 @@ function dropCard(entry) {
 // `orphaned` is here for the same reason as the rest: an attempt cut off by something other than
 // the task is not evidence the task failed, and must not be totalled as one.
 const KILL_OUTCOMES = new Set(["operator_kill", "skipped", "requeued", "orphaned"]);
+
+// The reasoners agent_core.token_meter bills calls to, in the order a task moves through them -
+// scan.ROLE_ORDER's twin, keep the two in step. A role the agent reports that this list has never
+// heard of still renders, after the known ones, so instrumenting a new reasoner needs no UI change.
+const ROLE_ORDER = ["decomposer", "resolver", "actor", "semantic", "episodic", "advisor",
+                    "perception", "guard", "findings", "unattributed"];
+const sortRoles = names => [
+  ...ROLE_ORDER.filter(role => names.includes(role)),
+  ...names.filter(role => !ROLE_ORDER.includes(role)).sort(),
+];
+
+// Folds one attempt's `tokens_by_role` into a Map accumulator. Returns whether the attempt carried
+// any role accounting at all: an attempt run before the meter grew roles has the same tokens_in as
+// any other but no block here, and the difference has to stay visible or the breakdown silently
+// reads as "these components cost nothing".
+function addRoles(into, raw) {
+  if (!raw || typeof raw !== "object") return false;
+  let any = false;
+  for (const [name, row] of Object.entries(raw)) {
+    if (!row || typeof row !== "object") continue;
+    const acc = into.get(name) || { in: 0, out: 0, calls: 0 };
+    acc.in += Number(row.tokens_in) || 0;
+    acc.out += Number(row.tokens_out) || 0;
+    acc.calls += Number(row.calls) || 0;
+    into.set(name, acc);
+    any = true;
+  }
+  return any;
+}
+
+const roleLines = totals => sortRoles([...totals.keys()]).map(name => {
+  const row = totals.get(name);
+  return `${name}: ${fmtNum(row.in)} in / ${fmtNum(row.out)} out · ${fmtNum(row.calls)} call(s)`;
+}).join("\n");
+
+// Every place that prints one attempt's in/out pair goes through here, so the role split is one
+// hover away from all of them - the live card, the hover card and the overview row alike - without
+// any of them growing a panel for nine reasoners nobody looks at most of the time.
+function setTok(el, a) {
+  if (!el) return;
+  setText(el, fmtTok(a));
+  const totals = new Map();
+  el.title = addRoles(totals, a.tokens_by_role) ? roleLines(totals)
+    : "no per-role token accounting recorded for this attempt";
+}
 const ovRows = new Map();        // prompt_id -> { tr, cells[], res, stime, tokens }
 const ovIndex = new Map();       // attempt key -> AttemptView, for the hover card and the overlay
 let ovShape = "";                // battery id + try count; a change rebuilds the table outright
@@ -1012,6 +1141,11 @@ function renderOverview(state) {
   // What the battery has cost outright: every try in the grid, whatever it ended as. The averages
   // below it are per-prompt and exclude things; this line excludes nothing.
   let totalIn = 0, totalOut = 0;
+  // ...and the same spend split by reasoner. `roleTries`/`ranTries` is the coverage of the split:
+  // it is what stops a battery half of whose attempts predate role accounting from being read as a
+  // complete breakdown of its cost.
+  const roleTotals = new Map();
+  let roleTries = 0, ranTries = 0;
 
   prompts.forEach((prompt, index) => {
     let entry = ovRows.get(prompt.id);
@@ -1023,6 +1157,7 @@ function renderOverview(state) {
 
     let pass = null, ran = 0, passes = 0, pending = 0, live = 0, invalid = 0, halted = 0;
     let tokIn = 0, tokOut = 0;
+    const rowRoles = new Map();
     for (let t = 1; t <= tries; t++) {
       const a = byTry.get(`${prompt.id}#${t}`);
       const st = cellState(a);
@@ -1034,9 +1169,14 @@ function renderOverview(state) {
       button.dataset.key = a ? a.key : "";
       button.title = a ? `${a.key} — ${st.label}` : "not run";
       if (!a) continue;
-      // The tokens were spent whether or not the try counts, so cost stays honest even here.
+      // The tokens were spent whether or not the try counts, so cost stays honest even here - and
+      // the role split is folded in on exactly the same rule, so the breakdown and the total below
+      // it can never be drawn from different sets of tries.
       tokIn += Number(a.tokens_in) || 0;
       tokOut += Number(a.tokens_out) || 0;
+      ranTries += 1;
+      addRoles(rowRoles, a.tokens_by_role);
+      if (addRoles(roleTotals, a.tokens_by_role)) roleTries += 1;
       // An invalid try leaves the denominator entirely - that exclusion is the whole point of the
       // verdict. It can neither pass a prompt nor fail one, and a row of nothing but invalid tries
       // reads as undispatched rather than as a loss the agent never actually had a chance at.
@@ -1068,6 +1208,11 @@ function renderOverview(state) {
       : "every counted try decided, none passed") + excluded;
     setText(entry.stime, pass ? fmtMin(pass.elapsed_seconds) : "—");
     setText(entry.tokens, ran ? `${fmtNum(tokIn)} / ${fmtNum(tokOut)}` : "—");
+    // The per-prompt role split lives in the cell's tooltip rather than in columns of its own: nine
+    // reasoners would be nine columns nobody can read across, and the question at this grain is
+    // always about one prompt at a time. The battery-wide split is in the footer.
+    entry.tokens.title = rowRoles.size ? roleLines(rowRoles)
+      : "no per-role token accounting recorded for this prompt's tries";
 
     totalIn += tokIn;
     totalOut += tokOut;
@@ -1083,7 +1228,7 @@ function renderOverview(state) {
     if (ran) { reliabilitySum += passes / ran; reliabilityN += 1; }
   });
 
-  // Any row for a prompt that vanished (battery switched under auto-discover mid-render).
+  // Any row for a prompt that vanished (battery switched mid-render).
   for (const [id, entry] of [...ovRows]) {
     if (!prompts.some(p => p.id === id)) { entry.tr.remove(); ovRows.delete(id); }
   }
@@ -1091,6 +1236,32 @@ function renderOverview(state) {
   const span = tries + 2;  // task id + prompt + every try column fold into the label
   const pct = prompts.length ? Math.round((solved / prompts.length) * 100) : 0;
   const rel = reliabilityN ? Math.round((reliabilitySum / reliabilityN) * 100) : 0;
+
+  // The ablation line: which reasoner the battery's tokens went to. Shares are of the ROLE rows'
+  // own sum, not of totalIn/totalOut, so they add to 100% even on a battery where some tries carry
+  // no role block - a bar chart that quietly failed to reach 100% would read as a bug in the meter
+  // rather than as the coverage gap the caption already names.
+  const roleNames = sortRoles([...roleTotals.keys()]);
+  const roleSum = roleNames.reduce((sum, name) =>
+    sum + roleTotals.get(name).in + roleTotals.get(name).out, 0);
+  const roleFoot = !roleNames.length ? "" : `
+    <tr>
+      <td class="lbl" colspan="${span}">tokens by role — where the spend went${
+        roleTries < ranTries
+          ? `, over the ${roleTries} of ${ranTries} dispatched tr(ies) that recorded roles`
+          : ""}</td>
+      <td colspan="3">${fmtNum(roleSum)} total</td>
+    </tr>` + roleNames.map(name => {
+      const row = roleTotals.get(name);
+      const share = roleSum ? (row.in + row.out) / roleSum : 0;
+      return `
+    <tr class="role">
+      <td class="lbl" colspan="${span}">${esc(name)}<span class="bar" style="width:${
+        (share * 22).toFixed(2)}em"></span></td>
+      <td colspan="3">${fmtNum(row.in)} in / ${fmtNum(row.out)} out <span class="share">· ${
+        (share * 100).toFixed(1)}% · ${fmtNum(row.calls)} call(s)</span></td>
+    </tr>`;
+    }).join("");
   setHTML(table.querySelector("tfoot"), `
     <tr>
       <td class="lbl" colspan="${span}">success rate — prompts with at least one human-verified pass</td>
@@ -1111,7 +1282,7 @@ function renderOverview(state) {
     <tr>
       <td class="lbl" colspan="${span}">total tokens — every try in this battery, failed and invalid ones included</td>
       <td colspan="3">${fmtNum(totalIn)} in / ${fmtNum(totalOut)} out</td>
-    </tr>`);
+    </tr>${roleFoot}`);
 }
 
 // -- hover card ----------------------------------------------------------------------------
@@ -1157,6 +1328,10 @@ tip.innerHTML = `
       <dt>end</dt><dd data-ref="end"></dd>
       <dt>sandbox</dt><dd data-ref="sandbox"></dd>
     </dl>
+    <div class="resp" data-ref="resp" hidden>
+      <span class="resp-label">agent response</span>
+      <span class="resp-text" data-ref="respText"></span>
+    </div>
     <div class="tip-hint" data-ref="hint" hidden></div>
   </div>`;
 const tipRefs = { img: tip.querySelector("img"), none: tip.querySelector(".tip-none") };
@@ -1172,9 +1347,10 @@ function showTip(key) {
   setText(tipRefs.elapsed, fmtMin(a.elapsed_seconds));
   setText(tipRefs.step, `${a.step || 0}${a.max_steps ? " / " + a.max_steps : ""}`
     + (a.leg === null || a.leg === undefined ? "" : ` · leg ${a.leg}`));
-  setText(tipRefs.tokens, fmtTok(a));
+  setTok(tipRefs.tokens, a);
   setText(tipRefs.end, a.end_reason || a.outcome || a.state || "—");
   setText(tipRefs.sandbox, a.sandbox_id || "—");
+  setResponse(tipRefs.resp, tipRefs.respText, a);
   const hints = [];
   if (canVerdict(a)) hints.push("<kbd>P</kbd> pass · <kbd>F</kbd> fail · <kbd>E</kbd> invalid"
     + " · <kbd>A</kbd> already successful");
@@ -1243,9 +1419,15 @@ function tipVotes(root) {
   });
 }
 
+// The battery pill's own tooltip drops over the list it opens, so while that list is up the pill
+// explains nothing: the run names under it are the answer the reader came for.
+function tipSuppressed(el) {
+  return el.id === "battery" && !document.getElementById("battery-menu").hidden;
+}
+
 function showHelp(el) {
   const text = el.dataset.tip;
-  if (!text) { hideHelp(); return; }
+  if (!text || tipSuppressed(el)) { hideHelp(); return; }
   helpTarget = el;
   setText(helpRefs.term, el.dataset.tipTerm || "");
   helpRefs.term.hidden = !el.dataset.tipTerm;
@@ -1294,15 +1476,43 @@ const fmtWhen = ts => !ts ? "" : new Date(ts * 1000).toLocaleString([], {
   month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
 });
 
+// Every run id this page has already seen on disk. Seeded from the first payload rather than left
+// empty, so opening the dashboard onto a bench_runs/ with a week of history announces none of it:
+// only a directory that appears while the page is watching is news.
+let knownRuns = null;
+// One offer at a time. A second battery starting before the first was answered replaces the banner,
+// because the older offer is the one nobody wants by then.
+let newRunBanner = null;
+
+function announceNewRuns(discovered, currentId) {
+  const ids = discovered.map(d => d.id);
+  if (knownRuns === null) { knownRuns = new Set(ids); return; }
+
+  // Newest first, as `find_batteries` sorts them, so the banner names the latest of a burst. A run
+  // is announced on the poll its directory first appears in, live or not: a battery that has been
+  // created but has not yet flocked its runner would otherwise become "known" while still silent.
+  const fresh = ids.find(id => !knownRuns.has(id) && id !== currentId);
+  for (const id of ids) knownRuns.add(id);
+  if (!fresh) return;
+
+  if (newRunBanner) newRunBanner();
+  newRunBanner = notify(`New bench run started: ${fresh} — click to watch it.`, () => {
+    newRunBanner = null;
+    selectBattery(fresh);
+  });
+}
+
 function renderPicker(state) {
-  // A pin can outlive the run it named - a deleted bench_run, or a stored choice from another host.
-  // The server answered with what it actually read, so adopt that rather than keep asking for a ghost.
-  if (batteryChoice !== null && state.battery_id && state.battery_id !== batteryChoice) {
+  // Two cases, one line. A first load asks for `newest` and pins whatever came back, which is what
+  // makes holding one run the default. And a pin can outlive the run it named - a deleted bench_run,
+  // or a stored choice from another host - so when the server answers with a different id than the
+  // one asked for, that is what it actually read: adopt it rather than keep asking for a ghost.
+  if (state.battery_id && state.battery_id !== batteryChoice) {
     batteryChoice = state.battery_id;
     localStorage.setItem("sari.battery", batteryChoice);
   }
-  const auto = batteryChoice === null;
   const discovered = state.discovered || [];
+  announceNewRuns(discovered, state.battery_id);
   const here = discovered.find(d => d.id === state.battery_id);
 
   const dot = document.getElementById("battery-dot");
@@ -1314,15 +1524,16 @@ function renderPicker(state) {
   batteryTag.dataset.tipMeta = (state.bench_root ? "under " + state.bench_root : "")
     + (discovered.length ? `\n${discovered.length} run(s) on disk — click to switch` : "");
 
-  const modeTag = document.getElementById("mode");
-  setText(modeTag, auto ? "auto-discover" : "pinned");
-  modeTag.setAttribute("aria-checked", auto ? "true" : "false");
-  modeTag.dataset.tipTerm = auto ? "auto-discover" : "pinned";
-  modeTag.dataset.tip = auto ? TIP_MODE.auto : TIP_MODE.pinned;
-
-  // The CSV export is a plain link, so it carries the battery in its href rather than in a fetch.
-  const csv = document.querySelector('a[href^="/api/report.csv"]');
-  if (csv) csv.href = "/api/report.csv" + (batteryId ? "?battery=" + encodeURIComponent(batteryId) : "");
+  // The CSV exports are plain links, so they carry the battery in their href rather than in a fetch.
+  // Both grains are rewritten from the same rule; `data-grain` is what keeps the roles one from
+  // silently downloading attempts.csv when the battery is switched.
+  for (const csv of document.querySelectorAll('a[href^="/api/report.csv"]')) {
+    const params = new URLSearchParams();
+    if (csv.dataset.grain) params.set("grain", csv.dataset.grain);
+    if (batteryId) params.set("battery", batteryId);
+    const query = params.toString();
+    csv.href = "/api/report.csv" + (query ? "?" + query : "");
+  }
 
   const menu = document.getElementById("battery-menu");
   const rows = discovered.map(d => {
@@ -1331,9 +1542,49 @@ function renderPicker(state) {
     return `<li role="option" data-battery="${esc(d.id)}" aria-selected="${d.id === state.battery_id}">`
       + `<span class="dot${d.live ? " live" : ""}"></span>`
       + `<span class="m-id">${esc(d.id)}</span>`
-      + `<span class="m-note">${esc(note)}</span></li>`;
+      + `<span class="m-note">${esc(note)}</span>`
+      // Hidden rather than merely refused while a runner works: the server will not rename a live
+      // battery, and an affordance that is always going to fail is worse than no affordance.
+      + `<button class="m-edit" data-act="battery-rename" data-battery="${esc(d.id)}"`
+      + ` title="rename this bench run" aria-label="rename ${esc(d.id)}"`
+      + `${d.live ? " disabled" : ""}>✎</button></li>`;
   });
   setHTML(menu, rows.length ? rows.join("") : '<li class="m-empty">no bench runs on disk</li>');
+}
+
+// The directory under bench_runs/ is the run's only name - there is no display name stored beside
+// it - so this really does move the folder, and the server refuses while anything is still writing.
+async function renameBattery(id) {
+  const typed = prompt(`Rename bench run\n\n${id}\n\nLetters, digits, dot, dash and underscore; `
+    + `anything else becomes a dash.`, id);
+  if (typed === null) return;
+  const wanted = typed.trim();
+  if (!wanted || wanted === id) return;
+
+  let res;
+  try {
+    res = await (await fetch("/api/battery/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ battery: id, name: wanted }),
+    })).json();
+  } catch (e) {
+    res = { ok: false, error: "the watcher is unreachable" };
+  }
+  if (!res.ok) { notify(`Could not rename ${id}: ${res.error || "unknown error"}`); return; }
+
+  // The new directory name is about to appear in `discovered`, and to `announceNewRuns` a name it
+  // has never seen is a new battery. Hand it the rename so it does not announce one.
+  if (knownRuns) { knownRuns.delete(id); knownRuns.add(res.battery_id); }
+  // A pin names a directory. This page's pin has to move with it, or the next poll asks for a run
+  // that no longer exists and the server answers with whichever one it is watching instead.
+  if (batteryChoice === id) {
+    batteryChoice = res.battery_id;
+    localStorage.setItem("sari.battery", batteryChoice);
+    batteryId = res.battery_id;
+  }
+  if (res.battery_id !== wanted) notify(`Renamed to ${res.battery_id}.`);
+  refresh();
 }
 
 function closeMenu() {
@@ -1347,8 +1598,7 @@ function closeMenu() {
 function selectBattery(choice) {
   if (choice === batteryChoice) return closeMenu();
   batteryChoice = choice;
-  if (choice === null) localStorage.removeItem("sari.battery");
-  else localStorage.setItem("sari.battery", choice);
+  localStorage.setItem("sari.battery", choice);
   closeMenu();
   closeModal();
   closeLogModal();
@@ -1519,8 +1769,8 @@ function openModal(key, requestReplay = false) {
   const play = document.getElementById("modal-play");
   play.hidden = false;
   const note = document.getElementById("modal-note");
-  note.style.display = "";
-  note.textContent = "Replay is queued automatically when the run finishes. Click ▶ to play.";
+  note.style.display = "none";
+  note.textContent = "";
   termClear(modalTerm);
   modalTerm.cursor = null;
   modalTerm.size = null;
@@ -1553,6 +1803,8 @@ function syncModal() {
   const rows = document.getElementById("modal-rows");
   rows.hidden = !a;
   if (a) setRows(modalRefs, a);
+  setResponse(document.getElementById("modal-resp"),
+              document.getElementById("modal-resp-text"), a);
   termPump(modalTerm, key, MODAL_LOG_LINES, a ? (a.log_bytes ?? null) : null, true);
 
   // The still is a placeholder for the clip, not a rival to it: it carries the overlay while the
@@ -1685,6 +1937,10 @@ async function recordVerdict(key, verdict) {
 document.addEventListener("click", async ev => {
   if (ev.target.id === "modal") { closeModal(); return; }
   if (ev.target.id === "log-modal") { closeLogModal(); return; }
+  // Ahead of the option itself: the pencil sits inside a row whose entire surface means "switch to
+  // this run", and renaming a battery must not also drag the page onto it.
+  const rename = ev.target.closest("#battery-menu button[data-act='battery-rename']");
+  if (rename) { renameBattery(rename.dataset.battery); return; }
   const option = ev.target.closest("#battery-menu li[data-battery]");
   if (option) { selectBattery(option.dataset.battery); return; }
   const button = ev.target.closest("button[data-act]");
@@ -1698,15 +1954,10 @@ document.addEventListener("click", async ev => {
     const menu = document.getElementById("battery-menu");
     menu.hidden = !menu.hidden;
     button.setAttribute("aria-expanded", String(!menu.hidden));
+    // The cursor is still on the pill either way, and no mousemove is coming to re-ask.
+    if (menu.hidden) showHelp(button); else hideHelp();
     return;
   }
-  // Auto is the absence of a choice: turning it on drops the pin and follows the newest run again.
-  if (act === "mode-toggle") {
-    if (batteryChoice !== null) selectBattery(null);
-    else if (batteryId) selectBattery(batteryId);
-    return;
-  }
-
   if (act === "tab") { setTab(button.dataset.tab); return; }
   if (act === "log") { openLogModal(key); return; }
   if (act === "log-modal-close") { closeLogModal(); return; }

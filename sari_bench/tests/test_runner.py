@@ -59,7 +59,9 @@ with open(os.path.join(run_dir, "liveness.json"), "w") as f:
 # The real agent's token_meter rewrites this every few seconds, so it exists even for an attempt
 # that never reaches summary.json.
 with open(os.path.join(run_dir, "tokens.json"), "w") as f:
-    json.dump({"tokens_in": 1200, "tokens_out": 300, "calls": 4}, f)
+    json.dump({"tokens_in": 1200, "tokens_out": 300, "calls": 4,
+               "by_role": {"actor": {"tokens_in": 800, "tokens_out": 200, "calls": 2},
+                           "guard": {"tokens_in": 400, "tokens_out": 100, "calls": 2}}}, f)
 
 mode = os.environ.get("STUB_MODE", "ok")
 if mode == "crash":
@@ -72,9 +74,13 @@ if mode == "cancel_siblings" and task == "winner prompt" and not run_dir.endswit
 time.sleep(float(os.environ.get("STUB_SLEEP", "0.3")))
 with open(os.path.join(run_dir, "summary.json"), "w") as f:
     json.dump({"task": task, "success": True, "legs_planned": 1, "legs_completed": 1,
+               "response": "Done — the requested task was completed.",
+               "response_source": "model",
                "llm_calls": 6,
                "tokens_in": 2000, "tokens_out": 500,
-               "tokens": {"tokens_in": 2000, "tokens_out": 500, "calls": 6},
+               "tokens": {"tokens_in": 2000, "tokens_out": 500, "calls": 6,
+                          "by_role": {"actor": {"tokens_in": 1400, "tokens_out": 350, "calls": 4},
+                                      "guard": {"tokens_in": 600, "tokens_out": 150, "calls": 2}}},
                "legs": [{"end_reason": "halt_granted", "success": True,
                          "tokens_in": 2000, "tokens_out": 500}]}, f)
 with open(os.path.join(run_dir, "liveness.json"), "r+") as f:
@@ -770,10 +776,23 @@ async def test_token_usage_is_recorded_per_attempt() -> None:
             assert (row["tokens_in"], row["tokens_out"]) == (2000, 500), row
             assert (row["tokens_in_avg"], row["tokens_out_avg"]) == (2000, 500), row
 
+            # Per-reasoner attribution follows the same authority chain as the totals, and the role
+            # rows must re-total to them - a breakdown that does not add up to the number beside it
+            # is worse than no breakdown.
+            assert attempt["tokens_by_role"] == {
+                "actor": {"tokens_in": 1400, "tokens_out": 350, "calls": 4},
+                "guard": {"tokens_in": 600, "tokens_out": 150, "calls": 2},
+            }, attempt
+            assert summary["tokens_by_role"]["actor"]["tokens_in"] == 1400, summary
+            assert sum(r["tokens_in"] for r in summary["tokens_by_role"].values()) == 2000, summary
+            # Pipeline order, so the battery summary reads as the agent's own pipeline.
+            assert list(summary["tokens_by_role"]) == ["actor", "guard"], summary
+
             # The finished manifest carries them too, which is what the watcher reads.
             manifest = json.loads(
                 (workspace / "runs" / "p1" / "try01" / "attempt.json").read_text(encoding="utf-8"))
             assert (manifest["tokens_in"], manifest["tokens_out"]) == (2000, 500), manifest
+            assert manifest["tokens_by_role"]["guard"]["calls"] == 2, manifest
         finally:
             await sandbox.close()
             await coordinator.stop()
@@ -799,8 +818,14 @@ async def test_token_usage_is_recorded_per_attempt() -> None:
 
             attempt = summary["attempts"][0]
             assert attempt["outcome"] == "harness_timeout", attempt
-            # No summary.json was ever written; the tokens still have to be accounted for.
+            # No summary.json was ever written; the tokens still have to be accounted for - and so
+            # does which reasoner spent them, which is the case an ablation most wants: the attempts
+            # that ran to the wall are the expensive ones.
             assert (attempt["tokens_in"], attempt["tokens_out"]) == (1200, 300), attempt
+            assert attempt["tokens_by_role"] == {
+                "actor": {"tokens_in": 800, "tokens_out": 200, "calls": 2},
+                "guard": {"tokens_in": 400, "tokens_out": 100, "calls": 2},
+            }, attempt
         finally:
             await sandbox.close()
             await coordinator.stop()

@@ -31,8 +31,10 @@ from typing import Any, Callable
 from sari_bench import capture
 from sari_bench.client import CoordinatorClient, Lease, SandboxLost
 from sari_bench.protocol import DEFAULT_COORDINATOR_PORT, STATE_READY
+from sari_bench.watch import scan   # per-role token block parsing; pure filesystem/dict helpers
 from sari_bench.storage import (
     RUNNER_LOCK,
+    battery_dir_name,
     canonical_attempt_rows,
     edit_json_locked,
     file_lock,
@@ -41,6 +43,7 @@ from sari_bench.storage import (
     write_json_atomic,
 )
 from overhaul.vision.ocr_client import OcrUnavailable, check_ocr_health, resolve_ocr_url
+from sari_runconfig import RunConfigError, load_run_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OVERHAUL_DIR = REPO_ROOT / "overhaul"
@@ -145,6 +148,10 @@ class AttemptResult:
     tokens_in: int = 0
     tokens_out: int = 0
     llm_calls: int = 0
+    # role -> {tokens_in, tokens_out, calls}, from the same source as the totals above. Empty for an
+    # attempt whose agent predates per-role accounting; see scan.normalize_by_role on why that is
+    # not zero-filled.
+    tokens_by_role: dict[str, Any] = field(default_factory=dict)
 
 
 def load_prompts(path: Path) -> list[Prompt]:
@@ -927,6 +934,7 @@ class BenchmarkRunner:
                     "wall_seconds": result.wall_seconds,
                     "tokens_in": result.tokens_in,
                     "tokens_out": result.tokens_out,
+                    "tokens_by_role": result.tokens_by_role,
                     "ended_at": datetime.now().isoformat(timespec="seconds"),
                 },
             )
@@ -1387,6 +1395,7 @@ class BenchmarkRunner:
 
         result.tokens_in = int(source.get("tokens_in") or 0)
         result.tokens_out = int(source.get("tokens_out") or 0)
+        result.tokens_by_role = scan.normalize_by_role(source.get("by_role"))
         if not result.llm_calls:
             result.llm_calls = int(source.get("calls") or 0)
 
@@ -1452,6 +1461,16 @@ class BenchmarkRunner:
 
         total_in = sum(result.tokens_in for result in results)
         total_out = sum(result.tokens_out for result in results)
+        # Battery-wide cost per reasoner: the number an ablation compares across arms. Attempts that
+        # recorded no roles simply contribute nothing here, so this can total less than `tokens_in`
+        # above - which is why the two are kept as separate lines rather than one being derived.
+        tokens_by_role: dict[str, dict[str, int]] = {}
+        for result in results:
+            for name, row in (result.tokens_by_role or {}).items():
+                into = tokens_by_role.setdefault(
+                    name, {"tokens_in": 0, "tokens_out": 0, "calls": 0})
+                for field_name in into:
+                    into[field_name] += int(row.get(field_name) or 0)
         summary = {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "wall_seconds": round(
@@ -1472,6 +1491,8 @@ class BenchmarkRunner:
             "tokens_in": total_in,
             "tokens_out": total_out,
             "tokens_total": total_in + total_out,
+            "tokens_by_role": {name: tokens_by_role[name]
+                               for name in scan.sorted_roles(tokens_by_role)},
             "llm_calls": sum(result.llm_calls for result in results),
             "prompts": sorted(by_prompt.values(), key=lambda row: row["prompt_id"]),
             "attempts": [asdict(result) for result in results],
@@ -1491,69 +1512,106 @@ def _log(message: str) -> None:
 
 
 async def async_main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config")
+    config_args, _ = config_parser.parse_known_args(argv)
+    config = None
+    if config_args.config:
+        try:
+            config = load_run_config(config_args.config)
+        except RunConfigError as error:
+            config_parser.error(str(error))
+
+    def configured(key: str, fallback: Any = None) -> Any:
+        return config.get("bench", key, fallback) if config else fallback
+
     parser = argparse.ArgumentParser(description="Run a prompt battery across a sandbox fleet.")
-    parser.add_argument("--prompts", required=True, type=Path, help="Prompt battery JSON.")
-    parser.add_argument("--tries", type=int, default=3, help="Attempts per prompt.")
+    parser.add_argument(
+        "--config",
+        help="TOML run configuration. Explicit command-line flags override configured values.",
+    )
+    parser.add_argument("--prompts", required=not configured("prompts"), type=Path,
+                        default=Path(configured("prompts")) if configured("prompts") else None,
+                        help="Prompt battery JSON.")
+    parser.add_argument("--tries", type=int, default=configured("tries", 3),
+                        help="Attempts per prompt.")
     parser.add_argument(
         "--time-limit",
         type=float,
-        default=40.0,
+        default=configured("time_limit", 40.0),
         help="Minutes for the WHOLE attempt, after which the harness kills it (+grace).",
     )
     parser.add_argument(
         "--per-leg-minutes",
         type=float,
-        default=None,
+        default=configured("per_leg_minutes"),
         help="The agent's own per-leg cap (--max-minutes). Defaults to --time-limit, which is only "
              "sensible for single-leg tasks: set it lower for a long attempt limit so the agent "
              "can hit its own time_cap and write a summary.json instead of being SIGKILLed.",
     )
     parser.add_argument(
         "--coordinator",
-        default=f"ws://localhost:{DEFAULT_COORDINATOR_PORT}",
+        default=configured("coordinator", f"ws://localhost:{DEFAULT_COORDINATOR_PORT}"),
         help="Coordinator URL. /bench is appended if missing.",
     )
     parser.add_argument(
         "--sandbox-startup-timeout",
         type=float,
-        default=0.0,
+        default=configured("sandbox_startup_timeout", 0.0),
         help="Seconds to wait for a usable registered sandbox before failing (0 waits indefinitely).",
     )
-    parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to bench_runs/<timestamp>.")
+    parser.add_argument("--output-dir", type=Path,
+                        default=Path(configured("output_dir"))
+                        if configured("output_dir") else None,
+                        help="Defaults to bench_runs/<timestamp>.")
+    parser.add_argument(
+        "--name",
+        default=configured("name", ""),
+        help="Name this battery: results land in bench_runs/<timestamp>_<name> instead of "
+             "bench_runs/<timestamp>. The timestamp stays so runs still sort and never collide. "
+             "Anything outside letters, digits, dot, dash and underscore becomes a dash. Cannot be "
+             "combined with --output-dir, which already says where the results go.",
+    )
     parser.add_argument(
         "--resume",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=configured("resume", False),
         help="Resume a compatible existing --output-dir, skipping finished attempts.",
     )
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=None,
+        default=configured("concurrency"),
         help="Maximum attempts to run in parallel. Defaults to all registered sandboxes and grows "
              "automatically as new sandboxes join.",
     )
     parser.add_argument(
         "--capture-interval",
         type=float,
-        default=capture.DEFAULT_INTERVAL_SECONDS,
+        default=configured("capture_interval", capture.DEFAULT_INTERVAL_SECONDS),
         help="Seconds between saved observations; recent agent step frames suppress redundant "
              "captures (default: 0.25, or 4 frames/second; 0 disables supplementary capture).",
     )
-    parser.add_argument("--only", default=None, help="Comma-separated prompt ids to run.")
-    parser.add_argument("--max-steps", type=int, default=150, help="Per-leg step cap for the agent.")
-    parser.add_argument("--arm", choices=["vlm", "graph", "graph-advised"], default="graph")
-    parser.add_argument("--map-dir", default=None, help="slamtest output dir the agent loads its map from.")
+    parser.add_argument("--only", default=configured("only"),
+                        help="Comma-separated prompt ids to run.")
+    parser.add_argument("--max-steps", type=int, default=configured("max_steps", 150),
+                        help="Per-leg step cap for the agent.")
+    parser.add_argument("--arm", choices=["vlm", "graph", "graph-advised"],
+                        default=configured("arm", "graph"))
+    parser.add_argument("--map-dir", default=configured("map_dir"),
+                        help="slamtest output dir the agent loads its map from.")
     parser.add_argument(
         "--ocr-url",
-        default=None,
+        default=configured("ocr_url"),
         help="OCR service base URL. Resolution: this flag, $SARI_OCR_URL, then "
              "http://127.0.0.1:9100.",
     )
-    parser.add_argument("--leg-retries", type=int, default=1)
+    parser.add_argument("--leg-retries", type=int, default=configured("leg_retries", 1))
     parser.add_argument(
         "--completion-guard",
         choices=["deterministic", "vlm"],
-        default="deterministic",
+        default=configured("completion_guard", "deterministic"),
         help="Pickup completion guard passed to the agent (default deterministic).",
     )
     args = parser.parse_args(argv)
@@ -1587,8 +1645,16 @@ async def async_main(argv: list[str] | None = None) -> int:
         if missing:
             parser.error(f"--map-dir {args.map_dir} is not a usable map: missing {', '.join(missing)}")
 
+    # A name is a suffix on the timestamp, never a replacement for it: two batteries named the same
+    # thing on the same day have to be two directories, and the dashboard's list still sorts by when.
+    name = battery_dir_name(args.name)
+    if args.name and not name:
+        parser.error(f"--name {args.name!r} has no usable characters for a directory name")
+    if name and args.output_dir is not None:
+        parser.error("--name and --output-dir both name the results directory; pass one")
     output_dir = args.output_dir or (
-        REPO_ROOT / "bench_runs" / datetime.now().strftime("%Y%m%d_%H%M%S")
+        REPO_ROOT / "bench_runs"
+        / (datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_{name}" if name else ""))
     )
 
     runner = BenchmarkRunner(

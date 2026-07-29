@@ -32,6 +32,13 @@ from sari_bench.watch import health
 ATTEMPT_MANIFEST = "attempt.json"
 BATTERY_MANIFEST = "battery.json"
 ATTEMPTS_INDEX = "attempts.jsonl"
+# The agent's final user-facing answer, written once at exit by orchestrator.task_response. Read
+# straight off disk like everything else here, so it also appears for old run dirs and for attempts
+# whose summary.json never made it into the attempts index.
+RESPONSE_FILE = "response.txt"
+# It is three sentences by contract, and the dashboard ships it in every state poll for every
+# attempt. A cap keeps one malformed run from bloating the payload for the whole battery.
+RESPONSE_MAX_CHARS = 2000
 
 # How stale the battery's own bookkeeping may be before a runner holding no lock - a resumed or
 # partial run - stops counting as live.
@@ -95,6 +102,11 @@ class AttemptView:
     # live attempt's spend is visible while it runs and not only once it exits.
     tokens_in: int = 0
     tokens_out: int = 0
+    # The same spend split by which reasoner made the call: role -> {tokens_in, tokens_out, calls}.
+    # Empty for an attempt run before roles existed (or one whose agent died before its first
+    # tokens.json write), which readers must show as "unknown", never as a battery of zeroes - the
+    # tokens_in/tokens_out above are still right in that case and would contradict them.
+    tokens_by_role: dict[str, Any] = field(default_factory=dict)
 
     started_at: str = ""
     elapsed_seconds: float = 0.0
@@ -117,6 +129,10 @@ class AttemptView:
     gripped_name: Any = None
     goal_met: Any = None
     halts_refused: int = 0
+
+    # The agent's own answer to the prompt, once it has written one. "" while it runs, and "" for a
+    # run that died before finalizing - which a reader must show as absent, never as an empty answer.
+    response: str = ""
 
     log_bytes: int = 0            # agent.log size; lets the dashboard poll only when it changed
     frame: str = ""               # battery-relative path of the newest screenshot
@@ -145,6 +161,42 @@ def _read_json(path: Path) -> dict[str, Any]:
     except (OSError, ValueError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+# The reasoner names agent_core.token_meter bills calls to, in the order a reader should see them:
+# roughly the order a task moves through them, so a column of these reads as the agent's own
+# pipeline rather than as alphabet soup. A role the meter reports but this list does not know is
+# still shown - appended at the end - so adding a reasoner agent-side needs no dashboard release.
+ROLE_ORDER = ("decomposer", "resolver", "actor", "semantic", "episodic", "advisor",
+              "perception", "guard", "findings", "responder", "unattributed")
+
+
+def normalize_by_role(raw: Any) -> dict[str, dict[str, int]]:
+    """Coerces a tokens.json ``by_role`` block into role -> {tokens_in, tokens_out, calls} ints.
+
+    Defensive because it parses a file another process is rewriting under it, and because run dirs
+    predating per-role accounting have no block at all. Returns {} rather than a zero-filled skeleton
+    for those: "this run did not record roles" and "this run spent nothing on any role" are different
+    findings, and only the empty dict can say the first.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    rows: dict[str, dict[str, int]] = {}
+    for name, row in raw.items():
+        if not isinstance(row, dict):
+            continue
+        try:
+            rows[str(name)] = {field_name: int(row.get(field_name) or 0)
+                               for field_name in ("tokens_in", "tokens_out", "calls")}
+        except (TypeError, ValueError):
+            continue
+    return rows
+
+
+def sorted_roles(names: Any) -> list[str]:
+    """Role names in ROLE_ORDER, unknown ones alphabetically after them."""
+    known = [name for name in ROLE_ORDER if name in names]
+    return known + sorted(name for name in names if name not in ROLE_ORDER)
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -249,6 +301,19 @@ def effective_verdict(manifest: dict[str, Any]) -> str:
     if manifest.get("end_reason") == ALREADY_SUCCESSFUL:
         return ALREADY_SUCCESSFUL
     return "invalid" if manifest.get("outcome") in AUTO_INVALID_OUTCOMES else ""
+
+
+def read_response(run_dir: Path, max_chars: int = RESPONSE_MAX_CHARS) -> str:
+    """The agent's final response for one attempt, or "" if it never wrote one.
+
+    Written with an atomic replace at the very end of a run, so there is no torn-read case to defend
+    against - only a missing file, which is the normal state for every attempt still in flight.
+    """
+    try:
+        text = (run_dir / RESPONSE_FILE).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+    return text if len(text) <= max_chars else text[:max_chars].rstrip() + "…"
 
 
 def read_step_records(leg_path: Path) -> list[dict[str, Any]]:
@@ -356,6 +421,7 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
     tokens = _read_json(run_dir / "tokens.json")
     view.tokens_in = int(tokens.get("tokens_in") or manifest.get("tokens_in") or 0)
     view.tokens_out = int(tokens.get("tokens_out") or manifest.get("tokens_out") or 0)
+    view.tokens_by_role = normalize_by_role(tokens.get("by_role") or manifest.get("tokens_by_role"))
 
     started = manifest.get("started_epoch")
     deadline = manifest.get("deadline_epoch")
@@ -372,6 +438,8 @@ def scan_attempt(run_dir: Path, battery_root: Path, now: float) -> AttemptView:
             # The manifest says live but the process is gone: the runner died before it could close
             # the attempt out. Say so rather than showing a tile frozen forever at its last step.
             view.state = "orphaned"
+
+    view.response = read_response(run_dir)
 
     try:
         view.log_bytes = (run_dir / "agent.log").stat().st_size

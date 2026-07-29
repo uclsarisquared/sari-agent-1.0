@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,22 @@ from typing import Any
 ATTEMPTS_LOCK = ".attempts.lock"
 BATTERY_LOCK = ".battery.lock"
 RUNNER_LOCK = ".runner.lock"
+
+# A battery's id IS its directory name: it is joined onto bench_root, comes back out in URLs and in
+# report filenames, and is what a browser pins. So the set of names allowed is the set that survives
+# all three - no separators, no leading dot, nothing that could climb out of bench_runs/.
+BATTERY_NAME_MAX = 64
+_UNSAFE_IN_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def battery_dir_name(name: str) -> str:
+    """One free-form battery name reduced to a single safe path component, or "" if nothing survives.
+
+    Deliberately shared by `--name` and the dashboard's rename: a run named at launch and a run
+    renamed later have to be the same kind of thing, and both reach the same filesystem.
+    """
+    cleaned = _UNSAFE_IN_NAME.sub("-", name.strip()).strip("-._")
+    return cleaned[:BATTERY_NAME_MAX].strip("-._")
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
