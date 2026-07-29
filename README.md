@@ -27,8 +27,8 @@ Start Unity in Play mode, then run these in separate terminals:
 uv run poe ocr-server
 
 # Terminal 2
-cd overhaul
-uv run python orchestrator/subtask_agents.py "find and pick up Pepero"
+uv run python overhaul/orchestrator/subtask_agents.py \
+    --config runconfig.toml --task "find and pick up Pepero"
 ```
 
 ### Sari Bench battery
@@ -45,7 +45,7 @@ uv run poe dbench-coordinator
 SARI_BENCH_COORDINATOR=ws://<runner-host>:9000/sandbox ./SariSandbox
 
 # Terminal 4
-uv run poe dbench-run easy       # easy | medium | hard
+uv run poe dbench-run            # reads [bench] from runconfig.toml
 
 # Optional Terminal 5
 uv run poe dbench-watch
@@ -70,7 +70,27 @@ to `http://127.0.0.1:9100`; override it with `--ocr-url` or `SARI_OCR_URL`.
 
 ## Configuration
 
-Copy the template and fill it in:
+Runtime and experiment settings live in the checked-in
+[`runconfig.toml`](runconfig.toml). It documents every standalone-agent and distributed-bench
+option in place:
+
+```bash
+# Standalone agent; the prompt remains easy to change.
+uv run python overhaul/orchestrator/subtask_agents.py \
+    --config runconfig.toml --task "find and pick up Pepero"
+
+# Distributed battery; prompts, tries, caps, arm, coordinator, and output settings come from [bench].
+uv run python -m sari_bench run --config runconfig.toml
+```
+
+The standalone entrypoint reads `[agent]`, `[limits]`, `[environment]`, and `[output]`. The battery
+runner reads `[bench]`. Explicit flags override TOML values, so a one-off ablation can use
+`--config runconfig.toml --arm vlm` without editing the file. Relative paths are resolved from the
+config file rather than the current working directory. Unknown sections, misspelled options,
+invalid choices, and invalid numeric ranges fail before a run starts.
+
+Credentials and host-specific environment values remain in the gitignored `config.env`. Copy its
+template and fill it in:
 
 ```bash
 cp config.env.example config.env
@@ -110,7 +130,7 @@ not an alternative agent.
 
 | | Entrypoint | Status |
 |---|---|---|
-| **Current agent** (map-based) | `cd overhaul && uv run python orchestrator/subtask_agents.py "<task>"` | Live — all development happens here |
+| **Current agent** (map-based) | `uv run python overhaul/orchestrator/subtask_agents.py --config runconfig.toml --task "<task>"` | Live — all development happens here |
 | **Legacy agent** (open-ended VLM) | `uv run python legacy/server.py inf_base` + `uv run python legacy/run.py "<task>"` | **Deprecated**, kept for reference only |
 | **Distributed Sari Bench** | `python -m sari_bench coordinator/run/watch ...` | Live — runs the current agent across a fleet |
 
@@ -139,11 +159,12 @@ ls overhaul/slamtest/output
 
 #### `subtask_agents.py` flags
 
-Run `uv run python orchestrator/subtask_agents.py --help` from `overhaul/` for the authoritative
-list; summarized here:
+Run `uv run python overhaul/orchestrator/subtask_agents.py --help` for the authoritative list;
+the table below shows built-in defaults used when no config supplies a value:
 
 | Flag | Default | What |
 |---|---|---|
+| `--config` | — | TOML run configuration. Explicit CLI flags override it. |
 | `task` (positional) | — | The long-horizon task, e.g. `"find and pick up Pepero"` (or use `--task`). Prompted interactively if neither is given. |
 | `--task` | — | Same as the positional arg; takes precedence if both are given. |
 | `--arm` | `graph` | Navigation arm: `graph` (measured-better deterministic navigator), `vlm`, or `graph-advised` (drives each graph hop through a per-hop advisor VLM). |
@@ -171,7 +192,7 @@ not reimplement the agent. See **[`sari_bench/README.md`](sari_bench/README.md)*
 ```bash
 uv run poe ocr-server  # separate terminal
 python -m sari_bench coordinator --port 9000
-python -m sari_bench run --prompts sari_bench/prompts/example_battery.json --coordinator ws://localhost:9000 --completion-guard vlm
+python -m sari_bench run --config runconfig.toml
 ```
 
 ### Legacy stack (`legacy/`) — deprecated

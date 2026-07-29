@@ -58,11 +58,17 @@ instances. Use `--ocr-url` (or `SARI_OCR_URL`) when the runner-local endpoint di
 **4. Runner:**
 
 ```bash
-python -m sari_bench run \
-    --prompts sari_bench/prompts/example_battery.json \
-    --tries 3 --time-limit 120 --per-leg-minutes 40 \
-    --ocr-url http://127.0.0.1:9100 \
-    --coordinator ws://coordinator-host:9000
+python -m sari_bench run --config runconfig.toml
+```
+
+The checked-in root `runconfig.toml` has a documented `[bench]` section covering every runner flag,
+including prompts, attempts, whole-attempt and per-leg limits, coordinator, concurrency, capture,
+output/resume behavior, and the agent ablation settings forwarded to each attempt. Relative paths
+are resolved from the TOML file. Explicit CLI flags take precedence, for example:
+
+```bash
+python -m sari_bench run --config runconfig.toml \
+    --prompts sari_bench/prompts/hard_prompts.json --tries 3
 ```
 
 With no `--concurrency` flag, the runner fills every registered, store-loaded sandbox and adds
@@ -73,7 +79,7 @@ The runner requires the OCR service's `/health` before it contacts the coordinat
 sandbox. It passes the resolved URL to every agent in both `--ocr-url` and `SARI_OCR_URL`, and
 records it in `battery.json` and every `attempt.json`.
 
-The `uv run poe dbench` shortcut waits up to 30 seconds for at least one usable sandbox to
+The `uv run poe dbench-run` shortcut waits up to 30 seconds for at least one usable sandbox to
 register, then exits with launch instructions instead of leaving every prompt at
 `waiting for a sandbox`. Use the `status` command above to inspect the pool.
 
@@ -82,7 +88,16 @@ success rates and outcome counts), `attempts.jsonl` (atomically updated as attem
 canonical row per prompt/attempt, so an interrupted battery is still usable), and
 `<prompt_id>/try<NN>/` holding `attempt.json` (that attempt's
 manifest — sandbox, pid, deadline, outcome), the orchestrator's own `summary.json`, per-leg JSONL,
-screenshots, and the agent's stdout in `agent.log`.
+screenshots, the agent's stdout in `agent.log`, and `response.txt` — the agent's final answer to the
+prompt, which the dashboard quotes under the log on every tile, hover card and detail overlay.
+
+`--name "no advisor"` names the run: results land in `bench_runs/<timestamp>_no-advisor/` instead.
+The timestamp stays in front, so a name never has to be unique and the list still sorts by when.
+Anything outside letters, digits, dot, dash and underscore becomes a dash; `--output-dir` already
+says where results go, so the two cannot be combined. A run can also be renamed later from the
+dashboard — the pencil beside any run in the header's picker — which moves the directory itself,
+since the directory name is the only name a battery has. That is refused while a runner or a
+watcher-triggered retry still holds the run.
 
 ### Restarting a battery
 
@@ -124,6 +139,23 @@ battery `summary.json`, and per leg in the orchestrator's own `summary.json`. Th
 actor, semantic/episodic learner, advisor, decomposer, resolver, perception, plus the SDK's internal
 retries — not just the calls someone remembered to instrument. Moondream (grab-time pointing) reports
 no usage and is therefore not counted; its qwen fallback is.
+
+**Which reasoner spent them** rides alongside, as `by_role` in `tokens.json` and the agent's
+`summary.json`, and as `tokens_by_role` on every `attempts.jsonl` row, `attempt.json`, battery
+`summary.json`, and per leg. The roles are `actor`, `semantic`, `episodic`, `advisor`, `perception`,
+`guard`, `decomposer`, `findings`, `resolver`, and `unattributed` — the last being any call made
+outside a tagged call site, kept as its own row rather than folded into someone else's, so an
+untagged new reasoner shows up as a visible gap. This is what makes an **ablation** legible: the
+totals alone say what an attempt cost, never what the component you removed was costing, and
+`by_model` cannot help because every reasoner runs on the same Qwen checkpoint.
+
+Read it three ways: the overview tab's footer breaks the battery down per role (hover any prompt's
+token cell, or an attempt card, for that attempt's own split); `python -m sari_bench report` writes
+`roles.csv`, one row per attempt **per role** with `share_in`/`share_out` — long format, so "tokens
+by arm by role" is a pivot and adding a reasoner changes the row count rather than the header; and
+the dashboard's *export tokens by role* button serves the same file. Attempts run before per-role
+accounting existed carry no `by_role` block; they contribute **no** rows rather than rows of zeroes,
+and the dashboard names that coverage gap in the footer caption.
 
 The agent rewrites `<prompt_id>/try<NN>/tokens.json` every few seconds, so an attempt that is
 SIGKILLed on the harness timeout — usually the most expensive kind — still accounts for what it
@@ -227,10 +259,15 @@ holds results.
 
 The battery name in the header is a **picker**: it lists every run under `bench_runs/`, blinks a green
 dot beside any whose runner is still working, and switches the whole page — tiles, frames, logs, CSV
-export — to whichever you choose. So `--run-dir` and the auto/pinned toggle beside it now only set
-where the page *starts*; reading yesterday's run no longer means restarting the watcher. Switching is
-per-browser and does not move what the watcher itself follows: Discord announcements and replay
-renders stay with the battery it was started on.
+export — to whichever you choose. So `--run-dir` now only sets where the page *starts*; reading
+yesterday's run no longer means restarting the watcher. Switching is per-browser and does not move
+what the watcher itself follows: Discord announcements and replay renders stay with the battery it
+was started on.
+
+The page **holds the run it is on**. It pins whatever battery it opened with and will not leave it
+by itself, so a fleet starting the next battery cannot pull the page out from under a review in
+progress. A new run under `bench_runs/` posts a banner in the top-right corner instead; clicking it
+switches to that run, and ignoring it leaves the page where it is.
 
 Tiles are sorted **worst-first** by a collapse score, which is the actual feature — with eight
 concurrent attempts you want to look at one tile, not scan eight. Every signal comes from the `step`
@@ -369,13 +406,14 @@ something did. Notes:
 ## Stats and replays
 
 ```bash
-python -m sari_bench report                       # newest battery -> attempts.csv + legs.csv
+python -m sari_bench report                       # newest battery -> attempts.csv + legs.csv + roles.csv
 python -m sari_bench video --battery bench_runs/20260725_170000   # replay.mp4 per attempt
 python -m sari_bench video RUN_DIR --max-frames 0                # explicitly keep every capture
 ```
 
-`report` writes **two** CSVs, joined on `run_dir`: attempts and legs are different grains, and
-folding a variable number of legs into an attempt row either truncates or explodes. It reads
+`report` writes **three** CSVs, joined on `run_dir`: attempts, legs and per-role token spend are
+different grains, and folding a variable number of legs (or reasoners) into an attempt row either
+truncates or explodes. It reads
 `attempts.jsonl` plus each attempt's own `summary.json` — both written incrementally — so it is
 runnable mid-battery, and it folds in attempts that started but never closed out (recording their
 collapse score, which is what makes "how many were in a death loop when I killed them" answerable
