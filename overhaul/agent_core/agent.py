@@ -534,34 +534,24 @@ class EmbodiedAgent:
         self._hand_pose = None
 
     def _restore_hands_after_inspection(self):
-        """Restore both hands to canonical REST translation/rotation without changing either grip.
-
-        The pose tracker is updated only when both closed-loop transforms converge. Callers use this
-        from inspect-leg cleanup, including exceptional exits.
-        """
+        """Atomically restore Unity's canonical hand translations/rotations after inspection."""
         self._set_hands(True)
         self._hand_pose = None
-        from manip.manipulation import set_hand_transform
-        results = {}
-        all_arrived = True
-        for side in ("left", "right"):
-            arrived, state, tresid, rresid = set_hand_transform(
-                "rest", (0, 0, 0), hand=side)
-            results[side] = {
-                "arrived": arrived,
-                "translation": state.get(f"{side}Translation"),
-                "rotation": state.get(f"{side}Rotation"),
-                "translation_residual": tresid,
-                "rotation_residual": rresid,
-            }
-            all_arrived = all_arrived and arrived
-            if not arrived:
-                logger.warning(
-                    f"[inspect-cleanup] {side} hand did not converge "
-                    f"(translation residual={tresid:.3f} m, rotation residual={rresid:.1f} deg)")
-        if all_arrived:
-            self._hand_pose = "rest"
-        return {"restored": all_arrived, "hands": results}
+        from sim.env import ResetHands
+
+        state = ResetHands()
+        self._hand_pose = "rest"
+        return {
+            "restored": True,
+            "hands": {
+                side: {
+                    "translation": state.get(f"{side}Translation"),
+                    "rotation": state.get(f"{side}Rotation"),
+                    "gripped": state.get(f"{side}GrippedState"),
+                }
+                for side in ("left", "right")
+            },
+        }
 
     # ---- Phase 4.2 graph-navigation dispatcher -------------------------------------------
 
@@ -948,6 +938,12 @@ class EmbodiedAgent:
             inspect_mode = request.get("inspect_mode")
             agent_mode = _resolve_agent_mode(
                 agent_mode, force_navigate, force_manipulate, inspect_mode=inspect_mode)
+            # Held inspection STOP must preserve the exact presented/rotated item pose until the
+            # orchestrator verifies this timestep's frozen screenshot. run_leg's inspect-only
+            # finally restores BOTH hand translations and rotations after the verdict/leg exit.
+            # All non-inspection STOP paths retain their existing pre-return REST behavior below.
+            if agent_mode == "STOP" and inspect_mode == "held":
+                return _stop_response(semantic_response, semantic_response_text)
             if force_navigate and agent_mode == "navigation":
                 # Drop a stale MOVE verdict so forced navigation performs a candidate hop.
                 reach_move_steps = None
@@ -1049,6 +1045,10 @@ class EmbodiedAgent:
             inspect_mode = request.get("inspect_mode")
             agent_mode = _resolve_agent_mode(
                 agent_mode, force_navigate, force_manipulate, inspect_mode=inspect_mode)
+            # See timestep 1: do not erase the evidence pose before the STOP guard consumes the
+            # frame. Inspect-leg cleanup owns the eventual canonical translation/rotation restore.
+            if agent_mode == "STOP" and inspect_mode == "held":
+                return _stop_response(semantic_response, semantic_response_text)
             if force_navigate and agent_mode == "navigation":
                 reach_move_steps = None
 

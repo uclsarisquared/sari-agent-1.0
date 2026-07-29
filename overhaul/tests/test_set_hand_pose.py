@@ -18,7 +18,7 @@ from manip import manipulation as M
 
 # This test replaces module globals on `manipulation`; restore them after each test so a shared-process
 # runner (pytest) can't leak a mock into another test file. Snapshot at import = the real functions.
-_SNAP = {"TransformHands": M.TransformHands}
+_SNAP = {"TransformHands": M.TransformHands, "ResetHands": M.ResetHands}
 
 try:
     import pytest
@@ -43,6 +43,7 @@ class FakeHands:
         self.left_rotation, self.right_rotation = list(left_rotation), list(right_rotation)
         self.left_gripped, self.right_gripped = left_gripped, right_gripped
         self.rotation_deltas = []
+        self.reset_calls = 0
         self.calls = 0
 
     def __call__(self, lt, lr, rt, rr):
@@ -61,8 +62,32 @@ class FakeHands:
                 "leftHoveredObject": "null", "rightHoveredObject": "null"}
 
 
+class CoupledEulerHands(FakeHands):
+    """Mimic Unity reporting another Euler component after a single-axis quaternion turn."""
+
+    def __call__(self, lt, lr, rt, rr):
+        result = super().__call__(lt, lr, rt, rr)
+        if abs(lr[0]) > 0 or abs(lr[1]) > 0:
+            self.left_rotation[0] = (self.left_rotation[0] + 23) % 360
+            result["leftRotation"] = tuple(self.left_rotation)
+        if abs(rr[0]) > 0 or abs(rr[1]) > 0:
+            self.right_rotation[0] = (self.right_rotation[0] + 23) % 360
+            result["rightRotation"] = tuple(self.right_rotation)
+        return result
+
+
 def _install(fake):
     M.TransformHands = fake
+    def reset():
+        fake.reset_calls += 1
+        fake.left[:] = M.pose_for_hand("rest", "left")
+        fake.right[:] = M.pose_for_hand("rest", "right")
+        fake.left_rotation[:] = (0.0, 0.0, 0.0)
+        fake.right_rotation[:] = (0.0, 0.0, 0.0)
+        return fake((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
+    M.ResetHands = reset
+    M._reset_inspection_sweep("left")
+    M._reset_inspection_sweep("right")
     return fake
 
 
@@ -125,29 +150,112 @@ def test_frame_mismatch_reports_not_arrived():
 
 
 def test_transform_normalizes_positive_negative_and_wrapped_rotations_shortest_path():
-    for rotation, expected_first_y_sign in (
+    for rotation, expected_y_sign in (
             ((20, 30, 40), -1), ((-20, -30, -40), 1), ((0, 350, 0), 1)):
         fake = _install(FakeHands(left_rotation=rotation))
         arrived, state, tresid, rresid = M.set_hand_transform("rest", hand="left")
         assert arrived and tresid <= M._POSE_TOL and rresid <= M._ROT_TOL_DEG
         nonzero = [lr for lr, _ in fake.rotation_deltas if any(lr)]
         assert nonzero
-        assert (nonzero[0][1] > 0) == (expected_first_y_sign > 0)
-        assert all(abs(component) <= 15 for delta in nonzero for component in delta)
+        y_deltas = [delta[1] for delta in nonzero if abs(delta[1]) > 1e-9]
+        assert y_deltas
+        assert (y_deltas[0] > 0) == (expected_y_sign > 0)
+        assert all(abs(component) <= 45 for delta in nonzero for component in delta)
+        assert all(sum(abs(component) > 1e-9 for component in delta) == 1
+                   for delta in nonzero)
         assert max(abs(M._shortest_angle_delta(0, v))
                    for v in state["leftRotation"]) <= M._ROT_TOL_DEG
 
 
-def test_presentation_mirrors_right_preserves_grip_and_refuses_empty_hand():
+def test_presentation_mirrors_right_without_rest_flash_and_preserves_grip():
     fake = _install(FakeHands(left=(1, 1, 1), right=(-1, 1, 1), right_gripped=True,
-                              right_rotation=(0, 350, 0)))
+                              right_rotation=(45, 350, 37)))
     result = M.present_right_item_for_inspection(times=99)
     assert result["arrived"] and result["hand"] == "right"
-    assert tuple(fake.right) == M.pose_for_hand("inspection", "right")
+    target = M.pose_for_hand("inspection", "right")
+    assert all(abs(fake.right[k] - target[k]) <= M._POSE_TOL for k in range(3))
+    assert tuple(round(v) for v in fake.right_rotation) == (45, 350, 37)
+    assert fake.reset_calls == 0, "presentation must not visibly teleport the item through REST"
     assert fake.right_gripped is True
     blocked = M.present_left_item_for_inspection()
     assert blocked["blocked"] and blocked["executed"] is False
     assert fake.left_gripped is False
+
+
+def test_inspection_face_sweep_emits_one_discrete_xy_turn_per_tool_call():
+    fake = _install(FakeHands(left_rotation=(0, 0, 0), left_gripped=True))
+    expected = list(M.INSPECTION_ROTATION_DELTAS)
+    reported = []
+    commanded = []
+    for target_delta in expected:
+        before = len(fake.rotation_deltas)
+        result = M.rotate_left_to_next_inspection_face(times=999)
+        assert result["arrived"]
+        assert result["commanded_rotation_delta"] == target_delta
+        new_nonzero = [
+            left_delta for left_delta, _ in fake.rotation_deltas[before:]
+            if any(left_delta)
+        ]
+        assert new_nonzero == [target_delta]
+        commanded.append(result["commanded_rotation_delta"])
+        reported.append(tuple(round(v) for v in result["rotation"]))
+    assert commanded == expected
+    assert reported == [
+        (0, 90, 0), (0, 180, 0), (0, 270, 0), (0, 0, 0),
+        (90, 0, 0), (0, 0, 0), (270, 0, 0),
+    ]
+    assert all(abs(rotation[2]) == 0 for rotation in reported)
+    assert all(
+        sum(abs(component) > 1e-9 for component in delta) <= 1
+        for pair in fake.rotation_deltas for delta in pair
+    ), "every TransformHands rotation delta must touch at most one axis"
+    exhausted = M.rotate_left_to_next_inspection_face()
+    assert exhausted["blocked"] and exhausted["faces_exhausted"] is True
+    assert fake.left_gripped is True
+
+
+def test_inspection_presentation_preserves_existing_roll_without_commanding_z():
+    fake = _install(FakeHands(left_rotation=(0, 0, -90), left_gripped=True))
+    presented = M.present_left_item_for_inspection()
+    assert presented["arrived"]
+    assert tuple(round(v) for v in presented["rotation"]) == (0, 0, 270)
+    assert fake.reset_calls == 0
+
+    results = [M.rotate_left_to_next_inspection_face()
+               for _ in M.INSPECTION_ROTATION_DELTAS]
+    assert all(result["arrived"] and result["executed"] is True for result in results)
+    assert [result["commanded_rotation_delta"] for result in results] == \
+        list(M.INSPECTION_ROTATION_DELTAS)
+    assert all(round(result["rotation"][2]) == 270 for result in results)
+    assert all(left_delta[2] == 0 and right_delta[2] == 0
+               for left_delta, right_delta in fake.rotation_deltas)
+
+    restored = M.reset_left_hand_after_inspection()
+    assert restored["arrived"]
+    assert fake.reset_calls == 1
+    assert tuple(round(v) for v in restored["rotation"]) == (0, 0, 0)
+
+
+def test_inspection_face_sweep_does_not_infer_progress_from_coupled_euler_readback():
+    fake = _install(FakeHands(left_rotation=(45, 45, -90), left_gripped=True))
+    result = M.rotate_left_to_next_inspection_face()
+    assert result["arrived"] and result["executed"] is True
+    assert result["commanded_rotation_delta"] == (0.0, 90.0, 0.0)
+    nonzero = [left for left, _ in fake.rotation_deltas if any(left)]
+    assert nonzero == [(0.0, 90.0, 0.0)]
+
+
+def test_inspection_face_sweep_does_not_servo_or_oscillate_on_coupled_euler_reports():
+    fake = _install(CoupledEulerHands(left_gripped=True, left_rotation=(0, 0, 37)))
+    results = [M.rotate_left_to_next_inspection_face() for _ in range(3)]
+    assert all(result["arrived"] and not result["blocked"] for result in results)
+    nonzero = [left for left, _ in fake.rotation_deltas if any(left)]
+    assert nonzero == [(0.0, 90.0, 0.0)] * 3
+    assert all(
+        sum(abs(value) > 1e-9 for value in delta) == 1
+        and abs(next(value for value in delta if abs(value) > 1e-9)) == 90
+        for delta in nonzero
+    )
 
 
 def test_reset_transform_restores_both_hands_without_opening_grips():

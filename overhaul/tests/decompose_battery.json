@@ -31,6 +31,9 @@
      "expected_types": ["inspect"]},
     {"id": "inspect-then-pickup", "family": "5 inspection", "prompt": "Read the expiration dates and pick up the one that is not expired.",
      "looking_for": "inspect(query=which is not expired) followed by a separate pickup leg.",
-     "expected_types": ["inspect", "pickup"]}
+     "expected_types": ["inspect", "pickup"]},
+    {"id": "inspect-nutrition-compare", "family": "5 inspection", "prompt": "Compare the nutritional facts of the two cereals and tell me which has less sugar.",
+     "looking_for": "MUST type as inspect, NOT compare - the decision reads printed nutrition labels, not overall appearance. pickup(s) of the two cereals then a single inspect(query=which has less sugar) leg.",
+     "expected_types": ["pickup", "pickup", "inspect"]}
   ]
 }

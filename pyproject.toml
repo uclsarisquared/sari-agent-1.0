@@ -90,12 +90,13 @@ dbench-run = { cmd = """
         "hard",
     ], help = "Prompt difficulty battery to run" },
 ] }
-debug-grab = { cmd = """
+debug-run = { cmd = """
     python orchestrator/subtask_agents.py
-    --task "Pick up ${item}"
+    --task "${prompt}"
     --arm graph
+    --completion-guard vlm
     --max-steps 30
     --output-dir slamtest/output_runs/run_0724_164652
-""", cwd = "overhaul", help = "Repro a single grab task standalone (default item: Choco Mallows)", args = [
-    { name = "item", positional = true, default = "Choco Mallows", help = "Item to pick up, e.g. 'Ritz Crackers'" },
+""", cwd = "overhaul", help = "Repro a single subtask standalone (default prompt: Get this item)", args = [
+    { name = "prompt", positional = true, default = "Get this item", help = "Task prompt to run, e.g. 'Pick up Ritz Crackers'" },
 ] }

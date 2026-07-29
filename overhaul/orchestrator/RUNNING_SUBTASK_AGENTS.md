@@ -36,7 +36,7 @@ All arguments are optional except the task itself.
 | `--max-minutes M` | `40` | Wall-clock cap per leg, in minutes |
 | `--leg-retries N` | `1` | How many times a failed leg is retried (with the failure reason fed into the retry's context) before the whole task aborts; `0` restores abort-on-first-failure |
 | `--resolver-backend {qwen, claude-cli}` | `qwen` | Backend for the plan-time map target resolver |
-| `--completion-guard {deterministic,vlm}` | `deterministic` | Pickup target-grounding backend. `inspect` completion is VLM-verified in both modes |
+| `--completion-guard {deterministic,vlm}` | `deterministic` | Optional pickup, compare, and unknown completion backend. `inspect` completion is VLM-verified in both modes |
 | `--output-dir DIR` | `slamtest/output` | Which slamtest map (topology / annotations / grid) to load — defaults to the frozen baseline map |
 | `--run-dir DIR` | auto | Directory for this run's logs and per-step screenshots |
 | `--out PATH` | `<run-dir>/summary.json` | Where the summary JSON is written |
@@ -73,10 +73,20 @@ python orchestrator/subtask_agents.py --task "..." --reset-start
   the failure reason in context.
 - **Inspection is read-only and fail-closed:** an `inspect` leg must report a non-empty
   answer that the image-bound VLM guard conclusively verifies against the actor's frame.
-  An item that is already held may be presented, moved forward/back or up/down, and rotated
-  to expose another face; these controls never change grip state. Every inspect exit restores
-  both hands to canonical REST position and rotation. Grip/grab, release-toggle, checkout, and
-  body-translation attempts are blocked and logged as scope violations.
+  For an already-held item, the actor sees only the restricted `inspect_held_item` macros—not raw
+  presentation, movement, or rotation tools. It can auto-select a held hand or explicitly choose
+  `inspect_held_item_left` / `inspect_held_item_right` when both hands carry items. The macro
+  presents the selected item, runs a fresh isolated VLM
+  visibility check, then performs eight 45-degree X turns with a check after every turn. If still
+  unresolved, deterministic Y turns check the top, default, and bottom views. It returns control as
+  soon as the requested nutritional/expiration label directly faces the camera and is legible.
+  Every presentation, turn, fresh-frame verdict, and final result is written to the leg JSONL; the
+  associated frames are saved under the step's inspection directory.
+  These controls never change grip state. Every
+  inspect exit restores the inspected hand's exact pre-inspection orientation by replaying every
+  recorded local-axis turn in reverse with its sign inverted, then restores both hands to canonical
+  REST translation without any Euler feedback. Grip/grab,
+  release-toggle, checkout, and body-translation attempts are blocked and logged as scope violations.
 - **Outputs:** per-leg JSONL logs, per-step screenshots and full agent output under the
   run dir, plus `summary.json` with per-leg metrics (`end_reason`, timings, LLM calls),
   planned type counts, and `unknown_subtask_rate`.

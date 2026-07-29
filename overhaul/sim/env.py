@@ -240,6 +240,20 @@ def SetHandsActive(active: bool, side: str = None, uri: str = None) -> str:
     return result
 
 
+def ResetHands(uri: str = None):
+    """Restore both hand transforms to Unity's canonical rest pose without changing grip state.
+
+    ResetHands itself does not need to duplicate the legacy TransformHands text response. After the
+    reset acknowledgement, read the established hand-state channel so callers always receive the
+    same translations, rotations, hover targets, and grip booleans as TransformHands.
+    """
+    asyncio.get_event_loop().run_until_complete(SendCommand({
+        "command": "ResetHands"
+    }, uri))
+    zero = (0, 0, 0)
+    return TransformHands(zero, zero, zero, zero, uri=uri)
+
+
 def TransformHands(leftTranslation: Tuple[float],
                    leftRotation: Tuple[float],
                    rightTranslation: Tuple[float],

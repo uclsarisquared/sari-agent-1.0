@@ -19,6 +19,7 @@ import re
 import sys
 import tempfile
 from io import BytesIO
+from types import SimpleNamespace
 
 from PIL import Image
 
@@ -31,8 +32,9 @@ from manip import manipulation as M
 from agent_core import agent as A
 from agent_core.sys_inst import SYS_INST_ASSOCIATIVE_SEMANTIC
 
-_ORIG = {"SetHandsActive": env.SetHandsActive, "set_hand_pose": M.set_hand_pose,
-         "set_hand_transform": M.set_hand_transform}
+_ORIG = {"SetHandsActive": env.SetHandsActive, "ResetHands": env.ResetHands,
+         "set_hand_pose": M.set_hand_pose,
+         "set_hand_transform": M.set_hand_transform, "TransformHands": M.TransformHands}
 
 # Spies replaces globals on `env` and `manipulation`; restore after each test so a shared-process
 # runner (pytest) can't leak a spy into another test file.
@@ -43,8 +45,10 @@ try:
     def _restore_globals():
         yield
         env.SetHandsActive = _ORIG["SetHandsActive"]
+        env.ResetHands = _ORIG["ResetHands"]
         M.set_hand_pose = _ORIG["set_hand_pose"]
         M.set_hand_transform = _ORIG["set_hand_transform"]
+        M.TransformHands = _ORIG["TransformHands"]
 except ImportError:
     pass
 
@@ -55,7 +59,20 @@ class Spies:
         self.poses = []       # set_hand_pose(pose) history (one entry per hand driven)
         self.hands = []       # which hand each drive targeted (dual-hand: left+right per pose set)
         self.arrived = True   # flip to test the non-convergence warning path
+        self.reset_calls = 0
         env.SetHandsActive = lambda active, *a, **k: self.active.append(active)
+
+        def _reset(*_args, **_kwargs):
+            self.reset_calls += 1
+            return {
+                "leftTranslation": M.pose_for_hand("rest", "left"),
+                "rightTranslation": M.pose_for_hand("rest", "right"),
+                "leftRotation": (0, 0, 0),
+                "rightRotation": (0, 0, 0),
+                "leftGrippedState": True,
+                "rightGrippedState": False,
+            }
+        env.ResetHands = _reset
 
         def _spy_pose(pose, *a, hand="left", **k):
             self.poses.append(pose)
@@ -131,42 +148,30 @@ def test_non_convergence_still_tracks_and_does_not_raise():
     assert a._hand_pose == "rest", "tracker still advances (best-effort) after a warned non-convergence"
 
 
-def test_inspection_restoration_resets_both_transforms_and_tracks_only_on_success():
+def test_inspection_restoration_uses_one_atomic_unity_reset():
     s = Spies()
-    calls = []
-
-    def transform(pose, rotation, hand):
-        calls.append((pose, rotation, hand))
-        state = {
-            f"{hand}Translation": M.pose_for_hand("rest", hand),
-            f"{hand}Rotation": (0, 0, 0),
-        }
-        return True, state, 0.0, 0.0
-
-    M.set_hand_transform = transform
     a = _agent()
     result = a._restore_hands_after_inspection()
     assert result["restored"] is True
-    assert calls == [
-        ("rest", (0, 0, 0), "left"),
-        ("rest", (0, 0, 0), "right"),
-    ]
+    assert s.reset_calls == 1
+    assert s.poses == [] and s.hands == []
+    assert result["hands"]["left"]["rotation"] == (0, 0, 0)
+    assert result["hands"]["left"]["gripped"] is True
     assert a._hand_pose == "rest"
     assert s.active == [True]
 
 
-def test_inspection_restoration_keeps_pose_unknown_when_one_hand_stalls():
+def test_inspection_restoration_keeps_pose_unknown_when_reset_fails():
     Spies()
-
-    def transform(pose, rotation, hand):
-        state = {f"{hand}Translation": (0, 0, 0), f"{hand}Rotation": (0, 0, 0)}
-        return hand == "left", state, 1.0 if hand == "right" else 0.0, 0.0
-
-    M.set_hand_transform = transform
+    env.ResetHands = lambda: (_ for _ in ()).throw(RuntimeError("reset failed"))
     a = _agent()
     a._hand_pose = "inspection"
-    result = a._restore_hands_after_inspection()
-    assert result["restored"] is False
+    try:
+        a._restore_hands_after_inspection()
+    except RuntimeError as exc:
+        assert str(exc) == "reset failed"
+    else:
+        raise AssertionError("ResetHands failure should propagate to run_leg cleanup")
     assert a._hand_pose is None
 
 
@@ -216,30 +221,20 @@ def test_force_navigate_takes_precedence_over_force_manipulate():
     assert resolve("STOP", force_navigate=True, force_manipulate=True) == "STOP"
 
 
-def test_held_item_inspection_vocabulary_is_exactly_safe_presentation_controls():
+def test_held_item_inspection_vocabulary_exposes_only_restricted_macro():
     actions = A._available_actions("manipulation", held_item_inspection=True)
     names = {line.split(":", 1)[0] for line in actions.splitlines() if line.strip()}
     assert names == {
-        "present_left_item_for_inspection",
-        "present_right_item_for_inspection",
-        "reset_left_hand_after_inspection",
-        "reset_right_hand_after_inspection",
-        "extend_left_hand_forward",
-        "extend_right_hand_forward",
-        "pull_left_hand_backward",
-        "pull_right_hand_backward",
-        "raise_left_hand",
-        "raise_right_hand",
-        "lower_left_hand",
-        "lower_right_hand",
-        "rotate_left_clockwise",
-        "rotate_left_counterclockwise",
-        "rotate_right_clockwise",
-        "rotate_right_counterclockwise",
+        "inspect_held_item",
+        "inspect_held_item_left",
+        "inspect_held_item_right",
     }
     for forbidden in (
         "grip_left", "extend_arm_until_grabbed",
         "checkout_held_item", "center_object_on_screen", "move_forward",
+        "present_left_item_for_inspection", "extend_left_hand_forward",
+        "reset_left_hand_after_inspection", "rotate_left_clockwise",
+        "rotate_left_to_next_inspection_face",
     ):
         assert forbidden not in actions
 
@@ -252,7 +247,8 @@ class _FakeVLM:
 
     def send_message(self, content):
         self.actor_prompts.append(content)
-        return "{'actions': ['rotate_left_clockwise'], 'times': [2], 'notes': {}}"
+        return ("{'actions': ['inspect_held_item'], "
+                "'times': [1], 'notes': {}}")
 
     def get_history_text(self, n=8):
         return ""
@@ -269,28 +265,79 @@ def _png_b64():
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def test_execute_lean_returns_manipulation_and_rotation_prompt_in_both_branches():
+def test_held_inspection_stop_defers_rest_until_guard_in_both_branches():
+    semantic = (
+        "{'new_semantic_memory': '', 'recall': 'date is visible', "
+        "'next_action': 'stop', 'reported_answer': '31/12/26', 'mode': 'STOP'}"
+    )
+    for timestep in (1, 2):
+        agent = _agent()
+        agent.nav_mode = "vlm"
+        agent._mem_leg = None
+        agent.vlm_agent = _FakeVLM()
+        agent.associative_learner = _FakeAssociative()
+        agent._call_associative = lambda system, image, text: semantic
+        pose_calls = []
+        agent._set_hand_pose = lambda pose: pose_calls.append(pose)
+        agent._invalidate_hand_pose = lambda: pose_calls.append("invalidated")
+
+        response = agent.execute_lean(
+            {
+                "task": "Read the held expiration date.",
+                "state": {"leftGrippedState": True, "rightGrippedState": False},
+                "image": _png_b64(),
+                "force_navigate": False,
+                "force_manipulate": True,
+                "inspect_mode": "held",
+            },
+            timestep,
+        )
+
+        assert response["halt"] is True
+        assert response["reported_answer"] == "31/12/26"
+        assert pose_calls == [], "held evidence pose must survive until the STOP guard verdict"
+
+
+def test_noninspection_stop_keeps_existing_rest_behavior_in_both_branches():
+    semantic = (
+        "{'new_semantic_memory': '', 'recall': 'done', 'next_action': 'stop', "
+        "'reported_answer': '', 'mode': 'STOP'}"
+    )
+    for timestep in (1, 2):
+        agent = _agent()
+        agent.nav_mode = "vlm"
+        agent._mem_leg = None
+        agent.vlm_agent = _FakeVLM()
+        agent.associative_learner = _FakeAssociative()
+        agent._call_associative = lambda system, image, text: semantic
+        pose_calls = []
+        agent._set_hand_pose = lambda pose: pose_calls.append(pose)
+        agent._invalidate_hand_pose = lambda: pose_calls.append("invalidated")
+
+        response = agent.execute_lean(
+            {
+                "task": "Finish the ordinary leg.",
+                "state": {"leftGrippedState": False, "rightGrippedState": False},
+                "image": _png_b64(),
+                "force_navigate": False,
+                "force_manipulate": False,
+            },
+            timestep,
+        )
+
+        assert response["halt"] is True
+        assert pose_calls == ["rest"]
+
+
+def test_execute_lean_returns_manipulation_and_restricted_inspection_prompt_in_both_branches():
     semantic = (
         "{'new_semantic_memory': '', 'recall': 'inspect the held item', "
         "'next_action': 'reorient it', 'reported_answer': '', 'mode': 'perception'}"
     )
     expected = {
-        "present_left_item_for_inspection",
-        "present_right_item_for_inspection",
-        "reset_left_hand_after_inspection",
-        "reset_right_hand_after_inspection",
-        "extend_left_hand_forward",
-        "extend_right_hand_forward",
-        "pull_left_hand_backward",
-        "pull_right_hand_backward",
-        "raise_left_hand",
-        "raise_right_hand",
-        "lower_left_hand",
-        "lower_right_hand",
-        "rotate_left_clockwise",
-        "rotate_left_counterclockwise",
-        "rotate_right_clockwise",
-        "rotate_right_counterclockwise",
+        "inspect_held_item",
+        "inspect_held_item_left",
+        "inspect_held_item_right",
     }
     with tempfile.TemporaryDirectory() as run_dir:
         for timestep in (1, 2):
@@ -331,6 +378,11 @@ def test_execute_lean_returns_manipulation_and_rotation_prompt_in_both_branches(
             assert "grip_left" not in action_block
             assert "extend_arm_until_grabbed" not in action_block
             assert "checkout_held_item" not in action_block
+            assert "fresh isolated VLM visibility check" in action_block
+            assert "eight X turns of exactly 45 degrees" in action_block
+            assert "Y turns that check the top and bottom" in action_block
+            assert "actor cannot choose or sequence rotations" in action_block
+            assert "last_inspection" in action_block
 
 
 def test_unheld_inspection_cannot_enter_graph_navigation_dispatch():
@@ -374,24 +426,453 @@ def test_unheld_inspection_cannot_enter_graph_navigation_dispatch():
     assert "move_forward" not in action_block
 
 
-def test_inspection_rotation_passes_existing_manipulation_dispatch_gate():
+def test_agent_selected_rotation_action_is_blocked_during_held_inspection():
     from orchestrator import subtask_agents as SA
 
-    original = SA.MANIPULATION_ACTIONS_REF["rotate_left_clockwise"]
-    SA.MANIPULATION_ACTIONS_REF["rotate_left_clockwise"] = (
-        lambda steps: {"rotated_steps": steps})
+    action = "rotate_left_to_next_inspection_face"
+    original = SA.MANIPULATION_ACTIONS_REF[action]
+    calls = []
+    SA.MANIPULATION_ACTIONS_REF[action] = lambda times: calls.append(times)
     try:
         result = SA.dispatch_action(
-            "rotate_left_clockwise",
-            3,
-            {},
-            mode="manipulation",
-            leg_type="inspect",
-            state={"leftGrippedState": True, "rightGrippedState": False},
+            action, 99, {}, mode="manipulation", leg_type="inspect",
+            state={"leftGrippedState": True, "rightGrippedState": False})
+    finally:
+        SA.MANIPULATION_ACTIONS_REF[action] = original
+    assert calls == []
+    assert result["blocked"] and result["inspect_scope_violation"]
+    assert "restricted inspect_held_item macro" in result["reason"]
+
+
+def test_restricted_inspection_macro_must_be_the_only_action_in_its_timestep():
+    from orchestrator import subtask_agents as SA
+
+    assert SA._inspection_action_batch(
+        ["inspect_held_item", "inspect_held_item"], [1, 1]
+    ) == [("inspect_held_item", 1)]
+    assert SA._inspection_action_batch(
+        ["inspect_held_item", "lower_right_hand"], [1, 2]
+    ) == [("inspect_held_item", 1)]
+    assert SA._inspection_action_batch(
+        ["lower_left_hand", "inspect_held_item"], [1, 1]
+    ) == [("inspect_held_item", 1)]
+    assert SA._inspection_action_batch(
+        ["inspect_held_item_right", "inspect_held_item_left"], [1, 1]
+    ) == [("inspect_held_item_right", 1)]
+
+
+def test_restricted_inspection_macro_can_force_right_hand():
+    from orchestrator import subtask_agents as SA
+
+    presented = []
+    png_bytes = base64.b64decode(_png_b64())
+    resets = []
+    agent = SimpleNamespace(
+        vlm_agent=SimpleNamespace(
+            client=object(),
+            config=SimpleNamespace(model_id="m", max_tokens=256),
+        ),
+        _restore_hands_after_inspection=lambda: (
+            resets.append(True) or {"restored": True, "hands": {}}),
+    )
+    originals = (
+        SA.MANIPULATION_ACTIONS_REF["present_right_item_for_inspection"],
+        SA._REQUEST_SCREENSHOT_,
+        SA.classify_inspection_visibility,
+    )
+    SA.MANIPULATION_ACTIONS_REF["present_right_item_for_inspection"] = (
+        lambda _times: presented.append("right") or {
+            "arrived": True, "blocked": False,
+        })
+    SA._REQUEST_SCREENSHOT_ = lambda: {"image": png_bytes}
+    SA.classify_inspection_visibility = lambda *_args, **_kwargs: {
+        "match": True,
+        "reason": "requested label is legible",
+        "conclusive": True,
+        "latency_ms": 1.0,
+    }
+    try:
+        result = SA._run_held_item_inspection_macro(
+            agent,
+            "Read the expiration date.",
+            {"leftGrippedState": True, "rightGrippedState": True},
+            hand="right",
         )
     finally:
-        SA.MANIPULATION_ACTIONS_REF["rotate_left_clockwise"] = original
-    assert result == {"rotated_steps": 3}
+        (SA.MANIPULATION_ACTIONS_REF["present_right_item_for_inspection"],
+         SA._REQUEST_SCREENSHOT_,
+         SA.classify_inspection_visibility) = originals
+
+    assert presented == ["right"]
+    assert resets == [True]
+    assert result["hand"] == "right"
+    assert result["label_visible"] is True
+
+
+def test_right_hand_inspection_swaps_local_xy_axes_to_preserve_x_then_y_sweep():
+    from orchestrator import subtask_agents as SA
+
+    assert SA._inspection_rotation_delta("left", (45.0, 0.0, 0.0)) == (
+        45.0, 0.0, 0.0)
+    assert SA._inspection_rotation_delta("left", (0.0, -90.0, 0.0)) == (
+        0.0, -90.0, 0.0)
+    assert SA._inspection_rotation_delta("right", (45.0, 0.0, 0.0)) == (
+        0.0, 45.0, 0.0)
+    assert SA._inspection_rotation_delta("right", (0.0, -90.0, 0.0)) == (
+        -90.0, 0.0, 0.0)
+    assert SA._inspection_rotation_delta(
+        "right", SA._INSPECTION_PASS_RESET_DELTA
+    ) == (90.0, 0.0, 0.0)
+
+
+def test_right_hand_macro_commands_side_axis_before_top_bottom_axis():
+    from orchestrator import subtask_agents as SA
+
+    turns = []
+    visibility_checks = 0
+    png_bytes = base64.b64decode(_png_b64())
+    agent = SimpleNamespace(
+        vlm_agent=SimpleNamespace(
+            client=object(),
+            config=SimpleNamespace(model_id="m", max_tokens=256),
+        ),
+        _restore_hands_after_inspection=lambda: {"restored": True, "hands": {}},
+    )
+    originals = (
+        SA.MANIPULATION_ACTIONS_REF["present_right_item_for_inspection"],
+        SA.TransformHands,
+        SA._REQUEST_SCREENSHOT_,
+        SA.classify_inspection_visibility,
+        SA.classify_inspection_label_presence,
+    )
+
+    def classify(*_args, **_kwargs):
+        nonlocal visibility_checks
+        visibility_checks += 1
+        return {
+            "match": visibility_checks == 10,
+            "reason": "visible on first top/bottom check",
+            "conclusive": True,
+            "latency_ms": 1.0,
+        }
+
+    SA.MANIPULATION_ACTIONS_REF["present_right_item_for_inspection"] = (
+        lambda _times: {"arrived": True, "blocked": False})
+    SA.TransformHands = lambda _lt, _lr, _rt, rr: (
+        turns.append(tuple(rr)) or {"rightRotation": (0, 0, 0)})
+    SA._REQUEST_SCREENSHOT_ = lambda: {"image": png_bytes}
+    SA.classify_inspection_visibility = classify
+    SA.classify_inspection_label_presence = lambda *_args: {
+        "match": False,
+        "reason": "not this side",
+        "conclusive": True,
+        "latency_ms": 1.0,
+    }
+    try:
+        result = SA._run_held_item_inspection_macro(
+            agent,
+            "Read the label.",
+            {"leftGrippedState": False, "rightGrippedState": True},
+            hand="right",
+        )
+    finally:
+        (SA.MANIPULATION_ACTIONS_REF["present_right_item_for_inspection"],
+         SA.TransformHands,
+         SA._REQUEST_SCREENSHOT_,
+         SA.classify_inspection_visibility,
+         SA.classify_inspection_label_presence) = originals
+
+    assert result["label_visible"] is True
+    assert result["visible_phase"] == "y_top"
+    assert turns == [(0.0, 45.0, 0.0)] * 8 + [(90.0, 0.0, 0.0)]
+
+
+def test_restricted_inspection_macro_refuses_forced_empty_hand():
+    from orchestrator import subtask_agents as SA
+
+    result = SA._run_held_item_inspection_macro(
+        object(),
+        "Read the label.",
+        {"leftGrippedState": True, "rightGrippedState": False},
+        hand="right",
+    )
+
+    assert result["blocked"] is True
+    assert result["executed"] is False
+    assert result["hand"] == "right"
+    assert "right hand" in result["reason"]
+
+
+def test_inspect_dispatch_blocks_actor_selected_presentation():
+    from orchestrator import subtask_agents as SA
+
+    action = "present_left_item_for_inspection"
+    original = SA.MANIPULATION_ACTIONS_REF[action]
+    calls = []
+    SA.MANIPULATION_ACTIONS_REF[action] = lambda times: calls.append(times) or {"arrived": True}
+    try:
+        result = SA.dispatch_action(
+            action, 1, {}, mode="manipulation", leg_type="inspect",
+            state={
+                "leftGrippedState": True,
+                "rightGrippedState": False,
+                "leftRotation": (0, 90, 37),
+            })
+    finally:
+        SA.MANIPULATION_ACTIONS_REF[action] = original
+    assert result["blocked"] and result["inspect_scope_violation"]
+    assert calls == []
+
+
+def test_restricted_inspection_macro_runs_fixed_x_then_y_loop_and_logs_each_check():
+    from orchestrator import subtask_agents as SA
+
+    turns = []
+    closer_poses = []
+    cleanup_calls = []
+    events = []
+    checks = []
+    png_bytes = base64.b64decode(_png_b64())
+    agent = SimpleNamespace(vlm_agent=SimpleNamespace(
+        client=object(),
+        config=SimpleNamespace(model_id="visibility-model", max_tokens=256),
+    ), _restore_hands_after_inspection=lambda: (
+        cleanup_calls.append(True) or {"restored": True, "hands": {}}))
+    originals = (
+        SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"],
+        SA.TransformHands,
+        SA._REQUEST_SCREENSHOT_,
+        SA.classify_inspection_visibility,
+        SA.classify_inspection_label_presence,
+        M.set_hand_pose,
+    )
+
+    def transform(_lt, lr, _rt, rr):
+        delta = lr if any(lr) else rr
+        if any(delta):
+            turns.append(tuple(delta))
+        return {
+            "leftRotation": (0, 0, 37),
+            "rightRotation": (0, 0, 0),
+            "leftGrippedState": True,
+            "rightGrippedState": False,
+        }
+
+    def classify(_client, model, _config, _image, query):
+        checks.append((model, query))
+        return {
+            "match": False,
+            "reason": "target label is not legible",
+            "conclusive": True,
+            "latency_ms": 1.0,
+        }
+
+    SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"] = (
+        lambda _times: {
+            "arrived": True,
+            "blocked": False,
+        })
+    SA.TransformHands = transform
+    M.set_hand_pose = lambda pose, hand, max_iters: (
+        closer_poses.append((tuple(pose), hand, max_iters))
+        or (True, tuple(pose), 0.0)
+    )
+    SA._REQUEST_SCREENSHOT_ = lambda: {"image": png_bytes}
+    SA.classify_inspection_visibility = classify
+    SA.classify_inspection_label_presence = lambda *_args: {
+        "match": False,
+        "reason": "requested label is not recognizable on this side",
+        "conclusive": True,
+        "latency_ms": 1.0,
+    }
+    try:
+        result = SA._run_held_item_inspection_macro(
+            agent,
+            "What nutritional facts are printed on the box?",
+            {"leftGrippedState": True, "rightGrippedState": False},
+            log_event=events.append,
+        )
+    finally:
+        (SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"],
+         SA.TransformHands,
+         SA._REQUEST_SCREENSHOT_,
+         SA.classify_inspection_visibility,
+         SA.classify_inspection_label_presence,
+         M.set_hand_pose) = originals
+
+    assert result["sweep_exhausted"] is True and result["label_visible"] is False
+    assert result["failure_cleanup"]["restored"] is True
+    assert cleanup_calls == [True, True]
+    assert result["checks"] == 60
+    assert result["vlm_calls"] == 120
+    assert result["passes_completed"] == 5
+    assert turns == (
+        (
+            [(45.0, 0.0, 0.0)] * 8
+            + [(0.0, 90.0, 0.0), (0.0, -90.0, 0.0), (0.0, -90.0, 0.0)]
+            + [(0.0, 90.0, 0.0)]
+        ) * 4
+        + [(45.0, 0.0, 0.0)] * 8
+        + [(0.0, 90.0, 0.0), (0.0, -90.0, 0.0), (0.0, -90.0, 0.0)]
+    )
+    assert [(round(pose[2], 2), hand, max_iters)
+            for pose, hand, max_iters in closer_poses] == [
+        (0.28, "left", 5),
+        (0.23, "left", 5),
+        (0.18, "left", 5),
+        (0.13, "left", 5),
+    ]
+    assert all(
+        pose[:2] == M.INSPECTION_POSE[:2]
+        for pose, _hand, _max_iters in closer_poses
+    )
+    assert len(checks) == 60
+    assert all(model == "visibility-model" for model, _ in checks)
+    assert all("nutritional facts" in query for _, query in checks)
+    assert len([event for event in events
+                if event["event"] == "inspection_visibility_check"]) == 60
+    assert len([event for event in events
+                if event["event"] == "inspection_label_presence_check"]) == 60
+    assert len([event for event in events
+                if event["event"] == "inspection_rotation"]) == 55
+    assert [event["closer_by_m"] for event in events
+            if event["event"] == "inspection_reposition"] == [0.05, 0.1, 0.15, 0.2]
+    assert len([event for event in events
+                if event["event"] == "inspection_failure_cleanup"]) == 1
+    assert events[0]["event"] == "inspection_macro_start"
+    assert events[1]["event"] == "inspection_pre_reset"
+    assert events[-1]["event"] == "inspection_macro_end"
+
+
+def test_restricted_inspection_macro_returns_control_as_soon_as_label_is_visible():
+    from orchestrator import subtask_agents as SA
+
+    turns = []
+    cleanup_calls = []
+    outcomes = iter((False, False, True))
+    png_bytes = base64.b64decode(_png_b64())
+    agent = SimpleNamespace(vlm_agent=SimpleNamespace(
+        client=object(),
+        config=SimpleNamespace(model_id="m", max_tokens=256),
+    ), _restore_hands_after_inspection=lambda: (
+        cleanup_calls.append(True) or {"restored": True, "hands": {}}))
+    originals = (
+        SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"],
+        SA.TransformHands,
+        SA._REQUEST_SCREENSHOT_,
+        SA.classify_inspection_visibility,
+        SA.classify_inspection_label_presence,
+    )
+    SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"] = (
+        lambda _times: {"arrived": True, "blocked": False})
+    SA.TransformHands = lambda _lt, lr, _rt, _rr: (
+        turns.append(tuple(lr)) or {"leftRotation": (0, 0, 0)})
+    SA._REQUEST_SCREENSHOT_ = lambda: {"image": png_bytes}
+    SA.classify_inspection_visibility = lambda *_args: {
+        "match": next(outcomes),
+        "reason": "visibility verdict",
+        "conclusive": True,
+        "latency_ms": 1.0,
+    }
+    SA.classify_inspection_label_presence = lambda *_args: {
+        "match": False,
+        "reason": "no requested label on this side",
+        "conclusive": True,
+        "latency_ms": 1.0,
+    }
+    try:
+        result = SA._run_held_item_inspection_macro(
+            agent,
+            "What expiration date is printed?",
+            {"leftGrippedState": True, "rightGrippedState": False},
+        )
+    finally:
+        (SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"],
+         SA.TransformHands,
+         SA._REQUEST_SCREENSHOT_,
+         SA.classify_inspection_visibility,
+         SA.classify_inspection_label_presence) = originals
+
+    assert result["label_visible"] is True
+    assert result["visible_phase"] == "x"
+    assert result["checks"] == 3 and result["vlm_calls"] == 5
+    assert turns == [(45.0, 0.0, 0.0), (45.0, 0.0, 0.0)]
+    assert cleanup_calls == [True], (
+        "inspection must reset before presentation, then preserve its evidence pose until STOP")
+
+
+def test_inspection_locks_unreadable_label_side_and_only_moves_closer():
+    from orchestrator import subtask_agents as SA
+    from vision import ocr_client
+
+    turns = []
+    closer_poses = []
+    cleanup_calls = []
+    ocr_crops = []
+    presence = iter((False, True))
+    png_bytes = base64.b64decode(_png_b64())
+    agent = SimpleNamespace(vlm_agent=SimpleNamespace(
+        client=object(),
+        config=SimpleNamespace(model_id="m", max_tokens=256),
+    ), _restore_hands_after_inspection=lambda: (
+        cleanup_calls.append(True) or {"restored": True, "hands": {}}))
+    originals = (
+        SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"],
+        SA.TransformHands,
+        SA._REQUEST_SCREENSHOT_,
+        SA.classify_inspection_visibility,
+        SA.classify_inspection_label_presence,
+        M.set_hand_pose,
+        ocr_client.ocr_lines,
+    )
+    SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"] = (
+        lambda _times: {"arrived": True, "blocked": False})
+    SA.TransformHands = lambda _lt, lr, _rt, _rr: (
+        turns.append(tuple(lr)) or {"leftRotation": (45, 0, 0)})
+    SA._REQUEST_SCREENSHOT_ = lambda: {"image": png_bytes}
+    SA.classify_inspection_visibility = lambda *_args, **_kwargs: {
+        "match": False,
+        "reason": "label text is too small to read",
+        "conclusive": True,
+        "latency_ms": 1.0,
+    }
+    SA.classify_inspection_label_presence = lambda *_args: {
+        "match": next(presence),
+        "reason": "Nutrition Facts panel is recognizable",
+        "conclusive": True,
+        "latency_ms": 1.0,
+    }
+    M.set_hand_pose = lambda pose, hand, max_iters: (
+        closer_poses.append(tuple(pose)) or (True, tuple(pose), 0.0))
+    ocr_client.ocr_lines = lambda crop: (
+        ocr_crops.append(crop.size) or ["Nutrition Facts", "Calories 140"])
+    try:
+        result = SA._run_held_item_inspection_macro(
+            agent,
+            "Read the nutritional facts.",
+            {"leftGrippedState": True, "rightGrippedState": False},
+        )
+    finally:
+        (SA.MANIPULATION_ACTIONS_REF["present_left_item_for_inspection"],
+         SA.TransformHands,
+         SA._REQUEST_SCREENSHOT_,
+         SA.classify_inspection_visibility,
+         SA.classify_inspection_label_presence,
+         M.set_hand_pose,
+         ocr_client.ocr_lines) = originals
+
+    assert turns == [(45.0, 0.0, 0.0)], "rotation must stop on the detected label side"
+    assert [round(pose[2], 2) for pose in closer_poses] == [0.28, 0.23, 0.18, 0.13]
+    assert result["label_visible"] is True
+    assert result["label_legible"] is False
+    assert result["label_locked"] is True
+    assert result["best_effort_read"] is True
+    assert result["checks"] == 6 and result["vlm_calls"] == 9
+    assert result["ocr_lines"] == ["Nutrition Facts", "Calories 140"]
+    assert ocr_crops == [(1, 1)] * 5
+    assert "best-effort read" in result["reason"]
+    assert cleanup_calls == [True], (
+        "inspection must reset before presentation, then preserve the closest evidence frame")
 
 
 def test_inspect_dispatch_hard_blocks_mutators_and_body_motion_before_execution():
@@ -402,6 +883,7 @@ def test_inspect_dispatch_hard_blocks_mutators_and_body_motion_before_execution(
     replacements = {
         "grip_left": lambda n: called.append("grip"),
         "extend_arm_until_grabbed": lambda n: called.append("grab"),
+        "rotate_left_clockwise": lambda n: called.append("roll"),
         "move_forward": lambda n: called.append("move"),
     }
     originals = {}
@@ -412,7 +894,8 @@ def test_inspect_dispatch_hard_blocks_mutators_and_body_motion_before_execution(
         table[name] = replacement
     try:
         for action in (
-            "grip_left", "extend_arm_until_grabbed", "checkout_held_item", "move_forward",
+            "grip_left", "extend_arm_until_grabbed", "rotate_left_clockwise",
+            "checkout_held_item", "move_forward",
         ):
             result = SA.dispatch_action(
                 action, 1, {}, mode="manipulation", leg_type="inspect", state=held)
@@ -443,14 +926,14 @@ def test_inspect_dispatch_allows_visual_camera_only_when_no_item_held():
     assert blocked["blocked"] and blocked["executed"] is False
 
 
-def test_inspect_dispatch_refuses_action_for_empty_selected_hand():
+def test_inspect_dispatch_refuses_restricted_macro_when_no_item_is_held():
     from orchestrator import subtask_agents as SA
 
     result = SA.dispatch_action(
-        "rotate_right_clockwise", 1, {}, mode="manipulation", leg_type="inspect",
-        state={"leftGrippedState": True, "rightGrippedState": False})
+        "inspect_held_item", 1, {}, mode="manipulation", leg_type="inspect",
+        state={"leftGrippedState": False, "rightGrippedState": False})
     assert result["blocked"] and result["executed"] is False
-    assert "right hand is empty" in result["reason"]
+    assert "unheld inspect leg" in result["reason"]
 
 
 def test_semantic_prompt_requires_exact_reported_answer_on_stop():

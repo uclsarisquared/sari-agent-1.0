@@ -56,25 +56,12 @@ MANIPULATION_ACTIONS = (
     "checkout_held_item_right: Same as checkout_held_item but forces the RIGHT hand's item; refused if the right hand is empty.\n"
 )
 
-# Held-item inspection has a deliberately closed vocabulary. Presentation owns horizontal centring;
-# no lateral hand nudges, camera actions, grip changes, grabs, checkout, or body motion are exposed.
+# Held-item inspection is a restricted macro like the grab tool. The actor cannot choose rotations,
+# presentation, grip changes, checkout, camera actions, or body motion while an item is held.
 INSPECTION_ACTIONS = (
-    "present_left_item_for_inspection: Move the held LEFT item to the calibrated centred inspection pose and normalize its rotation (times is ignored).\n"
-    "present_right_item_for_inspection: Move the held RIGHT item to the mirrored calibrated centred inspection pose and normalize its rotation (times is ignored).\n"
-    "reset_left_hand_after_inspection: Return the held LEFT item to REST and normalize its rotation (times is ignored).\n"
-    "reset_right_hand_after_inspection: Return the held RIGHT item to REST and normalize its rotation (times is ignored).\n"
-    "extend_left_hand_forward: Extend the held left item forward 0.025 meters per step.\n"
-    "extend_right_hand_forward: Extend the held right item forward 0.025 meters per step.\n"
-    "pull_left_hand_backward: Pull the held left item backward 0.025 meters per step.\n"
-    "pull_right_hand_backward: Pull the held right item backward 0.025 meters per step.\n"
-    "raise_left_hand: Raise the held left item 0.025 meters per step.\n"
-    "raise_right_hand: Raise the held right item 0.025 meters per step.\n"
-    "lower_left_hand: Lower the held left item 0.025 meters per step.\n"
-    "lower_right_hand: Lower the held right item 0.025 meters per step.\n"
-    "rotate_left_clockwise: Rotate left hand clockwise 15 degrees per step.\n"
-    "rotate_left_counterclockwise: Rotate left hand counterclockwise 15 degrees per step.\n"
-    "rotate_right_clockwise: Rotate right hand clockwise 15 degrees per step.\n"
-    "rotate_right_counterclockwise: Rotate right hand counterclockwise 15 degrees per step.\n"
+    "inspect_held_item: Run the complete restricted held-item inspection loop (times is ignored). The tool auto-selects a held hand, preferring LEFT when both hands hold items. Use a hand-specific variant when the inspection request targets one of two held items. It presents the item and uses a fresh isolated VLM visibility check for legibility plus a separate fresh label-presence check. Each search pass performs eight X turns of exactly 45 degrees followed by deterministic Y turns that check the top and bottom. Rotation stops only when the requested Nutrition Facts/expiration label is directly front-facing, not merely readable at an angle. That side then stays facing the camera while the hand moves 5 cm closer at each remaining stage, up to five total distance stages; PaddleOCR reads a centered item crop at every locked stage and its lines are supplied as auxiliary evidence. The actor cannot choose or sequence rotations. Read last_inspection: label_legible=true means read the exact requested values from the CURRENT screen, using ocr_lines as supporting text, and STOP. best_effort_read=true means the label is locked at the closest position but remains formally illegible; nevertheless use both the CURRENT screen and ocr_lines to transcribe the best answer possible and STOP. Do not call the macro again in either case. sweep_exhausted=true means no requested directly front-facing label was found after all five search sweeps.\n"
+    "inspect_held_item_left: Run the same restricted inspection macro on the item in the LEFT hand; refused if the left hand is empty.\n"
+    "inspect_held_item_right: Run the same restricted inspection macro on the item in the RIGHT hand; refused if the right hand is empty.\n"
 )
 
 ATOMIC_ACTIONS = NAVIGATION_ACTIONS + PERCEPTION_ACTIONS + MANIPULATION_ACTIONS

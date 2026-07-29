@@ -111,7 +111,8 @@ A fully completed battery resumes without needing a live coordinator or sandbox.
 
 `--completion-guard {deterministic,vlm}` is passed to every orchestrator subprocess and recorded in
 `battery.json` plus each `attempt.json`. It defaults to `deterministic`; watcher-triggered retries
-preserve the original battery setting.
+preserve the original battery setting. The `vlm` backend adds visual completion grounding for
+targeted pickup, compare, and unknown legs; inspect remains VLM-verified in both modes.
 
 The watcher is independent of this scheduler behavior: `python -m sari_bench watch --run-dir
 <battery>` can visualize a completed battery without running or resuming anything.

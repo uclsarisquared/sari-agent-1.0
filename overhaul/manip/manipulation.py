@@ -10,6 +10,7 @@ from sim.env import (
     _RSE_LEFT_,
     _RSE_RIGHT_,
     _REQUEST_SCREENSHOT_,
+    ResetHands,
     TransformAgent,
     TransformHands,
     rotate_right_clockwise,
@@ -116,7 +117,7 @@ def pose_for_hand(pose, hand):
     return target
 _HAND_MOVE_RANGE = 0.5   # Unity clamps each TransformHands delta component here (TranslateHand, ~656)
 _POSE_TOL = 0.012        # m; "arrived" once the reported translation is within this of the target
-_ROT_STEP_DEG = 15.0
+_ROT_STEP_DEG = 45.0
 _ROT_TOL_DEG = 1.0
 
 
@@ -163,11 +164,13 @@ def _shortest_angle_delta(target, current):
     return (float(target) - float(current) + 180.0) % 360.0 - 180.0
 
 
-def set_hand_transform(pose, rotation=(0, 0, 0), hand="left", max_iters=30):
+def set_hand_transform(pose, rotation=(0, 0, 0), hand="left", max_iters=60):
     """Closed-loop translation + Euler drive for inspection presentation/restoration.
 
-    Rotation residuals follow the shortest wrapped path and each TransformHands call is bounded to
-    15 degrees per Euler component. This helper never toggles either grip.
+    Rotation residuals follow the shortest wrapped path. Each TransformHands call changes exactly
+    one Euler axis by at most 45 degrees. Axis-wise correction is important when returning an
+    inspected item to REST: simultaneous Euler corrections can couple in Unity and leave a residual
+    Z/roll even when the reported X/Y appear settled. This helper never toggles either grip.
     Returns ``(arrived, state, translation_residual, rotation_residual)``.
     """
     hand = str(hand).lower()
@@ -190,7 +193,11 @@ def set_hand_transform(pose, rotation=(0, 0, 0), hand="left", max_iters=30):
 
         clamp = _HAND_MOVE_RANGE - 1e-3
         td = tuple(max(-clamp, min(clamp, v)) for v in terr)
-        rd = tuple(max(-_ROT_STEP_DEG, min(_ROT_STEP_DEG, v)) for v in rerr)
+        rotation_axis = max(range(3), key=lambda index: abs(rerr[index]))
+        rd_values = [0.0, 0.0, 0.0]
+        rd_values[rotation_axis] = max(
+            -_ROT_STEP_DEG, min(_ROT_STEP_DEG, rerr[rotation_axis]))
+        rd = tuple(rd_values)
         zero = (0, 0, 0)
         if hand == "left":
             state = TransformHands(td, rd, zero, zero)
@@ -203,6 +210,10 @@ def set_hand_transform(pose, rotation=(0, 0, 0), hand="left", max_iters=30):
     return tresid <= _POSE_TOL and rresid <= _ROT_TOL_DEG, state, tresid, rresid
 
 
+def _reset_inspection_sweep(hand):
+    _INSPECTION_SWEEP_STEP[str(hand).lower()] = 0
+
+
 def _inspection_transform(hand, pose):
     hand = str(hand).lower()
     grips = hand_grip_states()
@@ -211,7 +222,38 @@ def _inspection_transform(hand, pose):
     if not grips[hand]:
         return {"blocked": True, "executed": False,
                 "reason": f"the {hand} hand is empty; inspection actions require a held item"}
-    arrived, state, tresid, rresid = set_hand_transform(pose, (0, 0, 0), hand=hand)
+
+    if pose == "inspection":
+        # The restricted inspection macro resets both hands immediately before calling this action.
+        # Presentation itself changes translation only, avoiding any additional REST flash between
+        # that deliberate reset and the first inspection evidence frame.
+        arrived, _, tresid = set_hand_pose(pose, hand=hand, max_iters=5)
+        zero = (0, 0, 0)
+        state = TransformHands(zero, zero, zero, zero)
+    else:
+        # End-of-inspection restoration has no following evidence frame to preserve, so the native
+        # atomic reset is the correct path here.
+        state = ResetHands()
+        target = pose_for_hand(pose, hand)
+        reported = state[f"{hand}Translation"]
+        tresid = _vlen(tuple(target[k] - reported[k] for k in range(3)))
+        arrived = tresid <= _POSE_TOL
+    if not state.get(f"{hand}GrippedState"):
+        _reset_inspection_sweep(hand)
+        return {
+            "blocked": True,
+            "executed": True,
+            "hand": hand,
+            "arrived": False,
+            "reason": f"inspection transform did not preserve the {hand} grip",
+        }
+    rresid = max(
+        abs(_shortest_angle_delta(0.0, value))
+        for value in state[f"{hand}Rotation"]
+    )
+    if pose != "inspection":
+        arrived = arrived and rresid <= _ROT_TOL_DEG
+    _reset_inspection_sweep(hand)
     return {
         "blocked": not arrived,
         "executed": True,
@@ -239,6 +281,83 @@ def reset_left_hand_after_inspection(times=1):
 
 def reset_right_hand_after_inspection(times=1):
     return _inspection_transform("right", "rest")
+
+
+# One relative turn per agent tool call. Four yaw turns visit every side and return to the default
+# face. Three pitch turns then visit top, default, and bottom. The duplicate default frames are
+# intentional: reaching the opposite pitch face without a 180-degree command requires two 90-degree
+# calls. Explicit progress replaces inference from Unity's coupled/wrapped Euler readback.
+INSPECTION_ROTATION_DELTAS = (
+    (0.0, 90.0, 0.0),
+    (0.0, 90.0, 0.0),
+    (0.0, 90.0, 0.0),
+    (0.0, 90.0, 0.0),
+    (90.0, 0.0, 0.0),
+    (-90.0, 0.0, 0.0),
+    (-90.0, 0.0, 0.0),
+)
+_INSPECTION_SWEEP_STEP = {"left": 0, "right": 0}
+
+
+def _next_inspection_face(hand):
+    hand = str(hand).lower()
+    grips = hand_grip_states()
+    if hand not in grips:
+        return {"blocked": True, "executed": False, "reason": "hand must be 'left' or 'right'"}
+    if not grips[hand]:
+        return {"blocked": True, "executed": False,
+                "reason": f"the {hand} hand is empty; inspection actions require a held item"}
+
+    step = _INSPECTION_SWEEP_STEP[hand]
+    if step >= len(INSPECTION_ROTATION_DELTAS):
+        return {
+            "blocked": True,
+            "executed": False,
+            "hand": hand,
+            "faces_exhausted": True,
+            "reason": "all side, top, and bottom inspection faces have already been shown",
+        }
+
+    rotation_delta = INSPECTION_ROTATION_DELTAS[step]
+    nonzero_axes = [
+        axis for axis, value in enumerate(rotation_delta)
+        if abs(value) > _ROT_TOL_DEG
+    ]
+    if (len(nonzero_axes) != 1 or nonzero_axes[0] not in (0, 1)
+            or abs(rotation_delta[nonzero_axes[0]]) not in (45.0, 90.0)):
+        return {
+            "blocked": True,
+            "executed": False,
+            "hand": hand,
+            "reason": "invalid inspection turn: exactly one 45/90-degree X or Y delta is allowed",
+        }
+
+    zero = (0, 0, 0)
+    if hand == "left":
+        state = TransformHands(zero, rotation_delta, zero, zero)
+    else:
+        state = TransformHands(zero, zero, zero, rotation_delta)
+    _INSPECTION_SWEEP_STEP[hand] = step + 1
+    face_index = step + 1
+    return {
+        "blocked": False,
+        "executed": True,
+        "hand": hand,
+        "arrived": True,
+        "face_index": face_index,
+        "face_phase": "side" if face_index <= 4 else "top_bottom",
+        "commanded_rotation_delta": rotation_delta,
+        "translation": state.get(f"{hand}Translation"),
+        "rotation": state.get(f"{hand}Rotation"),
+    }
+
+
+def rotate_left_to_next_inspection_face(times=1):
+    return _next_inspection_face("left")
+
+
+def rotate_right_to_next_inspection_face(times=1):
+    return _next_inspection_face("right")
 
 
 # ===== Dual-hand selection policy (2026-07-23) ==================================================

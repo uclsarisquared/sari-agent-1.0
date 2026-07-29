@@ -42,6 +42,8 @@ from manip.manipulation import (
     present_right_item_for_inspection,
     reset_left_hand_after_inspection,
     reset_right_hand_after_inspection,
+    rotate_left_to_next_inspection_face,
+    rotate_right_to_next_inspection_face,
 )
 
 
@@ -78,6 +80,8 @@ MANIPULATION_ACTIONS_REF = {
     'present_right_item_for_inspection': present_right_item_for_inspection,
     'reset_left_hand_after_inspection': reset_left_hand_after_inspection,
     'reset_right_hand_after_inspection': reset_right_hand_after_inspection,
+    'rotate_left_to_next_inspection_face': rotate_left_to_next_inspection_face,
+    'rotate_right_to_next_inspection_face': rotate_right_to_next_inspection_face,
     'extend_left_hand_forward': extend_left_hand_forward,
     'extend_right_hand_forward': extend_right_hand_forward,
     'pull_left_hand_backward': pull_left_hand_backward,

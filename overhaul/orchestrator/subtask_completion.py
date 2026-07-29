@@ -5,10 +5,11 @@ tests and the decomposer A/B harness load in milliseconds (importing subtask_age
 model stack, ~25 s). subtask_agents.py imports the prompt, the parser, and the predicates FROM HERE
 so there is ONE home for the task-completion truth table.
 
-The default pickup guard remains deterministic. An optional VLM backend may inject per-hand verdicts
-for targeted pickup grounding, while every inspect leg requires its own image-bound VLM verdict.
-Other subtasks and all physical grip/count checks remain deterministic. A VLM `STOP` is still only a
-*request* these predicates grant or refuse.
+The default pickup, compare, and unknown guards remain deterministic. An optional VLM backend may
+inject per-hand pickup verdicts, a labeled multi-frame compare verdict, or a current-frame unknown
+task verdict, while every inspect leg requires its own image-bound VLM verdict. Deterministic
+physical and structural prerequisites remain additive. A VLM `STOP` is still only a *request* these
+predicates grant or refuse.
 
 Type vocabulary is CLOSED: pickup | checkout | compare | goto | inspect. An untypeable decomposition degrades
 to `unknown`, which falls back to the pre-6.3 keyword guards (behaviour preserved, logged as
@@ -97,6 +98,13 @@ TYPED_DECOMPOSER_SYSTEM = (
     "checkout after each pair).\n"
     "  - For a comparison ('the larger of...', 'the cheaper...'), route the agent to the candidates "
     "with goto/pickup as needed and use a compare subtask to make the visual decision.\n"
+    "  - Comparisons decided by READING PRINTED TEXT on the item (nutritional facts, ingredients, "
+    "expiration dates, fine-print pricing) are an `inspect` subtask, NEVER `compare` - even when the "
+    "task itself uses the word 'compare'. `compare` is ONLY for a decision visible from the item's "
+    "overall appearance/size/packaging at a distance, without reading small text. If the comparison "
+    "needs the item held and read closely, emit pickup subtask(s) for the candidates first, then a "
+    "single `inspect` subtask whose \"query\" asks for the comparison verdict (e.g. 'which has less "
+    "sugar').\n"
     "  - 'Navigate/go to X and observe/count/read Y' is a goto subtask (get to X) followed by a "
     "separate inspect subtask (observe Y) - never one inspect subtask whose text does the travelling.\n\n"
     "Example input: \"pick up the milk and bring it to the counter\"\n"
@@ -125,6 +133,14 @@ TYPED_DECOMPOSER_SYSTEM = (
     "touching either item.\"}, "
     "{\"type\": \"pickup\", \"target\": \"the item identified as not expired\", "
     "\"text\": \"Pick up the item identified by the inspection as not expired.\"}]"
+    "\n\nExample input: \"Compare the nutritional facts of the two cereals and tell me which has less "
+    "sugar\"\n"
+    "Example output: "
+    "[{\"type\": \"pickup\", \"target\": \"the first cereal\", \"text\": \"Pick up the first cereal.\"}, "
+    "{\"type\": \"pickup\", \"target\": \"the second cereal\", \"text\": \"Pick up the second cereal.\"}, "
+    "{\"type\": \"inspect\", \"query\": \"Which cereal has less sugar per the printed nutritional "
+    "facts?\", \"text\": \"Read both cereals' nutritional facts labels closely and report which has "
+    "less sugar without touching them further.\"}]"
     "\n\nExample input: \"Navigate to Aisle 1 and count how many unique products are there\"\n"
     "Example output: "
     "[{\"type\": \"goto\", \"location\": \"Aisle 1\", \"text\": \"Navigate to Aisle 1.\"}, "
@@ -678,11 +694,12 @@ def predicate_goto(sub: dict, state: dict) -> tuple:
     return False, f"goto not complete: nearest checkpoint is {near_cp}, target is {sorted(targets)}"
 
 
-def predicate_compare(sub: dict, state: dict, final_text: str = "") -> tuple:
+def predicate_compare(sub: dict, state: dict, final_text: str = "",
+                      guard_backend="deterministic", compare_guard=None) -> tuple:
     """Grant iff (a) the agent's final output names a choice from `targets`, AND (b) it actually went
-    and LOOKED at both candidates - it visited each candidate's checkpoint. The CHOICE is checked in
-    code; the stated observation is only LOGGED (6.4 audits it as camera-grounded) - never judged here
-    (no verifier LLM - phase6.3 plan).
+    and LOOKED at both candidates - it visited each candidate's checkpoint. With the opt-in VLM
+    backend, those deterministic prerequisites are followed by a conclusive positive verdict over
+    the labeled frames cached at the candidate checkpoints.
 
     The visited-both check (Phase 6.3 #4) turns "decide from the camera, not the product index" from a
     prompt instruction into a deterministic gate: `sub['candidate_sets']` (one resolved checkpoint list
@@ -693,6 +710,8 @@ def predicate_compare(sub: dict, state: dict, final_text: str = "") -> tuple:
     either, so we grant [unverified]."""
     targets = sub.get("targets") or []
     if not targets:
+        if guard_backend == "vlm":
+            return False, "compare not complete: no candidate targets are available for the VLM guard"
         return True, "compare granted [unverified]: no candidate targets to check the choice against"
     blob = str(final_text or "").lower()
     named = next((cand for cand in targets if any(tok in blob for tok in _tokens(cand))), None)
@@ -708,15 +727,48 @@ def predicate_compare(sub: dict, state: dict, final_text: str = "") -> tuple:
         if unseen:
             return False, (f"compare not complete: chose {named!r} but never stood at "
                            f"candidate checkpoint(s) {unseen} - go LOOK at both before deciding")
-        return True, f"compare complete: chose {named!r} after visiting both candidates"
-    return True, f"compare complete: chose {named!r} [unverified: candidates had no resolved checkpoints]"
+        deterministic_reason = f"compare complete: chose {named!r} after visiting both candidates"
+    else:
+        deterministic_reason = (
+            f"compare complete: chose {named!r} "
+            "[unverified: candidates had no resolved checkpoints]")
+    if guard_backend == "deterministic":
+        return True, deterministic_reason
+    if not callable(compare_guard):
+        return False, "compare not complete: VLM compare guard is unavailable"
+    criterion = str(sub.get("criterion") or sub.get("text") or "").strip()
+    if not criterion:
+        return False, "compare not complete: no comparison criterion is available"
+    aux = {
+        "targets": list(targets),
+        "named_choice": named,
+        "candidate_sets": sub.get("candidate_sets"),
+        "visited_checkpoints": sorted(state.get("visited_checkpoints") or []),
+        "nearest_checkpoint": state.get("nearest_checkpoint"),
+    }
+    try:
+        verdict = compare_guard(criterion, str(final_text or "").strip(), aux)
+    except Exception as exc:  # noqa: BLE001 - guards must fail closed
+        return False, (f"compare not complete: VLM compare guard failed "
+                       f"({type(exc).__name__}: {exc})")
+    if (not isinstance(verdict, dict)
+            or type(verdict.get("match")) is not bool
+            or verdict.get("conclusive") is not True
+            or not isinstance(verdict.get("reason"), str)
+            or not verdict["reason"].strip()):
+        return False, "compare not complete: VLM compare guard returned no conclusive verdict"
+    if not verdict["match"]:
+        return False, f"compare not complete: VLM rejected the choice ({verdict['reason'].strip()})"
+    return True, f"{deterministic_reason}; VLM verified the choice ({verdict['reason'].strip()})"
 
 
-def predicate_unknown(sub: dict, state: dict) -> tuple:
-    """The pre-6.3 keyword guards, preserved verbatim, for an untypeable subtask. Grep the subtask
-    TEXT for pickup/drop intent; refuse a pickup with nothing gripped or a drop with a hand still
-    gripping. Deliberately no better than before - it is the fallback, and it is logged as `untyped`
-    so 6.4 can see how often it fires."""
+def predicate_unknown(sub: dict, state: dict, final_text: str = "",
+                      guard_backend="deterministic", unknown_guard=None) -> tuple:
+    """Apply the legacy keyword/grip checks to an untypeable subtask.
+
+    The deterministic backend preserves the pre-6.3 behavior. The opt-in VLM backend keeps those
+    checks as prerequisites, then verifies the free-text completion claim against the current frame.
+    """
     text = str(sub.get("text") or "").lower()
     grip = _gripping(state)
     is_pickup = any(kw in text for kw in _PICKUP_KW)
@@ -728,10 +780,46 @@ def predicate_unknown(sub: dict, state: dict) -> tuple:
         # hand still carries its own item. run_leg sets `released_grip_this_leg`; runners that don't
         # (eval_pickup's flat loop - key absent, falsy) keep the old any-grip block.
         if state.get("released_grip_this_leg"):
-            return True, ("halt granted (untyped): drop task released its item (the other hand's "
-                          "carried item is its own subtask's business)")
-        return False, "STOP blocked (untyped): drop task but a hand is still gripping"
-    return True, "halt granted (untyped): no keyword guard blocks it"
+            deterministic_reason = (
+                "halt granted (untyped): drop task released its item "
+                "(the other hand's carried item is its own subtask's business)")
+        else:
+            return False, "STOP blocked (untyped): drop task but a hand is still gripping"
+    else:
+        deterministic_reason = "halt granted (untyped): no keyword guard blocks it"
+    if guard_backend == "deterministic":
+        return True, deterministic_reason
+    if not callable(unknown_guard):
+        return False, "STOP blocked (untyped): VLM unknown-task guard is unavailable"
+    task = str(sub.get("text") or "").strip()
+    if not task:
+        return False, "STOP blocked (untyped): no task text is available for the VLM guard"
+    claim = (str(final_text or "").strip()
+             or "The agent requested STOP and claims the task is complete.")
+    names = state.get("gripped_names")
+    aux = {
+        "gripped_name": state.get("gripped_name"),
+        "gripped_names": dict(names) if isinstance(names, dict) else names,
+        "left_gripped": bool(state.get("leftGrippedState")),
+        "right_gripped": bool(state.get("rightGrippedState")),
+        "released_grip_this_leg": bool(state.get("released_grip_this_leg")),
+        "nearest_checkpoint": state.get("nearest_checkpoint"),
+    }
+    try:
+        verdict = unknown_guard(task, claim, aux)
+    except Exception as exc:  # noqa: BLE001 - guards must fail closed
+        return False, (f"STOP blocked (untyped): VLM unknown-task guard failed "
+                       f"({type(exc).__name__}: {exc})")
+    if (not isinstance(verdict, dict)
+            or type(verdict.get("match")) is not bool
+            or verdict.get("conclusive") is not True
+            or not isinstance(verdict.get("reason"), str)
+            or not verdict["reason"].strip()):
+        return False, "STOP blocked (untyped): VLM unknown-task guard returned no conclusive verdict"
+    if not verdict["match"]:
+        return False, (f"STOP blocked (untyped): VLM rejected task completion "
+                       f"({verdict['reason'].strip()})")
+    return True, f"{deterministic_reason}; VLM verified completion ({verdict['reason'].strip()})"
 
 
 def predicate_inspect(sub: dict, state: dict, final_text: str = "",
@@ -772,12 +860,17 @@ def predicate_inspect(sub: dict, state: dict, final_text: str = "",
     return False, f"inspection not complete: VLM rejected the reported answer ({verdict['reason'].strip()})"
 
 
-def reported_inspection_answer(response: dict) -> str:
-    """Extract only the structured inspection answer; never fall back to STOP/actor text."""
+def reported_completion_answer(response: dict) -> str:
+    """Extract the structured STOP answer without falling back to its termination placeholder."""
     if not isinstance(response, dict):
         return ""
     answer = response.get("reported_answer")
     return answer.strip() if isinstance(answer, str) else ""
+
+
+def reported_inspection_answer(response: dict) -> str:
+    """Backward-compatible inspection-specific name for ``reported_completion_answer``."""
+    return reported_completion_answer(response)
 
 
 def held_item_inspection_active(sub: dict, state: dict) -> bool:
@@ -842,7 +935,8 @@ def inspect_scope_violation(action: str, step: int, pre_action_state: dict,
 
 def completion_predicate(sub: dict, state: dict, final_text: str = "",
                          guard_backend="deterministic", guard_verdicts=None,
-                         inspect_guard=None) -> tuple:
+                         inspect_guard=None, compare_guard=None,
+                         unknown_guard=None) -> tuple:
     """Dispatch a subtask's halt request to its typed predicate. Returns (granted, reason). Any
     unrecognized type routes to the `unknown` keyword fallback, so this never raises on a malformed
     subtask."""
@@ -856,7 +950,11 @@ def completion_predicate(sub: dict, state: dict, final_text: str = "",
     if t == "goto":
         return predicate_goto(sub, state)
     if t == "compare":
-        return predicate_compare(sub, state, final_text)
+        return predicate_compare(
+            sub, state, final_text, guard_backend=guard_backend,
+            compare_guard=compare_guard)
     if t == "inspect":
         return predicate_inspect(sub, state, final_text, inspect_guard=inspect_guard)
-    return predicate_unknown(sub, state)
+    return predicate_unknown(
+        sub, state, final_text, guard_backend=guard_backend,
+        unknown_guard=unknown_guard)

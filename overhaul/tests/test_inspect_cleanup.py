@@ -1,6 +1,7 @@
 """Offline coverage for inspect-leg cleanup on every runner exit path."""
 import os
 import sys
+import json
 
 import pytest
 
@@ -63,7 +64,9 @@ def test_all_normal_inspect_exits_restore_and_refresh_final_state(
     assert agent._hand_pose == "rest"
     assert returned["inspection_cleanup"]["restored"] is True
     assert returned["final_state"]["leftTranslation"] == ("rest", "left")
+    assert returned["final_state"]["rightTranslation"] == ("rest", "right")
     assert returned["final_state"]["leftRotation"] == (0, 0, 0)
+    assert returned["final_state"]["rightRotation"] == (0, 0, 0)
     assert returned["final_state"]["leftGrippedState"] is True
     assert returned["final_state"]["sticky_metric"] == "preserved"
 
@@ -103,3 +106,32 @@ def test_non_inspect_leg_does_not_run_cleanup(monkeypatch, runner_stubs):
 
     assert SA.run_leg(agent, {"type": "pickup"}, None, (1, 1)) is result
     assert agent.calls == 0
+
+
+def test_cleanup_logs_one_summary_without_inverse_rotation_events(
+        monkeypatch, runner_stubs, tmp_path):
+    result = {"end_reason": "halt_granted", "final_state": {}}
+    monkeypatch.setattr(SA, "_run_leg_impl", lambda *args, **kwargs: result)
+    cleanup = {
+        "restored": True,
+        "hands": {
+            "left": {"rotation": (0, 0, 0)},
+            "right": {"rotation": (0, 0, 0)},
+        },
+    }
+    log_path = tmp_path / "agent.jsonl"
+
+    SA.run_leg(
+        FakeAgent(cleanup=cleanup),
+        {"type": "inspect"},
+        None,
+        (1, 1),
+        log_path=str(log_path),
+        leg_idx=4,
+    )
+
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    rotations = [row for row in rows if row["event"] == "inspect_cleanup_rotation"]
+    assert rotations == []
+    assert rows[-1]["event"] == "inspect_cleanup"
+    assert rows[-1]["restored"] is True

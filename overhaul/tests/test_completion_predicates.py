@@ -895,6 +895,54 @@ def test_compare_visit_check_defensive_when_unresolved():
     assert ok is True and "unverified" in reason
 
 
+def test_compare_vlm_is_additive_and_receives_choice_context():
+    sub = {"type": "compare", "targets": ["Pocky", "Hello Panda"],
+           "criterion": "less sugar", "candidate_sets": [[30], [31]]}
+    st = _state(visited_checkpoints={30, 31}, nearest_checkpoint=31)
+    seen = []
+
+    def guard(criterion, answer, auxiliary_context):
+        seen.append((criterion, answer, auxiliary_context))
+        return _verdict(True, "both nutrition labels support Pocky")
+
+    ok, reason = completion_predicate(
+        sub, st, final_text="Pocky has less sugar.", guard_backend="vlm",
+        compare_guard=guard)
+    assert ok is True and "VLM verified" in reason
+    assert seen[0][0] == "less sugar"
+    assert seen[0][2]["named_choice"] == "Pocky"
+
+    # The VLM cannot override the deterministic visited-both prerequisite.
+    assert completion_predicate(
+        sub, _state(visited_checkpoints={30}), final_text="Pocky has less sugar.",
+        guard_backend="vlm", compare_guard=guard)[0] is False
+
+
+def test_compare_vlm_missing_failed_and_malformed_guards_fail_closed():
+    sub = {"type": "compare", "targets": ["A", "B"], "criterion": "size",
+           "candidate_sets": [[1], [2]]}
+    st = _state(visited_checkpoints={1, 2})
+    assert completion_predicate(
+        sub, st, final_text="A is larger", guard_backend="vlm")[0] is False
+
+    def boom(*_):
+        raise TimeoutError("late")
+
+    assert completion_predicate(
+        sub, st, final_text="A is larger", guard_backend="vlm",
+        compare_guard=boom)[0] is False
+    for verdict in (None, {}, _verdict(True, "", True), _verdict(True, "maybe", False)):
+        assert completion_predicate(
+            sub, st, final_text="A is larger", guard_backend="vlm",
+            compare_guard=lambda *_, v=verdict: v)[0] is False
+
+
+def test_compare_vlm_without_targets_fails_closed_but_default_is_unchanged():
+    sub = {"type": "compare", "text": "Compare them"}
+    assert completion_predicate(sub, _state())[0] is True
+    assert completion_predicate(sub, _state(), guard_backend="vlm")[0] is False
+
+
 # --- unknown fallback (pre-6.3 keyword guards, preserved) ------------------
 
 def test_unknown_paraphrased_pickup_still_guarded_by_get_keyword():
@@ -921,6 +969,48 @@ def test_unknown_unrecognized_type_routes_to_fallback():
     # A type that somehow isn't in the vocab (defensive) uses the keyword fallback, never raises.
     sub = {"type": "frobnicate", "text": "Grab the milk."}
     assert _granted(sub, _state(leftGrippedState=False)) is False
+
+
+def test_unknown_vlm_is_additive_and_receives_free_text_claim():
+    sub = {"type": "unknown", "text": "Obtain the green Piattos."}
+    st = _state(leftGrippedState=True, gripped_name="PIATTOS_GREEN",
+                gripped_names={"left": "PIATTOS_GREEN", "right": None},
+                nearest_checkpoint=32)
+    seen = []
+
+    def guard(task, claim, auxiliary_context):
+        seen.append((task, claim, auxiliary_context))
+        return _verdict(True, "green Piattos is visibly held")
+
+    ok, reason = completion_predicate(
+        sub, st, final_text="I obtained it.", guard_backend="vlm",
+        unknown_guard=guard)
+    assert ok is True and "VLM verified" in reason
+    assert seen[0][0] == sub["text"] and seen[0][1] == "I obtained it."
+    assert seen[0][2]["left_gripped"] is True
+
+    # A deterministic keyword/grip failure blocks before the VLM can grant.
+    calls = []
+    assert completion_predicate(
+        {"type": "unknown", "text": "Get the green Piattos."},
+        _state(leftGrippedState=False), guard_backend="vlm",
+        unknown_guard=lambda *args: calls.append(args) or _verdict(True))[0] is False
+    assert calls == []
+
+
+def test_unknown_vlm_missing_failed_and_malformed_guards_fail_closed():
+    sub = {"type": "unknown", "text": "Observe the shelf."}
+    assert completion_predicate(sub, _state(), guard_backend="vlm")[0] is False
+
+    def boom(*_):
+        raise RuntimeError("down")
+
+    assert completion_predicate(
+        sub, _state(), guard_backend="vlm", unknown_guard=boom)[0] is False
+    for verdict in (None, {}, _verdict(True, "", True), _verdict(False, "timeout", False)):
+        assert completion_predicate(
+            sub, _state(), guard_backend="vlm",
+            unknown_guard=lambda *_, v=verdict: v)[0] is False
 
 
 def test_cap_constant_sane():
