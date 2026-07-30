@@ -104,6 +104,10 @@ class WatchState:
         self._announced_done = False
         self.battery: Path | None = None
         self._retry_jobs: dict[str, dict[str, Any]] = {}
+        # Attempts whose replay.mp4 was rendered while they were still running. The clip covers only
+        # the frames that existed when a reviewer asked for it, and `enqueue` treats any existing
+        # replay.mp4 as final - so the finish transition throws these away and renders them again.
+        self._partial_replays: set[str] = set()
 
     def resolve_battery(self) -> Path | None:
         """Auto-discovery with a single-battery override.
@@ -357,6 +361,7 @@ class WatchState:
                     key = str(attempt.get("key") or "")
                     run_dir_value = attempt.get("run_dir")
                     if self.replay is not None and key and run_dir_value:
+                        self._discard_partial_replay(key, Path(str(run_dir_value)))
                         self.replay.enqueue(key, Path(str(run_dir_value)))
                 elif self.discord.enabled and (
                     (attempt.get("health") or {}).get("level") == health.LEVEL_ALERT
@@ -374,6 +379,22 @@ class WatchState:
                 self.discord.battery_finished(view)
         finally:
             self._notify_lock.release()
+
+    def _discard_partial_replay(self, key: str, run_dir: Path) -> None:
+        """Throws away a clip rendered mid-run, exactly once, as the attempt finishes.
+
+        Nothing else deletes it: `enqueue` answers READY for any replay.mp4 on disk, so a partial one
+        would quietly stand in for the whole run for the rest of the battery's life.
+        """
+        with self._lock:
+            if key not in self._partial_replays:
+                return
+            self._partial_replays.discard(key)
+        with contextlib.suppress(OSError):
+            (run_dir / video.REPLAY_NAME).unlink(missing_ok=True)
+        if self.replay is not None:
+            self.replay.invalidate(key)
+        _log(f"re-rendering {key}: its replay was made while the run was still going")
 
     def set_pool(self, pool: list[dict[str, Any]], error: str = "") -> None:
         with self._lock:
@@ -493,6 +514,12 @@ class WatchState:
             # The outcome the runner itself would have recorded for a dashboard kill, so a killed
             # orphan reads exactly like a killed attempt whose runner survived to say so.
             outcome="operator_kill" if manifest.get("killed_by") else "orphaned",
+            context_policy=str(
+                manifest.get("context_policy")
+                or (summary.get("run_config") or {}).get("context_policy")
+                or scan._read_json(battery / scan.BATTERY_MANIFEST).get("context_policy")
+                or "baseline"
+            ),
             success=bool(summary.get("success")),
             end_reason=end_reasons[-1] if end_reasons else RUNNER_GONE,
             sandbox_id=str(manifest.get("sandbox_id") or ""),
@@ -515,6 +542,7 @@ class WatchState:
         _stamp(manifest_path, {
             "state": "finished",
             "outcome": result.outcome,
+            "context_policy": result.context_policy,
             "success": result.success,
             "end_reason": result.end_reason,
             "exit_code": None,
@@ -681,6 +709,7 @@ class WatchState:
                 map_dir=config["map_dir"],
                 leg_retries=config["leg_retries"],
                 completion_guard=config["completion_guard"],
+                context_policy=config["context_policy"],
                 timeout_grace=config["timeout_grace"],
                 sandbox_startup_timeout=config["sandbox_startup_timeout"],
                 capture_interval=config["capture_interval"],
@@ -750,6 +779,11 @@ class WatchState:
                 source_manifest.get("completion_guard")
                 or plan.get("completion_guard")
                 or option("--completion-guard", "deterministic")
+            ),
+            "context_policy": str(
+                source_manifest.get("context_policy")
+                or plan.get("context_policy")
+                or option("--context-policy", "baseline")
             ),
             "ocr_url": str(
                 source_manifest.get("ocr_url")
@@ -1040,8 +1074,15 @@ class WatchState:
         run_dir = _safe_run_dir(battery, key)
         if run_dir is None:
             return replay_mod.UNAVAILABLE, None
-        if scan._read_json(run_dir / scan.ATTEMPT_MANIFEST).get("end_reason") == ALREADY_SUCCESSFUL:
+        manifest = scan._read_json(run_dir / scan.ATTEMPT_MANIFEST)
+        if manifest.get("end_reason") == ALREADY_SUCCESSFUL:
             return replay_mod.UNAVAILABLE, None
+        # A clip asked for mid-run can only hold the frames written so far. Serving it is the point -
+        # the overlay offers "replay so far" beside the live view - but it must not become the
+        # attempt's replay: note the key so `_notify` re-renders once the run is actually over.
+        if manifest.get("state") in {"starting", "running"}:
+            with self._lock:
+                self._partial_replays.add(key)
         status = self.replay.request(key, run_dir)
         clip = run_dir / video.REPLAY_NAME
         return status, (clip if status == replay_mod.READY and clip.is_file() else None)

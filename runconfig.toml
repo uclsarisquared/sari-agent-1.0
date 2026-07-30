@@ -13,6 +13,7 @@
 
 # Navigation strategy: "graph", "vlm", or "graph-advised".
 arm = "graph"
+context_policy = "baseline"
 
 # Backend VLM used to resolve a target to map checkpoints: "qwen" or "claude-cli".
 resolver_backend = "qwen"
@@ -50,8 +51,8 @@ restart_env = false
 
 [bench]
 # Prompt battery and attempts per prompt.
-prompts = "sari_bench/prompts/easy_prompts.json"
-tries = 5
+prompts = "sari_bench/prompts/context_window_ablation.json"
+tries = 3
 
 # Whole-attempt harness timeout and the agent's independent per-leg timeout, in minutes.
 time_limit = 120.0
@@ -81,6 +82,7 @@ capture_interval = 0.25
 # battery defaults differ from the short standalone debug defaults above.
 max_steps = 150
 arm = "graph"
+context_policy = "baseline"
 map_dir = "overhaul/slamtest/output_runs/run_0724_164652"
 # ocr_url = "http://127.0.0.1:9100"
 leg_retries = 1

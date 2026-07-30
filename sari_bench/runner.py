@@ -44,6 +44,7 @@ from sari_bench.storage import (
 )
 from overhaul.vision.ocr_client import OcrUnavailable, check_ocr_health, resolve_ocr_url
 from sari_runconfig import RunConfigError, load_run_config
+from overhaul.agent_core.context_policy import CONTEXT_POLICY_NAMES, resolve_context_policy
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OVERHAUL_DIR = REPO_ROOT / "overhaul"
@@ -130,6 +131,7 @@ class AttemptResult:
     prompt: str
     family: str
     outcome: str
+    context_policy: str = "baseline"
     success: bool = False
     end_reason: str = ""
     sandbox_id: str = ""
@@ -206,6 +208,7 @@ class BenchmarkRunner:
         map_dir: str | None,
         leg_retries: int,
         completion_guard: str = "deterministic",
+        context_policy: str = "baseline",
         per_leg_minutes: float | None = None,
         timeout_grace: float = DEFAULT_TIMEOUT_GRACE_SECONDS,
         sandbox_startup_timeout: float = 0.0,
@@ -236,6 +239,8 @@ class BenchmarkRunner:
         self.concurrency = concurrency
         self.max_steps = max_steps
         self.arm = arm
+        resolve_context_policy(context_policy)
+        self.context_policy = context_policy
         self.map_dir = map_dir
         self.leg_retries = leg_retries
         if completion_guard not in {"deterministic", "vlm"}:
@@ -454,6 +459,7 @@ class BenchmarkRunner:
             "per_leg_minutes": self.per_leg_minutes,
             "max_steps": self.max_steps,
             "arm": self.arm,
+            "context_policy": self.context_policy,
             "capture_interval_seconds": self.capture_interval,
             "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
             "leg_retries": self.leg_retries,
@@ -473,6 +479,8 @@ class BenchmarkRunner:
         def existing_value(key: str) -> Any:
             if key == "completion_guard" and key not in battery:
                 return "deterministic"
+            if key == "context_policy" and key not in battery:
+                return "baseline"
             if key == "ocr_url" and key not in battery:
                 return resolve_ocr_url()
             return battery.get(key)
@@ -798,6 +806,7 @@ class BenchmarkRunner:
                 "per_leg_minutes": self.per_leg_minutes,
                 "max_steps": self.max_steps,
                 "arm": self.arm,
+                "context_policy": self.context_policy,
                 "capture_interval_seconds": self.capture_interval,
                 "map_dir": str(Path(self.map_dir).resolve()) if self.map_dir else None,
                 "leg_retries": self.leg_retries,
@@ -991,6 +1000,7 @@ class BenchmarkRunner:
                 "looking_for": prompt.looking_for,
                 "attempt": attempt,
                 "arm": self.arm,
+                "context_policy": self.context_policy,
                 "completion_guard": self.completion_guard,
                 "ocr_url": self.ocr_url,
                 "sandbox_id": lease.sandbox_id,
@@ -1204,6 +1214,7 @@ class BenchmarkRunner:
                 "looking_for": prompt.looking_for,
                 "attempt": attempt,
                 "arm": self.arm,
+                "context_policy": self.context_policy,
                 "ocr_url": self.ocr_url,
                 "run_dir": str(run_dir),
                 "state": "finished",
@@ -1273,6 +1284,8 @@ class BenchmarkRunner:
             prompt.prompt,
             "--arm",
             self.arm,
+            "--context-policy",
+            self.context_policy,
             "--run-dir",
             str(run_dir),
             "--max-steps",
@@ -1336,6 +1349,7 @@ class BenchmarkRunner:
             prompt=prompt.prompt,
             family=prompt.family,
             outcome=outcome,
+            context_policy=self.context_policy,
             exit_code=exit_code,
         )
 
@@ -1401,6 +1415,7 @@ class BenchmarkRunner:
 
     async def _record(self, result: AttemptResult) -> None:
         async with self._results_lock:
+            result.context_policy = self.context_policy
             self._results.append(result)
             # Written incrementally and atomically so an interrupted battery remains usable, while
             # one logical prompt/attempt slot always has exactly one canonical row.
@@ -1486,6 +1501,7 @@ class BenchmarkRunner:
             "time_limit_minutes": self.time_limit_minutes,
             "max_steps": self.max_steps,
             "arm": self.arm,
+            "context_policy": self.context_policy,
             "total_attempts": len(results),
             "total_successes": sum(1 for r in results if r.success),
             "tokens_in": total_in,
@@ -1599,6 +1615,12 @@ async def async_main(argv: list[str] | None = None) -> int:
                         help="Per-leg step cap for the agent.")
     parser.add_argument("--arm", choices=["vlm", "graph", "graph-advised"],
                         default=configured("arm", "graph"))
+    parser.add_argument(
+        "--context-policy",
+        choices=CONTEXT_POLICY_NAMES,
+        default=configured("context_policy", "baseline"),
+        help="named context-window policy passed to every agent attempt",
+    )
     parser.add_argument("--map-dir", default=configured("map_dir"),
                         help="slamtest output dir the agent loads its map from.")
     parser.add_argument(
@@ -1667,6 +1689,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         concurrency=args.concurrency,
         max_steps=args.max_steps,
         arm=args.arm,
+        context_policy=args.context_policy,
         map_dir=args.map_dir,
         leg_retries=max(0, args.leg_retries),
         completion_guard=args.completion_guard,

@@ -68,6 +68,7 @@ time_limit = 90.0
 per_leg_minutes = 12.0
 max_steps = 77
 arm = "vlm"
+context_policy = "a5"
 completion_guard = "vlm"
 name = "from-config"
 """,
@@ -83,6 +84,7 @@ name = "from-config"
             per_leg_minutes=runner.per_leg_minutes,
             max_steps=runner.max_steps,
             arm=runner.arm,
+            context_policy=runner.context_policy,
             completion_guard=runner.completion_guard,
         )
         return {}
@@ -97,6 +99,8 @@ name = "from-config"
                     "4",
                     "--arm",
                     "graph",
+                    "--context-policy",
+                    "a6-2",
                 ]
             )
         )
@@ -108,6 +112,7 @@ name = "from-config"
         "per_leg_minutes": 12.0,
         "max_steps": 77,
         "arm": "graph",
+        "context_policy": "a6-2",
         "completion_guard": "vlm",
     }
 
@@ -120,6 +125,7 @@ def test_standalone_agent_uses_config_and_explicit_cli_flags_win(tmp_path: Path)
         """
 [agent]
 arm = "vlm"
+context_policy = "a5"
 resolver_backend = "claude-cli"
 completion_guard = "vlm"
 leg_retries = 3
@@ -154,12 +160,15 @@ summary = "runs/one/result.json"
                 "configured run",
                 "--max-steps",
                 "42",
+                "--context-policy",
+                "a6-4",
                 "--no-reset-start",
             ]
         )
 
     assert seen["task"] == "configured run"
     assert seen["arm"] == "vlm"
+    assert seen["context_policy"] == "a6-4"
     assert seen["caps"] == (42, 6.5)
     assert seen["resolver_backend"] == "claude-cli"
     assert seen["completion_guard"] == "vlm"

@@ -160,6 +160,19 @@ def test_decomposer_prompt_defines_read_only_inspection_and_separate_pickup():
     assert '"type": "inspect"' in prompt and '"type": "pickup"' in prompt
 
 
+def test_decomposer_prompt_requires_a_goto_before_a_product_inspect():
+    """An inspect leg gets NO plan-time checkpoints (plan_legs) and cannot travel (the inspect scope
+    gate), so a bare inspect naming a product answers from wherever the agent spawned - measured
+    2026-07-30 on 'find choco mallows and check its price', which inspected from spawn and never saw
+    the product. The prompt must both require the leading goto AND permit a product as a goto
+    location; the location resolver already falls through to the product resolver."""
+    prompt = sc.TYPED_DECOMPOSER_SYSTEM.lower()
+    assert "name of a product" in prompt          # goto accepts a product destination
+    assert "preceded by a goto" in prompt         # the rule itself
+    assert "on this shelf" in prompt              # ... and its already-there exemption
+    assert '"type": "goto", "location": "choco mallows"' in prompt
+
+
 def test_inspection_answer_uses_only_structured_report_not_stop_placeholder():
     response = {
         "halt": True,

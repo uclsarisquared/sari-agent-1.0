@@ -40,6 +40,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from sari_bench import video
 from sari_bench.watch import health, scan
 from sari_bench.watch.server import WatchState, _safe_run_dir
 from sari_bench.watch.notify import Discord
@@ -951,6 +952,61 @@ def test_finished_run_queues_dashboard_replay_without_discord() -> None:
     print("ok  a finished run queues its dashboard replay even with Discord off")
 
 
+def test_a_clip_asked_for_mid_run_does_not_become_the_replay() -> None:
+    """The detail overlay offers `▶ replay so far` on a running attempt, which renders whatever
+    frames exist at that moment. `enqueue` answers READY for any replay.mp4 on disk, so without the
+    invalidation below that partial would silently stand in for the finished run's replay forever.
+    """
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        run_dir = make_attempt(battery, "p", 1, steps=healthy_steps(3), state="running",
+                               pid=os.getpid())
+        discord, _ = _recording_discord()
+        discord.enabled = False
+        queued: list[str] = []
+        invalidated: list[str] = []
+
+        class RecordingReplay:
+            def seed(self, _attempts: list[dict[str, Any]]) -> None:
+                pass
+
+            def request(self, key: str, path: Path) -> str:
+                return self.enqueue(key, path)
+
+            def enqueue(self, key: str, path: Path) -> str:
+                # The real worker answers READY for a clip already on disk; this one renders every
+                # time, so what the test reads back names the render the file came from.
+                queued.append(key)
+                (path / video.REPLAY_NAME).write_bytes(f"clip {len(queued)}".encode())
+                return "rendering"
+
+            def invalidate(self, key: str) -> None:
+                invalidated.append(key)
+
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery, discord=discord,
+                           replay=RecordingReplay(), min_interval=0.0)  # type: ignore[arg-type]
+        state.snapshot(force=True)
+
+        # A reviewer watching the live run asks for the clip so far.
+        state.replay_status("p/try01")
+        clip = run_dir / video.REPLAY_NAME
+        assert clip.read_bytes() == b"clip 1", "the mid-run request rendered nothing"
+        assert queued == ["p/try01"], queued
+
+        _stamp(run_dir, {"state": "finished", "outcome": "completed", "success": True,
+                         "end_reason": "halt_granted"})
+        state.snapshot(force=True)
+
+        assert invalidated == ["p/try01"], "the finish did not discard the mid-run clip"
+        assert clip.read_bytes() == b"clip 2", "the partial clip was served as the replay"
+
+        # And exactly once. Deleting a finished attempt's clip on every poll would re-encode the
+        # whole battery for as long as the watcher is up.
+        state.snapshot(force=True)
+        assert invalidated == ["p/try01"], invalidated
+    print("ok  a replay rendered mid-run is thrown away and rendered again when the run ends")
+
+
 def test_every_finished_attempt_is_reviewable() -> None:
     """The gate on the verdict buttons.
 
@@ -1141,7 +1197,7 @@ def test_already_successful_verdict_is_excluded_and_applied_automatically() -> N
     print("ok  already_successful excludes a halted try and is applied to cancellations by itself")
 
 
-def test_retry_config_preserves_completion_guard() -> None:
+def test_retry_config_preserves_completion_guard_and_context_policy() -> None:
     with tempfile.TemporaryDirectory() as temp:
         battery = Path(temp) / "b"
         _write(
@@ -1149,6 +1205,7 @@ def test_retry_config_preserves_completion_guard() -> None:
             json.dumps({
                 "coordinator": "ws://127.0.0.1:9000",
                 "completion_guard": "vlm",
+                "context_policy": "a5",
             }),
         )
         state = WatchState(
@@ -1159,7 +1216,8 @@ def test_retry_config_preserves_completion_guard() -> None:
         )
         config = state._retry_config(battery, {"command": []})
         assert config["completion_guard"] == "vlm", config
-    print("ok  watcher retry preserves the battery completion guard")
+        assert config["context_policy"] == "a5", config
+    print("ok  watcher retry preserves completion guard and context policy")
 
 
 def test_invalid_verdict_in_the_report() -> None:
@@ -1616,6 +1674,7 @@ def test_roles_grain_reports_per_reasoner_token_spend() -> None:
         assert round(sum(row["share_in"] for row in rows), 6) == 1.0, rows
         # The join key back to attempts.csv, and the arm an ablation groups by.
         assert rows[0]["run_dir"] == str(metered) and rows[0]["arm"] == "graph"
+        assert rows[0]["context_policy"] == "baseline"
 
         state = WatchState(bench_root=Path(temp), fixed_battery=battery,
                            discord=Discord(enabled=False), min_interval=0.0)
@@ -1723,10 +1782,11 @@ def main() -> int:
     test_replay_worker_prioritizes_announcements_and_rejects_corrupt_clips()
     test_full_replay_queue_falls_back_to_text_notification()
     test_finished_run_queues_dashboard_replay_without_discord()
+    test_a_clip_asked_for_mid_run_does_not_become_the_replay()
     test_every_finished_attempt_is_reviewable()
     test_verdict_round_trip_and_refusals()
     test_invalid_verdict_is_excluded_rather_than_failed()
-    test_retry_config_preserves_completion_guard()
+    test_retry_config_preserves_completion_guard_and_context_policy()
     test_invalid_verdict_in_the_report()
     test_success_verdict_cancels_only_same_prompt_siblings()
     test_response_body_ignores_client_disconnects_only()

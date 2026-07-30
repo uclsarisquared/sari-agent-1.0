@@ -1,0 +1,16 @@
+[bench]
+prompts = "../../sari_bench/prompts/context_window_ablation.json"
+tries = 3
+time_limit = 120.0
+per_leg_minutes = 40.0
+coordinator = "ws://127.0.0.1:9000"
+sandbox_startup_timeout = 30.0
+name = "context-ablation-a3"
+resume = false
+capture_interval = 0.25
+max_steps = 150
+arm = "graph"
+context_policy = "a3"
+map_dir = "../../overhaul/slamtest/output_runs/run_0724_164652"
+leg_retries = 1
+completion_guard = "vlm"

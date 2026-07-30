@@ -143,14 +143,15 @@ no usage and is therefore not counted; its qwen fallback is.
 **Which reasoner spent them** rides alongside, as `by_role` in `tokens.json` and the agent's
 `summary.json`, and as `tokens_by_role` on every `attempts.jsonl` row, `attempt.json`, battery
 `summary.json`, and per leg. The roles are `actor`, `semantic`, `episodic`, `advisor`, `perception`,
-`guard`, `decomposer`, `findings`, `resolver`, and `unattributed` — the last being any call made
+`guard`, `decomposer`, `findings`, `resolver`, `responder`, and `unattributed` — the last being any call made
 outside a tagged call site, kept as its own row rather than folded into someone else's, so an
 untagged new reasoner shows up as a visible gap. This is what makes an **ablation** legible: the
 totals alone say what an attempt cost, never what the component you removed was costing, and
 `by_model` cannot help because every reasoner runs on the same Qwen checkpoint.
 
-Read it three ways: the overview tab's footer breaks the battery down per role (hover any prompt's
-token cell, or an attempt card, for that attempt's own split); `python -m sari_bench report` writes
+Read it three ways: the overview tab's footer breaks the battery down per role — hovering a role's
+row says what that reasoner does and what an ablation dropping it would stop paying for, and hovering
+any prompt's token cell, or an attempt card, gives that attempt's own split; `python -m sari_bench report` writes
 `roles.csv`, one row per attempt **per role** with `share_in`/`share_out` — long format, so "tokens
 by arm by role" is a pivot and adding a reasoner changes the row count rather than the header; and
 the dashboard's *export tokens by role* button serves the same file. Attempts run before per-role
@@ -283,6 +284,16 @@ records `run_leg` already flushes, so there is no new agent-side instrumentation
 | `refusal_spiral` | halts requested and refused, with no `goal_met` |
 | `step_budget` / `time_budget` | >80% of the cap burned |
 
+**The repetition signals are hidden by default**, behind the header's `collapse signals: off` toggle.
+Everything below `stalled` in that table is inferred from *how* the agent has been moving over a
+sliding 10-step window: they are guesses, they appear and disappear as that window slides, and
+because the tiles are ranked by the score they produce, leaving them on reshuffles the grid under
+someone who is reading one attempt. With the toggle off, a tile's banner **and its place in the
+ranking** answer to `stalled` alone — no step record in five minutes, which is a hung call or a
+wedged sim rather than an opinion about the run. The toggle is a per-browser display choice, stored
+in `localStorage` and applied client-side: `/api/state` still carries the whole score, the CSV still
+reports it, and Discord collapse alerts are still sent on it.
+
 **Kill** on a tile SIGTERMs the agent's process group and then gets out of the way: the runner's own
 `process.wait()` returns non-zero, it records `operator_kill`, and its `finally` releases the lease
 so the coordinator resets and re-pools the sandbox. There is no second code path, and the watcher
@@ -315,11 +326,21 @@ they cannot ground — they say so themselves, in reasons like `goto granted [un
 info unavailable`. `predicate_unknown` is a keyword guard. So the headline success rate is a number
 the harness cannot fully stand behind.
 
-A halted attempt's tile therefore carries **▶ replay · ✓ success · ✗ fail · ⊘ invalid · A already
-successful**. The watcher
-queues its full replay as soon as the run finishes; press ▶ to play it in a modal and judge the run
-against what you just watched. Discord's separate, size-bounded attachment is rendered by the same
-one-at-a-time worker.
+A halted attempt's tile therefore carries **✓ success · ✗ fail · ⊘ invalid · A already successful**,
+grouped into a **grade** well so they read as a judgement about the run rather than as more of the
+kill/retry controls above them, and the ⛶ in the corner of its screenshot opens the attempt in full. The watcher queues its full
+replay as soon as the run finishes; press ▶ there to play it and judge the run against what you just
+watched. Discord's separate, size-bounded attachment is rendered by the same one-at-a-time worker.
+
+**The detail overlay is the only fullscreen view**, and there is one way into it from each tab: ⛶ on
+a tile's screenshot, or a cell on the overview. It holds the run's picture, its **complete** log
+rather than the tail the tile shows, the agent's closing answer, the leg/step/action rows and the
+verdict buttons. Which picture depends on the attempt: a finished one gets the ▶ that renders and
+plays its replay; **one still running gets the live frames at 4 FPS**, with `▶ replay so far` in the
+corner for a reviewer who wants the clip anyway. That clip covers only the frames captured up to
+that moment, so the watcher deletes it and renders the replay again when the attempt finishes —
+otherwise `enqueue`, which treats any `replay.mp4` on disk as final, would leave the partial
+standing in for the whole run.
 
 * **Every finished attempt is judgeable.** Verdict controls are available regardless of end reason,
   including forced halts, caps, errors, and administrative skips. A still-running attempt remains
@@ -368,7 +389,7 @@ one-at-a-time worker.
   <kbd>F</kbd>, <kbd>E</kbd> or <kbd>A</kbd> to mark it pass, fail, invalid or halted-already-
   successful; the cell flashes to acknowledge the
   keystroke, because the verdict itself only repaints a poll later. Clicking a cell opens the same
-  replay modal, with that attempt's **complete** log rather than its tail.
+  detail overlay a tile's ⛶ does.
 
 None of this needs Discord — `--no-replay` is the only flag that turns clip rendering off, and
 without `ffmpeg` on PATH the verdict buttons still work, you just cannot watch the run first.

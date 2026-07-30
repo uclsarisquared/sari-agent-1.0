@@ -30,7 +30,9 @@ if _ROOT not in sys.path:
 from sim import env
 from manip import manipulation as M
 from agent_core import agent as A
+from agent_core.context import SemanticLog
 from agent_core.sys_inst import SYS_INST_ASSOCIATIVE_SEMANTIC
+from agent_core.context_policy import ContextPolicy
 
 _ORIG = {"SetHandsActive": env.SetHandsActive, "ResetHands": env.ResetHands,
          "ToggleLeftGrip": env.ToggleLeftGrip, "ToggleRightGrip": env.ToggleRightGrip,
@@ -90,6 +92,7 @@ def _agent():
     a = object.__new__(A.EmbodiedAgent)   # skip __init__ (no clients)
     a._hands_active = None
     a._hand_pose = None
+    a.context_policy = ContextPolicy()
     return a
 
 
@@ -288,7 +291,7 @@ def test_held_item_inspection_vocabulary_exposes_only_restricted_macro():
 
 class _FakeVLM:
     def __init__(self):
-        self.base_semantic_memory = ""
+        self.semantic_log = SemanticLog("", ContextPolicy())
         self.episodic_memory = ""
         self.actor_prompts = []
 

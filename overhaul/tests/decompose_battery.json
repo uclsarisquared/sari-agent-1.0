@@ -27,13 +27,19 @@
      "looking_for": "a SINGLE inspect(query=count Piattos) leg with no manipulation.",
      "expected_types": ["inspect"]},
     {"id": "inspect-expiration", "family": "5 inspection", "prompt": "Read and report the expiration date printed on the milk.",
-     "looking_for": "a SINGLE inspect(query=expiration date) leg with no manipulation.",
-     "expected_types": ["inspect"]},
+     "looking_for": "goto(milk) THEN inspect(query=expiration date), no manipulation. The query names a specific product and no earlier leg goes there, so the leading goto is REQUIRED (was ['inspect'] before 2026-07-30 - an inspect leg cannot travel, so a bare inspect reads from wherever the agent spawned).",
+     "expected_types": ["goto", "inspect"]},
     {"id": "inspect-then-pickup", "family": "5 inspection", "prompt": "Read the expiration dates and pick up the one that is not expired.",
      "looking_for": "inspect(query=which is not expired) followed by a separate pickup leg.",
      "expected_types": ["inspect", "pickup"]},
     {"id": "inspect-nutrition-compare", "family": "5 inspection", "prompt": "Compare the nutritional facts of the two cereals and tell me which has less sugar.",
      "looking_for": "MUST type as inspect, NOT compare - the decision reads printed nutrition labels, not overall appearance. pickup(s) of the two cereals then a single inspect(query=which has less sugar) leg.",
-     "expected_types": ["pickup", "pickup", "inspect"]}
+     "expected_types": ["pickup", "pickup", "inspect"]},
+    {"id": "inspect-goto-price", "family": "5 inspection", "prompt": "Find the Choco Mallows and tell me the price.",
+     "looking_for": "goto(Choco Mallows) THEN inspect(query=price). The 2026-07-30 regression case: a bare inspect pair ran from spawn and never found the product at all.",
+     "expected_types": ["goto", "inspect"]},
+    {"id": "inspect-here-no-goto", "family": "5 inspection", "prompt": "Count the Vcut chips on this shelf.",
+     "looking_for": "a SINGLE inspect leg - 'on this shelf' says the agent is already there, so the goto rule must NOT fire. The over-firing control for inspect-goto-price.",
+     "expected_types": ["inspect"]}
   ]
 }

@@ -175,6 +175,17 @@ class ReplayNotifier(threading.Thread):
         self.discord.suppress_finished(keys)
         _log(f"seeded {len(keys)} finished attempt(s) as already announced")
 
+    def invalidate(self, key: str) -> None:
+        """Lets the next `enqueue` render this key again, without touching its announcement claim.
+
+        For the one case where a clip on disk is known to be wrong rather than absent: a replay a
+        reviewer asked for while the run was still going. `forget_attempt` is the wrong tool - it
+        also clears the Discord dedupe, which would re-announce a halt already posted.
+        """
+        with self._claim_lock:
+            self._requested.discard(key)
+            self._failed.discard(key)
+
     def forget_attempt(self, key: str) -> None:
         """Drops per-key caches before a replacement execution reuses the logical key."""
         with self._claim_lock:

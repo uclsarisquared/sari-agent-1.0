@@ -48,7 +48,8 @@ ATTEMPT_COLUMNS = [
     "end_reason", "exit_code", "wall_seconds", "wall_minutes",
     "tokens_in", "tokens_out", "tokens_total", "llm_calls",
     "legs_planned", "legs_completed", "requeues", "sandbox_id", "commands_uri",
-    "arm", "killed_by", "stop_reason", "stop_requested_at", "stop_requested_by",
+    "arm", "context_policy", "killed_by", "stop_reason", "stop_requested_at",
+    "stop_requested_by",
     "winning_attempt_key", "collapse_score", "collapse_signals", "run_dir", "error",
 ]
 
@@ -64,7 +65,8 @@ LEG_COLUMNS = [
 # length, the share does not. They are computed against the summed role rows rather than the
 # attempt's `tokens_in`, so they total to 1.0 even where the two disagree (see `_role_rows`).
 ROLE_COLUMNS = [
-    "battery_id", "prompt_id", "attempt", "arm", "family", "outcome", "success_final",
+    "battery_id", "prompt_id", "attempt", "arm", "context_policy", "family", "outcome",
+    "success_final",
     "role", "tokens_in", "tokens_out", "tokens_total", "calls", "share_in", "share_out",
     "run_dir",
 ]
@@ -142,6 +144,7 @@ def role_rows(attempt_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "prompt_id": attempt["prompt_id"],
                 "attempt": attempt["attempt"],
                 "arm": attempt["arm"],
+                "context_policy": attempt["context_policy"],
                 "family": attempt["family"],
                 "outcome": attempt["outcome"],
                 "success_final": attempt["success_final"],
@@ -244,6 +247,12 @@ def collect(battery: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             "sandbox_id": recorded.get("sandbox_id") or manifest.get("sandbox_id", ""),
             "commands_uri": recorded.get("commands_uri") or manifest.get("commands_uri", ""),
             "arm": manifest.get("arm") or summary.get("arm", ""),
+            "context_policy": (
+                recorded.get("context_policy")
+                or manifest.get("context_policy")
+                or (summary.get("run_config") or {}).get("context_policy")
+                or "baseline"
+            ),
             "killed_by": manifest.get("killed_by", ""),
             "stop_reason": manifest.get("stop_reason", ""),
             "stop_requested_at": manifest.get("stop_requested_at", ""),

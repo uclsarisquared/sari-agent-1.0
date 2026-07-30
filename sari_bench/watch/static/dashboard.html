@@ -71,9 +71,23 @@
   .frame { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: var(--term-bg); display: block; }
   .frame.none { display: grid; place-items: center; color: var(--dim); font-size: 12px; }
   .frame.none[hidden], .frame[hidden] { display: none; }
+  /* The screenshot carries its own one affordance, laid over its top-right corner rather than put
+     in the button row below: it opens THIS picture's attempt in full, and a tile is read by looking
+     at the image. Dim at rest so it never competes with the frame, solid under the cursor. */
+  .shot { position: relative; }
+  .shot-full { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 2px 7px 3px;
+               font-size: 13px; line-height: 1.15; color: #fff; opacity: .55;
+               background: rgba(15,17,21,.72); border-color: rgba(255,255,255,.26); }
+  .shot-full:hover, .card:hover .shot-full { opacity: 1; }
+  .shot-full:hover { background: rgba(38,43,51,.94); }
   .rows { padding: 8px 12px; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12.5px; }
   .rows dt { color: var(--dim); }
   .rows dd { margin: 0; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Three of these rows are the agent's own vocabulary rather than prose about it: the action is
+     the JSON the actor emitted, and the leg type and the held object are identifiers out of the
+     scene. Mono, so a name is read character by character and a changed one is visible as a change. */
+  .rows dd[data-ref="leg"], .rows dd[data-ref="action"], .rows dd[data-ref="held"] {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.8px; }
   .rows [hidden] { display: none; }
   /* Banners sit between the log and the rows. The 4px bottom plus the rows' own 8px of padding
      matches the 12px above, so the banner reads as evenly inset whichever one is showing. */
@@ -142,7 +156,22 @@
   /* Human verdict. Deliberately a second row, below the log/kill row: it is a different kind of
      action - a judgement about the run, not a thing done to it. */
   .verdict { padding: 0 12px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .verdict .spacer { margin-left: auto; }
+  /* The four verdicts are a judgement about the run; kill and retry above them do something to it.
+     Nothing in a row of identical buttons says which is which, so the verdicts are lifted out into
+     a well of their own - inset, rounded, labelled - and the buttons inside it go transparent so
+     the group reads as one control rather than as four more of what is above it. */
+  .grades { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px 8px;
+            border-radius: 14px; background: #15181d; border: 1px solid #262b33; }
+  .grades-label { color: var(--dim); font-size: 10px; letter-spacing: .07em;
+                  text-transform: uppercase; padding: 0 2px; }
+  /* A step lighter than the well they sit in, and no outline of their own: inside a group that is
+     already one shape, the fill is enough to make each verdict its own target - and lifting them
+     off the well rather than cutting them into it keeps them reading as buttons. */
+  .grades button.vote { background: #22262e; border-color: #22262e; padding: 4px 8px; }
+  .grades button.vote:hover { background: #2d323b; border-color: #2d323b; }
+  /* The review state belongs to the group it is about, at the end of the row it will be answered on
+     - not out beside it where it reads as one more thing the tile is telling you. */
+  .grades .state { color: var(--dim); font-size: 11.5px; padding: 0 2px; }
   button.vote.on[data-verdict="pass"] { background: #24402f; border-color: #2c4b38; color: #a8dcbb; }
   button.vote.on[data-verdict="fail"] { background: #3a221e; border-color: #57302a; color: #f0a596; }
   button.vote.on[data-verdict="invalid"] { background: #2b3038; border-color: #3a414c; color: #c3cbd6; }
@@ -303,7 +332,9 @@
   /* The overlay scrolls, and left alone WebKit paints its default light scrollbar down the side of
      a dark panel. Firefox takes the two-colour shorthand; WebKit needs the parts spelled out, the
      way pre.term already does for the terminals. */
-  #modal-body { flex: 1; min-height: 0; overflow-y: auto;
+  /* A column, so the log below can be told to take what is left rather than a share of the viewport
+     that the answer and the rows under it then have to fit around. */
+  #modal-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
                 scrollbar-color: #4a5260 var(--panel); scrollbar-width: thin; }
   #modal-body::-webkit-scrollbar { width: 10px; height: 10px; background: var(--panel); }
   #modal-body::-webkit-scrollbar-track,
@@ -313,37 +344,67 @@
   #modal-body::-webkit-scrollbar-thumb:hover { background: #657080; }
   /* Short enough that the rows sit above the fold under it - the clip and the numbers are read
      together, and a reviewer should not have to scroll to find out what they just watched. */
-  #modal-media { position: relative; display: grid; place-items: center; min-height: min(48vh, 320px);
+  /* One row that is allowed to be shorter than the picture in it. The box is a flex item, so the log
+     and the rows below can shrink it to its min-height; an `auto` row would stay as tall as the
+     frame and let `overflow: hidden` crop the bottom off - taking the live badge and the replay
+     button down there with it. `minmax(0, 1fr)` makes the row follow the box, and `object-fit`
+     scales the frame down to match instead. */
+  #modal-media { position: relative; display: grid; grid-template-rows: minmax(0, 1fr);
+                 place-items: center; min-height: min(48vh, 320px); max-height: 48vh;
                  overflow: hidden; background: #000; }
-  #modal-video, #modal-still { grid-area: 1 / 1; width: 100%; max-height: 48vh; background: #000;
-                               display: block; object-fit: contain; }
+  #modal-video, #modal-still { grid-area: 1 / 1; width: 100%; height: 100%; max-height: 48vh;
+                               background: #000; display: block; object-fit: contain; }
   /* `display: block` above outranks the hidden attribute's UA rule - the same trap .frame has. */
   #modal-still[hidden] { display: none; }
   #modal-play { grid-area: 1 / 1; z-index: 1; width: 68px; height: 68px; padding: 0 0 2px 5px;
                 border: 1px solid rgba(255,255,255,.72); border-radius: 50%; font-size: 27px;
                 color: #fff; background: rgba(15,17,21,.78); box-shadow: 0 8px 28px rgba(0,0,0,.55); }
   #modal-play:hover { background: rgba(38,43,51,.94); transform: scale(1.04); }
+  #modal-play[hidden] { display: none; }
+  /* A live attempt shows the run itself, not an offer to watch a recording of it, so the big ▶ is
+     replaced by the frames as they land. These two sit in the corners over that picture: what it is
+     on the left, and the way out to the clip-so-far on the right. Positioned against the box rather
+     than placed in its grid row, so they stay in the corners a reader can actually see however
+     short the log below squeezes the picture. */
+  #modal-badge, #modal-replay { position: absolute; bottom: 10px; z-index: 1; }
+  #modal-badge { left: 10px; padding: 3px 9px; border-radius: 999px; font-size: 12px;
+                 color: #cfe7d6; background: rgba(15,17,21,.78); border: 1px solid rgba(79,169,107,.5);
+                 display: inline-flex; align-items: center; gap: 6px; }
+  #modal-replay { right: 10px; color: #fff; background: rgba(15,17,21,.78);
+                  border-color: rgba(255,255,255,.28); }
+  #modal-replay:hover { background: rgba(38,43,51,.94); }
+  #modal-badge[hidden], #modal-replay[hidden] { display: none; }
   #modal-note { padding: 10px 14px; color: var(--dim); text-align: center; font-size: 12.5px; }
   #modal-rows { border-top: 1px solid var(--line); }
-  #modal-log { height: 240px; overflow-y: auto; }
+  /* The overlay is where a log is actually read, so it is given the height the card cannot spare -
+     but only what is left after the answer and the rows below it. A fixed 46vh here stacked with the
+     media's 48vh above and pushed the response quote off the bottom of the box entirely, where it
+     sat behind the footer and read as missing. It shrinks to its floor before anything below it is
+     given up, and the body scrolls only once even that will not fit. */
+  #modal-log { flex: 1 1 auto; min-height: 150px; max-height: min(46vh, 420px); overflow-y: auto; }
   #modal-foot { padding: 10px 14px; display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--line); }
-  #log-modal .overlay-box { width: min(1100px, 100%); height: min(880px, 100%); }
-  #log-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px;
-                    font-size: 12.5px; line-height: 1.5; border: 0; }
 
   /* Verdict acknowledgements should never interrupt the next review. They stack beneath the
      header in the top-right corner and quietly expire on their own. */
   #notifications { position: fixed; z-index: 40; top: 62px; right: 16px; width: min(380px, calc(100vw - 32px));
                    display: grid; gap: 8px; pointer-events: none; }
-  .notification { padding: 10px 12px; border: 1px solid #2c4b38; border-radius: 8px;
+  .notification { display: flex; align-items: flex-start; gap: 8px;
+                  padding: 10px 12px; border: 1px solid #2c4b38; border-radius: 8px;
                   background: #1d2a22; color: #c5e8d0; box-shadow: 0 10px 28px rgba(0,0,0,.45);
                   opacity: 0; transform: translateY(-6px); transition: opacity .16s ease, transform .16s ease; }
   .notification.on { opacity: 1; transform: translateY(0); }
-  /* The stack ignores the mouse so it never swallows a click meant for a card beneath it. One that
-     offers to do something has to take its clicks back. */
-  .notification.act { pointer-events: auto; cursor: pointer; text-align: left; width: 100%;
-                      font: inherit; border-color: #2f4a66; background: #1d2532; color: #cfe0f2; }
+  /* The stack ignores the mouse so it never swallows a click meant for a card beneath it. The two
+     things inside one that can be clicked have to take their own clicks back. */
+  .notification .n-body { flex: 1; padding: 0; border: 0; background: none; color: inherit;
+                          font: inherit; text-align: left; }
+  .notification.act { border-color: #2f4a66; background: #1d2532; color: #cfe0f2; }
+  .notification.act .n-body { pointer-events: auto; cursor: pointer; }
   .notification.act:hover { background: #243040; }
+  /* Every banner closes by hand, including the ones that would have expired on their own: an offer
+     the reader has already decided against should not have to be waited out. */
+  .n-close { pointer-events: auto; flex: none; padding: 0 4px; border: 0; background: none;
+             color: inherit; opacity: .55; font-size: 15px; line-height: 1.2; }
+  .n-close:hover { background: none; opacity: 1; }
 </style>
 </head>
 <body>
@@ -359,6 +420,8 @@
     <button class="tab on" data-act="tab" data-tab="live">live</button>
     <button class="tab" data-act="tab" data-tab="overview">overview</button>
   </span>
+  <button class="pill" id="collapse" data-act="collapse-toggle" aria-pressed="false">
+    collapse signals: off</button>
   <span class="muted" id="progress"></span>
   <span class="muted" id="pool"></span>
   <span class="muted" id="updated" style="margin-left:auto"></span>
@@ -394,6 +457,11 @@
         <img id="modal-still" alt="latest frame" hidden>
         <button id="modal-play" data-act="replay-start" aria-label="Render and play replay"
                 title="Play replay">▶</button>
+        <!-- Shown together, and only while the attempt is still going: the frame above is the run
+             as it happens, and the clip is a second thing you can ask for rather than the default. -->
+        <span id="modal-badge" hidden><span class="dot live"></span>live</span>
+        <button id="modal-replay" data-act="replay-start" hidden
+                title="Render the frames captured so far into a clip. The attempt is still running, so this covers only what it has done up to now; its full replay is rendered again when it finishes.">▶ replay so far</button>
       </div>
       <!-- Empty and hidden at rest: the ▶ button already says what to do, and how the clip gets
            made is the watcher's business. It speaks only while a render is in flight or has failed. -->
@@ -418,26 +486,19 @@
       </dl>
     </div>
     <div id="modal-foot">
-      <span class="muted">verdict:</span>
-      <button class="vote" data-act="verdict" data-verdict="pass" id="modal-yes">✓ success</button>
-      <button class="vote" data-act="verdict" data-verdict="fail" id="modal-no">✗ fail</button>
-      <button class="vote" data-act="verdict" data-verdict="invalid" id="modal-invalid">⊘ invalid</button>
-      <button class="vote" data-act="verdict" data-verdict="already_successful"
-              id="modal-already"><b class="vkey">A</b> already successful</button>
+      <!-- The same well as a tile's, for the same reason: these four judge the run, they do not do
+           anything to it, and the group is what says so before any of the labels are read. -->
+      <div class="grades">
+        <span class="grades-label">grade</span>
+        <button class="vote" data-act="verdict" data-verdict="pass" id="modal-yes">✓ success</button>
+        <button class="vote" data-act="verdict" data-verdict="fail" id="modal-no">✗ fail</button>
+        <button class="vote" data-act="verdict" data-verdict="invalid" id="modal-invalid">⊘ invalid</button>
+        <button class="vote" data-act="verdict" data-verdict="already_successful"
+                id="modal-already"><b class="vkey">A</b> already successful</button>
+        <span class="state" id="modal-verdict"></span>
+      </div>
       <button class="link" data-act="verdict-clear" id="modal-clear" hidden>clear grade</button>
-      <span class="muted" id="modal-verdict" style="margin-left:auto"></span>
     </div>
-  </div>
-</div>
-
-<div id="log-modal" class="overlay">
-  <div class="overlay-box">
-    <div class="overlay-head">
-      <strong id="log-modal-title">log</strong>
-      <span class="muted" id="log-modal-sub"></span>
-      <button data-act="log-modal-close" style="margin-left:auto">close</button>
-    </div>
-    <pre class="term" id="log-modal-body"></pre>
   </div>
 </div>
 
@@ -457,11 +518,68 @@ let lastOrder = "";
 // The attempt whose replay is open, and the last /api/state payload — the modal reads the current
 // verdict out of it on every refresh without being rebuilt.
 let modalKey = null;
-let logModalKey = null;
 let latest = [];
 
 // "live" or "overview". Only the live tab pays for frame decodes and log polling.
 let activeTab = "live";
+
+// -- collapse signals ------------------------------------------------------------------------
+// The health scorer reads two different kinds of thing off an attempt's step records. One is that
+// nothing has happened at all - `stalled` - which is unambiguous and worth interrupting for. The
+// rest infer a collapse from HOW the agent is moving: repeated positions, repeated actions, mode
+// flip-flopping, being blocked, burning budget. Those are guesses, they flicker as the window
+// slides, and because the tiles are ranked by the score they compute, they reshuffle the grid under
+// a reader watching one attempt. So they are off by default and this toggle brings them back.
+//
+// The filtering is done here rather than server-side on purpose: the score itself stays whole in
+// /api/state (Discord alerts and the report still use all of it), and flipping the switch is a
+// re-render rather than a round trip.
+const ALERT_AT = 0.6, WATCH_AT = 0.3;   // health.py's thresholds
+const STABLE_SIGNALS = new Set(["stalled"]);
+let showCollapse = localStorage.getItem("sari.collapse") === "on";
+
+// One attempt's health as this page is currently set to read it: the banner's level and words, and
+// the score the grid is ordered by. With the toggle off, only the signals in STABLE_SIGNALS count -
+// including toward the ranking, which is what stops the reshuffling.
+function healthOf(a) {
+  const raw = (a && a.health) || {};
+  if (showCollapse) {
+    return { level: raw.level || "ok", summary: raw.summary || "", score: Number(raw.score) || 0 };
+  }
+  const kept = (raw.signals || []).filter(s => STABLE_SIGNALS.has(s.name));
+  const score = Math.min(1, kept.reduce((sum, s) => sum + (Number(s.weight) || 0), 0));
+  return {
+    level: score >= ALERT_AT ? "alert" : score >= WATCH_AT ? "watch" : "ok",
+    summary: kept.map(s => s.detail).join(", "),
+    score,
+  };
+}
+
+const TIP_COLLAPSE =
+  "The repetition signals — spatial_loop, action_loop, mode_thrash, blocked, refusal_spiral and the "
+  + "budget burns — are inferred from how the agent has been moving over its last 10 steps. They are "
+  + "guesses, they come and go as that window slides, and the tiles are ranked by the score they "
+  + "produce, so leaving them on reshuffles the grid under you while you are reading one attempt. "
+  + "Off, a tile's banner and its place in the grid answer to `stalled` alone: no step record in "
+  + "five minutes, which means a hung call or a wedged sim rather than an opinion about the run. "
+  + "This is a display choice only — the full score is still recorded, still ranked in the report, "
+  + "and still what Discord collapse alerts are sent on.";
+
+function renderCollapseToggle() {
+  const button = document.getElementById("collapse");
+  setText(button, `collapse signals: ${showCollapse ? "on" : "off"}`);
+  button.setAttribute("aria-pressed", String(showCollapse));
+  button.dataset.tipTerm = "collapse signals";
+  button.dataset.tip = TIP_COLLAPSE;
+}
+
+function toggleCollapse() {
+  showCollapse = !showCollapse;
+  localStorage.setItem("sari.collapse", showCollapse ? "on" : "off");
+  renderCollapseToggle();
+  lastOrder = "";  // the ranking key just changed under every card
+  refresh();
+}
 
 const fmtMin = s => (s === null || s === undefined) ? "—"
   : (s < 0 ? "-" : "") + Math.floor(Math.abs(s) / 60) + "m" + String(Math.floor(Math.abs(s) % 60)).padStart(2, "0") + "s";
@@ -498,19 +616,32 @@ const setHTML = (el, value) => { if (el.innerHTML !== value) el.innerHTML = valu
 // `onClick` turns the banner into a button and makes it wait: an offer the reader has to be able to
 // take is worth nothing if it expires while they are reading the card underneath it.
 function notify(message, onClick) {
-  const el = document.createElement(onClick ? "button" : "div");
+  const el = document.createElement("div");
   el.className = "notification" + (onClick ? " act" : "");
   el.setAttribute("role", "status");
-  el.textContent = message;
+
+  // The message is the button when there is something to take up, and plain text when there is not.
+  // The banner itself is never the button: it has to hold a second one.
+  const body = document.createElement(onClick ? "button" : "span");
+  body.className = "n-body";
+  body.textContent = message;
+  const close = document.createElement("button");
+  close.className = "n-close";
+  close.setAttribute("aria-label", "dismiss");
+  close.textContent = "×";
+  el.append(body, close);
   document.getElementById("notifications").appendChild(el);
   requestAnimationFrame(() => el.classList.add("on"));
 
+  let timer = null;
   const dismiss = () => {
+    if (timer) clearTimeout(timer);
     el.classList.remove("on");
     setTimeout(() => el.remove(), 180);
   };
-  if (onClick) el.addEventListener("click", () => { dismiss(); onClick(); });
-  else setTimeout(dismiss, 5000);
+  close.addEventListener("click", dismiss);
+  if (onClick) body.addEventListener("click", () => { dismiss(); onClick(); });
+  else timer = setTimeout(dismiss, 5000);
   return dismiss;
 }
 
@@ -533,12 +664,10 @@ const VERDICT_WORD = { pass: "success", fail: "fail", invalid: "invalid",
 // the markup the badge builders return.
 
 const TIP_BATTERY =
-  "One benchmark run: a prompt set, a fixed number of tries per prompt, and everything the harness "
-  + "recorded for them under bench_runs/. This is that run's directory name — usually its start "
-  + "timestamp — and every tile and row on this page belongs to it. The page holds this run and "
-  + "will not leave it on its own, even after a newer battery begins — that one announces itself in "
-  + "the corner instead. Click to read any other run on disk; a blinking green dot marks one whose "
-  + "runner is still working.";
+  "One benchmark run — a prompt set, a fixed number of tries each — named by its directory under "
+  + "bench_runs/. Every tile and row on this page belongs to it, and the page stays on it even "
+  + "after a newer run starts; that one announces itself in the corner instead. Click to read any "
+  + "other run on disk. A blinking dot means its runner is still working.";
 
 // How a finished try ended, as the runner scored it.
 const OUTCOME_TIPS = {
@@ -747,8 +876,12 @@ const CARD_HTML = `
     <span data-ref="badges"></span>
   </div>
   <div class="prompt"></div>
-  <img class="frame" alt="latest frame" hidden>
-  <div class="frame none">no frame yet</div>
+  <div class="shot">
+    <img class="frame" alt="latest frame" hidden>
+    <div class="frame none">no frame yet</div>
+    <button class="shot-full" data-act="detail" aria-label="Open this attempt in full"
+            title="Open this attempt in full — live view or replay, its whole log, and the verdict">⛶</button>
+  </div>
   <pre class="term"></pre>
   <div class="resp" data-ref="resp" hidden>
     <span class="resp-label">agent response</span>
@@ -770,18 +903,19 @@ const CARD_HTML = `
     <dt data-ref="endLabel" hidden>end</dt><dd data-ref="end" hidden></dd>
   </dl>
   <div class="actions">
-    <button data-act="log">fullscreen log</button>
     <button data-act="retry">retry</button>
     <button class="danger" data-act="kill" hidden>kill</button>
   </div>
   <div class="verdict" hidden>
-    <button data-act="replay">▶ replay</button>
-    <button class="vote" data-act="verdict" data-verdict="pass">✓ success</button>
-    <button class="vote" data-act="verdict" data-verdict="fail">✗ fail</button>
-    <button class="vote" data-act="verdict" data-verdict="invalid">⊘ invalid</button>
-    <button class="vote" data-act="verdict" data-verdict="already_successful"><b class="vkey">A</b> already successful</button>
+    <div class="grades">
+      <span class="grades-label">grade</span>
+      <button class="vote" data-act="verdict" data-verdict="pass">✓ success</button>
+      <button class="vote" data-act="verdict" data-verdict="fail">✗ fail</button>
+      <button class="vote" data-act="verdict" data-verdict="invalid">⊘ invalid</button>
+      <button class="vote" data-act="verdict" data-verdict="already_successful"><b class="vkey">A</b> already successful</button>
+      <span class="state" data-ref="unreviewed">unreviewed</span>
+    </div>
     <button class="link" data-act="verdict-clear" hidden>clear grade</button>
-    <span class="muted spacer" data-ref="unreviewed">unreviewed</span>
   </div>`;
 
 function buildCard(a) {
@@ -843,7 +977,7 @@ function setRows(refs, a) {
 function patchCard(entry, a) {
   const { refs } = entry;
   const live = isLive(a);
-  const lvl = (a.health && a.health.level) || "ok";
+  const shown = healthOf(a);
 
   if ((a.run_id || "") !== entry.runId) {
     entry.runId = a.run_id || "";
@@ -876,12 +1010,12 @@ function patchCard(entry, a) {
 
   setResponse(refs.resp, refs.respText, a);
 
-  const showSig = live && lvl !== "ok" && a.health.summary;
+  const showSig = live && shown.level !== "ok" && shown.summary;
   refs.sig.hidden = !showSig;
   if (showSig) {
-    setText(refs.sigTitle, lvl === "watch" ? "warn" : "alert");
-    setText(refs.sigSummary, a.health.summary);
-    refs.sig.className = "sig " + lvl;
+    setText(refs.sigTitle, shown.level === "watch" ? "warn" : "alert");
+    setText(refs.sigSummary, shown.summary);
+    refs.sig.className = "sig " + shown.level;
   }
 
   setRows(refs, a);
@@ -971,7 +1105,14 @@ async function updateFrame(entry, a, force = false) {
 // State, logs, health scoring and layout remain on the inexpensive 2s dashboard tick. Only the
 // currently visible live images use this 250ms loop, and ETags turn unchanged frames into empty 304s.
 function refreshLiveFrames() {
-  if (activeTab !== "live" || document.hidden) return;
+  if (document.hidden) return;
+  // The overlay's live view runs at this cadence too, and from either tab: it is opened from the
+  // overview as often as from a tile, and a reader watching a run there is watching the same run.
+  if (modalKey) {
+    const open = latest.find(a => a.key === modalKey);
+    if (open && isLive(open)) updateModalStill(open, true);
+  }
+  if (activeTab !== "live") return;
   for (const a of latest) {
     if (!isLive(a)) continue;
     const entry = cards.get(a.key);
@@ -1002,7 +1143,38 @@ const KILL_OUTCOMES = new Set(["operator_kill", "skipped", "requeued", "orphaned
 // scan.ROLE_ORDER's twin, keep the two in step. A role the agent reports that this list has never
 // heard of still renders, after the known ones, so instrumenting a new reasoner needs no UI change.
 const ROLE_ORDER = ["decomposer", "resolver", "actor", "semantic", "episodic", "advisor",
-                    "perception", "guard", "findings", "unattributed"];
+                    "perception", "guard", "findings", "responder", "unattributed"];
+
+// What each reasoner actually is, in the words of what it costs tokens for. A row of this table is
+// what an ablation removes, so the question a reader has over the bar is always "what would I lose
+// if this went to zero" - these answer that, not the class name.
+const ROLE_TIPS = {
+  decomposer: "Turns the prompt into the typed subtasks the run is made of - one leg each - before "
+    + "the agent moves at all. Plan time, and normally a single call.",
+  resolver: "`locate_task.resolve`, also at plan time: which product and which place on the store "
+    + "map a leg actually refers to, and the candidate checkpoints the navigator is handed.",
+  actor: "`VLMAgent.send_message` - the per-step action chooser. It sees the current frame and "
+    + "picks what to do next, once per step, so on most runs it is the bulk of the bill.",
+  semantic: "The associative learner's semantic pass: what the current observation means, folded "
+    + "back into what the agent is working from.",
+  episodic: "The associative learner's episodic pass over the run's own history. Same learner and "
+    + "client as the semantic pass, billed apart because the two are separately removable - "
+    + "telling them apart is what the roles are for.",
+  advisor: "The graph-advised navigator's per-hop pick: given where it stands, the adjacent "
+    + "checkpoints and the planner's shortest-route advice, which one to walk to next. One call per "
+    + "hop, and a failed one falls back to the planner's advice rather than stranding the leg.",
+  perception: "Where things are on screen rather than what to do about them: bounding boxes, "
+    + "centering and OCR-box reasoning, including `md_tools`' fallback.",
+  guard: "`pickup_vlm_guard`'s completion classifiers - a strict second opinion on whether a pickup "
+    + "really happened, deliberately not left to the actor's own account of it.",
+  findings: "The between-leg summaries: what the leg just finished established, written down for "
+    + "the legs that come after it.",
+  responder: "The run's closing answer to the prompt, composed from the task journal once the work "
+    + "is done. It is what the tiles and the overview quote as the agent's response.",
+  unattributed: "Calls billed outside any role block - a background thread, or a path the meter has "
+    + "not been taught yet. Not a component: this row is the gap in the accounting, and there is "
+    + "nothing here an ablation could remove.",
+};
 const sortRoles = names => [
   ...ROLE_ORDER.filter(role => names.includes(role)),
   ...names.filter(role => !ROLE_ORDER.includes(role)).sort(),
@@ -1245,7 +1417,11 @@ function renderOverview(state) {
   const roleSum = roleNames.reduce((sum, name) =>
     sum + roleTotals.get(name).in + roleTotals.get(name).out, 0);
   const roleFoot = !roleNames.length ? "" : `
-    <tr>
+    <tr ${tipAttrs("tokens by role",
+      "One row per reasoner agent_core.token_meter bills calls to, in the order a task moves "
+      + "through them. Shares are of these rows' own sum rather than of the total above, so they "
+      + "add to 100% even when some tries carry no role block. Hover a row for what that reasoner "
+      + "does; the same split per prompt is on each row's token cell.")}>
       <td class="lbl" colspan="${span}">tokens by role — where the spend went${
         roleTries < ranTries
           ? `, over the ${roleTries} of ${ranTries} dispatched tr(ies) that recorded roles`
@@ -1254,8 +1430,16 @@ function renderOverview(state) {
     </tr>` + roleNames.map(name => {
       const row = roleTotals.get(name);
       const share = roleSum ? (row.in + row.out) / roleSum : 0;
+      // The whole row explains itself, not just the name: a reader's cursor is on the bar or the
+      // share when the question "what is `episodic`?" occurs to them.
+      // Own-property only: role names come off the agent's own tokens.json, and one that happened
+      // to be "constructor" would otherwise pull an inherited member into the card.
+      const tip = tipAttrs(name,
+        Object.prototype.hasOwnProperty.call(ROLE_TIPS, name) ? ROLE_TIPS[name]
+          : "A reasoner the agent bills calls to that this dashboard has not been told about yet.",
+        `${fmtNum(row.calls)} call(s) across the battery`);
       return `
-    <tr class="role">
+    <tr class="role" ${tip}>
       <td class="lbl" colspan="${span}">${esc(name)}<span class="bar" style="width:${
         (share * 22).toFixed(2)}em"></span></td>
       <td colspan="3">${fmtNum(row.in)} in / ${fmtNum(row.out)} out <span class="share">· ${
@@ -1455,11 +1639,28 @@ function hideHelp() {
   help.classList.remove("on");
 }
 
+// Where the cursor is, so a card patched under a stationary mouse can be asked what is beneath it
+// now. Nothing here reads the position until something actually replaces an element.
+let cursorX = 0, cursorY = 0;
+document.addEventListener("mousemove", ev => { cursorX = ev.clientX; cursorY = ev.clientY; });
+
 document.addEventListener("mouseover", ev => {
   const el = ev.target.closest("[data-tip]");
   if (el === helpTarget) return;
   if (el) showHelp(el); else hideHelp();
 });
+
+// The render loop rewrites a badge in place whenever its text changes, and re-appends a card that
+// has moved in the ranking. Neither is the reader taking the cursor off the thing they were reading,
+// so the explainer follows: it re-anchors to whatever is under the cursor now, and only closes when
+// that is no longer a tag.
+function followHelp() {
+  if (!helpTarget) return;
+  if (helpTarget.isConnected) { placeHelp(helpTarget); return; }
+  const under = document.elementFromPoint(cursorX, cursorY);
+  const el = under && under.closest ? under.closest("[data-tip]") : null;
+  if (el) showHelp(el); else hideHelp();
+}
 document.addEventListener("focusin", ev => {
   const el = ev.target.closest("[data-tip]");
   if (el) showHelp(el);
@@ -1467,7 +1668,17 @@ document.addEventListener("focusin", ev => {
 document.addEventListener("focusout", () => hideHelp());
 // A tag scrolling out from under a stationary cursor would otherwise keep its card pinned, and a
 // click on a vote button has already been read by the time it lands.
-document.addEventListener("scroll", () => { if (helpTarget) hideHelp(); }, true);
+//
+// Which scroll, though, matters: every terminal on the page pins itself to its tail several times a
+// second, and each of those is a scroll event that reaches this capture listener. Hiding on all of
+// them made a hovered tag's explainer flicker out the moment any card's log advanced. A scroll can
+// only have moved the tag if what scrolled contains it.
+document.addEventListener("scroll", ev => {
+  if (!helpTarget) return;
+  const scrolled = ev.target;
+  if (scrolled === document || scrolled === document.documentElement
+      || (scrolled.contains && scrolled.contains(helpTarget))) hideHelp();
+}, true);
 document.addEventListener("click", ev => { if (!ev.target.closest("[data-tip]")) hideHelp(); }, true);
 
 // -- battery picker ------------------------------------------------------------------------
@@ -1537,8 +1748,11 @@ function renderPicker(state) {
 
   const menu = document.getElementById("battery-menu");
   const rows = discovered.map(d => {
-    const note = [d.id === state.watching_id ? "watching" : "", fmtWhen(d.mtime)]
-      .filter(Boolean).join(" · ");
+    // Just the time. Whether the *watcher* follows a run is its own business - it keeps announcing
+    // and rendering for the one it started on whatever the page reads - and saying so beside a row
+    // whose blinking dot already means "a runner is working here" only reads as a second liveness
+    // tag that disagrees with the first.
+    const note = fmtWhen(d.mtime);
     return `<li role="option" data-battery="${esc(d.id)}" aria-selected="${d.id === state.battery_id}">`
       + `<span class="dot${d.live ? " live" : ""}"></span>`
       + `<span class="m-id">${esc(d.id)}</span>`
@@ -1555,8 +1769,7 @@ function renderPicker(state) {
 // The directory under bench_runs/ is the run's only name - there is no display name stored beside
 // it - so this really does move the folder, and the server refuses while anything is still writing.
 async function renameBattery(id) {
-  const typed = prompt(`Rename bench run\n\n${id}\n\nLetters, digits, dot, dash and underscore; `
-    + `anything else becomes a dash.`, id);
+  const typed = prompt(`Rename bench run\n\nLetters, digits, . - _ only.`, id);
   if (typed === null) return;
   const wanted = typed.trim();
   if (!wanted || wanted === id) return;
@@ -1601,7 +1814,6 @@ function selectBattery(choice) {
   localStorage.setItem("sari.battery", choice);
   closeMenu();
   closeModal();
-  closeLogModal();
   for (const entry of [...cards.values()]) dropCard(entry);
   lastOrder = "";
   refresh();
@@ -1637,6 +1849,15 @@ async function refresh() {
   batteryId = state.battery_id || null;
   renderPicker(state);
   const b = state.battery || {}, atts = state.attempts || [];
+  // The server already ranks worst-first, but by the whole collapse score. Re-rank by the score
+  // this page is set to read (scan.py's key otherwise, exactly) so that with the repetition signals
+  // hidden the grid also stops moving to them - hiding a banner while its attempt still jumps to
+  // the top of the grid would be the same interruption in a quieter coat.
+  atts.sort((x, y) =>
+    (x.state === "finished") - (y.state === "finished")
+    || healthOf(y).score - healthOf(x).score
+    || String(x.prompt_id).localeCompare(String(y.prompt_id))
+    || (x.attempt || 0) - (y.attempt || 0));
   latest = atts;
   const done = atts.filter(a => a.state === "finished").length;
   const live = atts.filter(isLive).length;
@@ -1683,12 +1904,11 @@ async function refresh() {
 
   reorder(grid, atts);
   renderOverview(state);
-  // A badge whose text changed was rewritten out from under the cursor; its explainer would
-  // otherwise hang there describing an element no longer on the page.
-  if (helpTarget && !helpTarget.isConnected) hideHelp();
+  // A badge whose text changed was rewritten out from under the cursor, and a card that moved took
+  // its tags with it; the explainer re-anchors rather than closing.
+  followHelp();
   // A hovered cell on a live attempt keeps its elapsed and token counts current.
   if (tipKey) showTip(tipKey);
-  if (logModalKey) termPump(logModal, logModalKey, MODAL_LOG_LINES, null, true);
   if (modalKey) syncModal();
 }
 
@@ -1714,34 +1934,11 @@ function reorder(grid, atts) {
   }
 }
 
-// -- fullscreen log ----------------------------------------------------------------------
-
-// The dedicated fullscreen reader intentionally has no client-side line cap.
-const logModal = newTerm(document.getElementById("log-modal-body"), false);
-
-function openLogModal(key) {
-  logModalKey = key;
-  termClear(logModal);
-  logModal.cursor = null;
-  logModal.size = null;
-  logModal.done = false;
-  const a = latest.find(x => x.key === key);
-  document.getElementById("log-modal-title").textContent = key;
-  document.getElementById("log-modal-sub").textContent = a ? (a.end_reason || a.state || "") : "";
-  document.getElementById("log-modal").classList.add("open");
-  termPump(logModal, key, MODAL_LOG_LINES, null, true);
-}
-
-function closeLogModal() {
-  logModalKey = null;
-  logModal.done = true;  // stop any pump already in flight from appending after the close
-  document.getElementById("log-modal").classList.remove("open");
-}
-
 // -- detail overlay ------------------------------------------------------------------------
-// The attempt in full: the replay, the same leg/step/action block the card shows, the log, and the
-// verdict. One overlay for both entry points — the live tab's ▶ replay button and a cell on the
-// overview — so there is a single code path for reviewing an attempt.
+// The attempt in full: the run itself (live frames while it is going, the replay once it is not),
+// the same leg/step/action block the card shows, its whole log, and the verdict. One overlay for
+// both entry points — the ⛶ on a tile's screenshot and a cell on the overview — so there is a
+// single code path for looking at an attempt, and the tiles keep no controls of their own for it.
 //
 // It sits outside #grid so nothing in the render loop can reach the <video> and restart playback
 // mid-review; refresh() only ever patches the rows and pumps the log.
@@ -1752,10 +1949,12 @@ function closeLogModal() {
 const modalTerm = newTerm(document.getElementById("modal-log"), false);
 const modalRefs = {};
 document.querySelectorAll("#modal-rows [data-ref]").forEach(el => { modalRefs[el.dataset.ref] = el; });
-let modalStill = null;   // the frame path currently in <img id="modal-still">
 let modalReplayRequested = false;
+// The still under the overlay, fetched the way a card's frame is - by ETag, so a live attempt's
+// picture can advance at 4 FPS without the state poll having told us the path changed yet.
+const modalShot = { frame: null, etag: null, busy: false, blobUrl: null };
 
-function openModal(key, requestReplay = false) {
+function openModal(key) {
   modalKey = key;
   modalReplayRequested = false;
   const video = document.getElementById("modal-video");
@@ -1765,9 +1964,7 @@ function openModal(key, requestReplay = false) {
   const still = document.getElementById("modal-still");
   still.hidden = true;
   still.removeAttribute("src");
-  modalStill = null;
-  const play = document.getElementById("modal-play");
-  play.hidden = false;
+  resetModalShot();
   const note = document.getElementById("modal-note");
   note.style.display = "none";
   note.textContent = "";
@@ -1778,7 +1975,6 @@ function openModal(key, requestReplay = false) {
   document.getElementById("modal").classList.add("open");
   syncModal();
   termPump(modalTerm, key, MODAL_LOG_LINES, null, true);
-  if (requestReplay) startModalReplay(key);
 }
 
 function closeModal() {
@@ -1789,7 +1985,69 @@ function closeModal() {
   video.pause();
   video.removeAttribute("src");
   video.load();
+  resetModalShot();
   document.getElementById("modal").classList.remove("open");
+}
+
+function resetModalShot() {
+  if (modalShot.blobUrl) URL.revokeObjectURL(modalShot.blobUrl);
+  modalShot.frame = null;
+  modalShot.etag = null;
+  modalShot.blobUrl = null;
+}
+
+// Which of the three things the media area is showing. The clip wins outright once one has been
+// asked for; a running attempt gets its own frames and the offer of a clip-so-far; anything else
+// gets the ▶ that renders and plays its replay.
+function modalMedia(a) {
+  const video = document.getElementById("modal-video");
+  const playing = modalReplayRequested || Boolean(video.getAttribute("src"));
+  const live = Boolean(a) && isLive(a);
+  document.getElementById("modal-play").hidden = playing || live;
+  document.getElementById("modal-badge").hidden = playing || !live;
+  document.getElementById("modal-replay").hidden = playing || !live;
+  if (video.getAttribute("src")) document.getElementById("modal-still").hidden = true;
+}
+
+// The still is the whole picture while an attempt runs, and the placeholder for a clip that is
+// queued or will never exist otherwise. Same shape as updateFrame: fetch under an ETag, decode off
+// screen, swap into an <img> that is never replaced, so nothing here can flash black.
+async function updateModalStill(a, force = false) {
+  if (!a || !a.frame || modalReplayRequested || modalShot.busy) return;
+  const video = document.getElementById("modal-video");
+  if (video.getAttribute("src")) return;
+  if (!force && a.frame === modalShot.frame) return;
+  modalShot.busy = true;
+  const key = a.key;
+
+  let url, etag;
+  try {
+    const headers = modalShot.etag ? { "If-None-Match": modalShot.etag } : {};
+    const res = await fetch(api(key, "frame.png"), { headers, cache: "no-store" });
+    if (res.status === 304) { modalShot.busy = false; return; }
+    if (!res.ok) throw new Error(res.status);
+    etag = res.headers.get("ETag");
+    url = URL.createObjectURL(await res.blob());
+  } catch {
+    modalShot.busy = false;
+    return;
+  }
+  // The overlay may have been closed, moved to another attempt, or given a clip mid-fetch.
+  if (modalKey !== key || modalReplayRequested || video.getAttribute("src")) {
+    URL.revokeObjectURL(url);
+    modalShot.busy = false;
+    return;
+  }
+
+  const still = document.getElementById("modal-still");
+  const previous = modalShot.blobUrl;
+  modalShot.frame = a.frame;
+  modalShot.etag = etag;
+  modalShot.blobUrl = url;
+  still.src = url;
+  still.hidden = false;
+  if (previous) URL.revokeObjectURL(previous);
+  modalShot.busy = false;
 }
 
 function syncModal() {
@@ -1807,20 +2065,10 @@ function syncModal() {
               document.getElementById("modal-resp-text"), a);
   termPump(modalTerm, key, MODAL_LOG_LINES, a ? (a.log_bytes ?? null) : null, true);
 
-  // The still is a placeholder for the clip, not a rival to it: it carries the overlay while the
-  // encode is queued and for an attempt that will never have one, and the video hides it on arrival.
-  const video = document.getElementById("modal-video");
-  const still = document.getElementById("modal-still");
-  if (video.getAttribute("src")) {
-    still.hidden = true;
-  } else if (a && a.frame && a.frame !== modalStill) {
-    modalStill = a.frame;
-    frameURL(a).then(url => {
-      if (modalKey !== key || !url || video.getAttribute("src")) return;
-      still.src = url;
-      still.hidden = false;
-    });
-  }
+  // An attempt still running is shown as itself; anything else offers the clip over its last frame.
+  // The 4 FPS loop advances a live one - this tick only has to catch a frame path that changed.
+  modalMedia(a);
+  updateModalStill(a);
 
   // Every finished attempt is reviewable; a live attempt's outcome can still change.
   const foot = document.getElementById("modal-foot");
@@ -1842,7 +2090,7 @@ function syncModal() {
 function startModalReplay(key) {
   if (modalKey !== key || modalReplayRequested) return;
   modalReplayRequested = true;
-  document.getElementById("modal-play").hidden = true;
+  modalMedia(latest.find(x => x.key === key));
   const note = document.getElementById("modal-note");
   note.style.display = "";
   note.textContent = "asking for the clip…";
@@ -1885,6 +2133,13 @@ async function pollReplay(key) {
   note.textContent = res.status === 409
     ? "no clip — showing the last frame (the attempt saved too few frames, or ffmpeg is missing)"
     : `replay unavailable (HTTP ${res.status})`;
+  // A running attempt asked for a clip and cannot have one yet. Give it its live view back rather
+  // than leaving the reader on a frozen frame under an explanation; the offer stands again too.
+  const a = latest.find(x => x.key === key);
+  if (a && isLive(a)) {
+    modalReplayRequested = false;
+    modalMedia(a);
+  }
 }
 
 async function sendVerdict(key, verdict) {
@@ -1894,12 +2149,9 @@ async function sendVerdict(key, verdict) {
     body: JSON.stringify({ verdict }),
   });
   const data = await res.json();
+  // Only failures speak. A recorded pass is already visible in the cell and the badges, and the
+  // sibling counts it used to report are the confirm dialog's business, before the fact.
   if (!data.ok) alert("Verdict not recorded: " + (data.error || "unknown"));
-  else if (verdict === "pass") {
-    const stopped = data.siblings_stopped || 0;
-    const skipped = data.siblings_skipped || 0;
-    notify(`Success recorded. ${stopped} sibling(s) stopped; ${skipped} sibling(s) will be skipped.`);
-  }
   refresh();
 }
 
@@ -1936,7 +2188,6 @@ async function recordVerdict(key, verdict) {
 
 document.addEventListener("click", async ev => {
   if (ev.target.id === "modal") { closeModal(); return; }
-  if (ev.target.id === "log-modal") { closeLogModal(); return; }
   // Ahead of the option itself: the pencil sits inside a row whose entire surface means "switch to
   // this run", and renaming a battery must not also drag the page onto it.
   const rename = ev.target.closest("#battery-menu button[data-act='battery-rename']");
@@ -1959,12 +2210,10 @@ document.addEventListener("click", async ev => {
     return;
   }
   if (act === "tab") { setTab(button.dataset.tab); return; }
-  if (act === "log") { openLogModal(key); return; }
-  if (act === "log-modal-close") { closeLogModal(); return; }
+  if (act === "collapse-toggle") { toggleCollapse(); return; }
   if (act === "modal-close") { closeModal(); return; }
-  // An overview cell opens on its last frame without starting an encode. The live card already has
-  // an explicit ▶ replay affordance, so that entry point can request the clip immediately.
-  if (act === "replay") { if (key) openModal(key, true); return; }
+  // Both entry points - a tile's ⛶ and an overview cell - open the same overlay the same way: on
+  // the run itself, and without starting an encode nobody asked for.
   if (act === "detail") { if (key) openModal(key); return; }
   if (act === "replay-start") { if (modalKey) startModalReplay(modalKey); return; }
 
@@ -2042,8 +2291,7 @@ document.addEventListener("keydown", async ev => {
   if (ev.key === "Escape") {
     hideHelp();
     closeMenu();
-    if (logModalKey) closeLogModal();
-    else if (modalKey) closeModal();
+    if (modalKey) closeModal();
     return;
   }
 
@@ -2071,6 +2319,7 @@ document.addEventListener("keydown", async ev => {
 });
 
 tipVotes(document.getElementById("modal-foot"));
+renderCollapseToggle();
 refresh();
 setInterval(refresh, POLL_MS);
 setInterval(refreshLiveFrames, FRAME_POLL_MS);

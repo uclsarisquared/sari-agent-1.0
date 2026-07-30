@@ -24,6 +24,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # overhaul/
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from agent_core import token_meter  # lightweight - no model stack
 from orchestrator.subtask_completion import TYPED_DECOMPOSER_SYSTEM, parse_decomposition, SUBTASK_TYPES
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -52,8 +53,10 @@ OLD_FREESTRING_SYSTEM = (
 
 
 def _run_arm(client, llm_call, system, task):
+    # `role` bills the call to the decomposer row of the per-role token accounting; both arms ARE the
+    # decomposer, so both bill there (the harness itself never reads the meter).
     try:
-        raw = llm_call(client, system, f"Task: {task}")
+        raw = llm_call(client, system, f"Task: {task}", token_meter.ROLE_DECOMPOSER)
         return {"raw": raw, "error": None}
     except Exception as e:  # noqa: BLE001 - a dead server / timeout shouldn't abort the whole battery
         return {"raw": None, "error": f"{type(e).__name__}: {e}"}

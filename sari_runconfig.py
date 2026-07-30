@@ -7,6 +7,8 @@ from typing import Any
 
 import tomli
 
+from overhaul.agent_core.context_policy import CONTEXT_POLICY_NAMES
+
 
 class RunConfigError(ValueError):
     """The run configuration is malformed or contains an unsupported option."""
@@ -16,6 +18,7 @@ _SCHEMA: dict[str, dict[str, object]] = {
     "agent": {
         "task": str,
         "arm": {"vlm", "graph", "graph-advised"},
+        "context_policy": set(CONTEXT_POLICY_NAMES),
         "resolver_backend": {"qwen", "claude-cli"},
         "completion_guard": {"deterministic", "vlm"},
         "leg_retries": int,
@@ -50,6 +53,7 @@ _SCHEMA: dict[str, dict[str, object]] = {
         "only": str,
         "max_steps": int,
         "arm": {"vlm", "graph", "graph-advised"},
+        "context_policy": set(CONTEXT_POLICY_NAMES),
         "map_dir": str,
         "ocr_url": str,
         "leg_retries": int,

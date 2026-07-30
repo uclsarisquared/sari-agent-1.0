@@ -73,6 +73,7 @@ import re
 import sys
 import tempfile
 import time
+from dataclasses import asdict
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _OVERHAUL_DIR = os.path.dirname(_THIS_DIR)
@@ -92,6 +93,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 from sari_runconfig import RunConfigError, load_run_config
+from agent_core.context_policy import (
+    CONTEXT_POLICY_NAMES,
+    ContextPolicy,
+    resolve_context_policy,
+)
 
 # Repo-root config.env (overhaul/orchestrator/ -> repo root is three parents up), resolved from
 # __file__ so it loads regardless of CWD.
@@ -220,31 +226,62 @@ def generate_findings_summary(
     completed_subtask: str,
     final_state: dict,
     new_semantic_entries: str,
+    context_policy: ContextPolicy = ContextPolicy(),
 ) -> str:
     """
     Comprehensive summary of everything the agent found/learned during a subtask.
     Passed to the orchestrator so all future subtask agents receive accumulated context.
     """
-    system = (
-        "You are a findings reporter for an Embodied AI Agent in a 3D convenience "
-        "store simulation. After a subtask completes, produce a comprehensive findings "
-        "summary for future agent instances. Include ALL of the following:\n"
-        "  1. POSITION: Current agent position in plain English (near which shelf/counter).\n"
-        "  2. HANDS: What each hand is holding (gripped items, or empty).\n"
-        "  3. OBJECTS LOCATED: Every object/item seen and its approximate shelf or position.\n"
-        "  4. NAVIGATION INSIGHTS: Which paths/routes worked; where the agent got stuck or lost.\n"
-        "  5. SEMANTIC LEARNINGS: Key facts about the store environment learned this subtask.\n"
-        "  6. WHAT TO AVOID: Any approaches that failed or cost unnecessary time.\n"
-        "  7. UPCOMING TASK PREP: Specific observations that will help with future subtasks.\n"
-        "Be comprehensive and factual. Future agents cannot re-explore what you already found, "
-        "so document every useful detail."
-    )
+    if context_policy.findings_max_chars is None:
+        system = (
+            "You are a findings reporter for an Embodied AI Agent in a 3D convenience "
+            "store simulation. After a subtask completes, produce a comprehensive findings "
+            "summary for future agent instances. Include ALL of the following:\n"
+            "  1. POSITION: Current agent position in plain English (near which shelf/counter).\n"
+            "  2. HANDS: What each hand is holding (gripped items, or empty).\n"
+            "  3. OBJECTS LOCATED: Every object/item seen and its approximate shelf or position.\n"
+            "  4. NAVIGATION INSIGHTS: Which paths/routes worked; where the agent got stuck or lost.\n"
+            "  5. SEMANTIC LEARNINGS: Key facts about the store environment learned this subtask.\n"
+            "  6. WHAT TO AVOID: Any approaches that failed or cost unnecessary time.\n"
+            "  7. UPCOMING TASK PREP: Specific observations that will help with future subtasks.\n"
+            "Be comprehensive and factual. Future agents cannot re-explore what you already found, "
+            "so document every useful detail."
+        )
+    else:
+        system = (
+            "Write a concise factual handoff for the next store-agent subtask. State only the "
+            "current position, what each hand holds, useful object locations/routes, failed "
+            "approaches to avoid, and facts that directly prepare the remaining task. Use compact "
+            "sentences and no preamble."
+        )
     user = (
         f"Completed subtask: {completed_subtask}\n\n"
         f"Final agent state:\n{json.dumps(final_state, indent=2, default=str)}\n\n"
         f"New semantic memory entries learned during this subtask:\n{new_semantic_entries}"
     )
-    return _llm_call(client, system, user, token_meter.ROLE_FINDINGS)
+    findings = _llm_call(client, system, user, token_meter.ROLE_FINDINGS)
+    if context_policy.findings_max_chars is not None:
+        findings = findings[: context_policy.findings_max_chars]
+    return findings
+
+
+def _generate_findings_if_enabled(
+    policy: ContextPolicy,
+    client: OpenAI,
+    completed_subtask: str,
+    final_state: dict,
+    new_semantic_entries: str,
+) -> str | None:
+    """Return a retained handoff, or no work at all for A3."""
+    if not policy.findings_enabled:
+        return None
+    return generate_findings_summary(
+        client,
+        completed_subtask=completed_subtask,
+        final_state=final_state,
+        new_semantic_entries=new_semantic_entries,
+        context_policy=policy,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1369,7 +1406,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
     # provenance across legs: each leg restarts `timestep` at 1, so without this the entries collide
     # under duplicate `@ timestep N` keys describing different places (see EmbodiedAgent._semantic_tag).
     agent._mem_leg = leg_idx
-    semantic_before = agent.vlm_agent.base_semantic_memory
+    semantic_before = agent.vlm_agent.semantic_log.mark()
 
     # Logging + per-step screenshots: ONE dir per leg (replaces the old SIM_RUNS2/SIM_RUNS3 split).
     shots_dir = os.path.splitext(log_path)[0] if log_path else None
@@ -2017,7 +2054,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
         m["end_reason"] = "step_cap"
     m["wall_s"] = round(time.time() - t0, 1)
     m["final_state"] = state
-    m["new_semantic_entries"] = agent.vlm_agent.base_semantic_memory[len(semantic_before):]
+    m["new_semantic_entries"] = agent.vlm_agent.semantic_log.since(semantic_before)
     log({"event": "leg_end", **{k: v for k, v in m.items() if k != "final_state"}})
     if log_fh:
         log_fh.close()
@@ -2122,7 +2159,8 @@ def _resolve_run_dir(run_dir, arm, runs_dir=None):
 
 def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
                 resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1,
-                output_dir=None, completion_guard="deterministic", ocr_url=None, runs_dir=None):
+                output_dir=None, completion_guard="deterministic", ocr_url=None, runs_dir=None,
+                context_policy="baseline"):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then
     run each with run_leg until the AGENT stops (predicate-granted) or a per-leg cap fires. Shared
     semantic/episodic memory + a between-leg findings summary carry context forward. A failed leg is
@@ -2166,6 +2204,8 @@ def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
     ResetEnvironment now calls ItemPoolingManager.ClearPool() + ShelfBuilder.DeleteAllPriceTags()
     before reloading (DataHandler.cs:617). Verify the duplication is gone on your build before relying
     on this in a batteried eval; it stays OFF by default."""
+    policy = resolve_context_policy(context_policy)
+
     # Resolve the attempt context before ANY logger, model, or agent is constructed. Helpers deep in
     # perception/sim resolve SARI_RUN_DIR at call time, keeping their scratch output attempt-local
     # without adding configuration to ordinary single-run commands.
@@ -2203,7 +2243,8 @@ def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
 
     agent = EmbodiedAgent(vlm_config=VLM_CONFIG, associative_config=ASSOCIATIVE_CONFIG,
                           mode='lean', nav_mode=arm, resolver_backend=resolver_backend,
-                          map_output_dir=output_dir, run_dir=run_dir)
+                          map_output_dir=output_dir, run_dir=run_dir,
+                          context_policy=policy)
 
     # From here the meter also writes run_dir/tokens.json as it goes: summary.json is only written at
     # exit, so an attempt the harness SIGKILLs would otherwise report no token cost at all.
@@ -2211,7 +2252,8 @@ def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
     t0 = time.time()
     print(f"[ORCHESTRATOR] task: {task!r}")
     _cap = lambda v, unit: "unlimited" if not v else f"{v} {unit}"
-    print(f"[ORCHESTRATOR] arm={arm}  completion_guard={completion_guard}  "
+    print(f"[ORCHESTRATOR] arm={arm}  context_policy={context_policy}  "
+          f"completion_guard={completion_guard}  "
           f"caps={_cap(caps[0], 'steps')} / {_cap(caps[1], 'min')} per leg  run dir: {run_dir}")
 
     # -- decompose (1 LLM) + resolve each leg on the map (N LLM, plan time) --
@@ -2337,15 +2379,21 @@ def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
                 break
 
             if i + 1 < len(legs):
-                print("[ORCHESTRATOR] Generating findings summary...")
-                findings = generate_findings_summary(
-                    client, completed_subtask=leg.get("text", ""),
-                    final_state=m["final_state"], new_semantic_entries=m["new_semantic_entries"])
-                task_llm += 1
-                attach_findings(response_memory, i + 1, attempt, findings)
-                save_response_memory(run_dir, response_memory)
-                print(f"[FINDINGS SUMMARY]\n{findings}\n")
-                cumulative_context += f"\n\n--- LEG {i + 1} FINDINGS ---\n{findings}"
+                if policy.findings_enabled:
+                    print("[ORCHESTRATOR] Generating findings summary...")
+                findings = _generate_findings_if_enabled(
+                    policy,
+                    client,
+                    completed_subtask=leg.get("text", ""),
+                    final_state=m["final_state"],
+                    new_semantic_entries=m["new_semantic_entries"],
+                )
+                if findings is not None:
+                    task_llm += 1
+                    attach_findings(response_memory, i + 1, attempt, findings)
+                    save_response_memory(run_dir, response_memory)
+                    print(f"[FINDINGS SUMMARY]\n{findings}\n")
+                    cumulative_context += f"\n\n--- LEG {i + 1} FINDINGS ---\n{findings}"
     finally:
         active_error = sys.exc_info()[1]
         if active_error is not None:
@@ -2379,10 +2427,12 @@ def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
         # only if they ever stopped being the same model, which is why by_role exists instead: it is
         # what makes an ablation able to say which component the tokens it removed were going to.
         token_totals = token_meter.totals()
-        summary = {"task": task, "arm": arm, "completion_guard": completion_guard,
+        summary = {"task": task, "arm": arm, "context_policy": asdict(policy),
+                   "completion_guard": completion_guard,
                    "ocr_url": resolved_ocr_url,
                    "run_config": {
                        "arm": arm,
+                       "context_policy": context_policy,
                        "max_steps": caps[0],
                        "max_minutes": caps[1],
                        "resolver_backend": resolver_backend,
@@ -2459,6 +2509,12 @@ def main(argv=None):
                     default=configured("agent", "arm", "graph"),
                     help="navigation arm (default graph - the measured-better navigator; "
                          "graph-advised drives each graph hop through a per-hop advisor VLM)")
+    ap.add_argument(
+        "--context-policy",
+        choices=CONTEXT_POLICY_NAMES,
+        default=configured("agent", "context_policy", "baseline"),
+        help="named context-window policy (default baseline)",
+    )
     ap.add_argument("--max-steps", type=int, default=configured("limits", "max_steps", 0),
                     help="per-leg step cap; 0 = NO LIMIT (default)")
     ap.add_argument("--max-minutes", type=float,
@@ -2523,7 +2579,8 @@ def main(argv=None):
                 resolver_backend=args.resolver_backend,
                 reset_start=args.reset_start, restart_env=args.restart_env,
                 leg_retries=max(0, args.leg_retries), output_dir=args.output_dir,
-                completion_guard=args.completion_guard, ocr_url=args.ocr_url)
+                completion_guard=args.completion_guard, ocr_url=args.ocr_url,
+                context_policy=args.context_policy)
 
 
 if __name__ == "__main__":
