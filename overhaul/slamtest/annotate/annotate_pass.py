@@ -44,6 +44,7 @@ import glob
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))        # slamtest/annotate
 _SLAM_DIR = os.path.dirname(_THIS_DIR)                         # slamtest
@@ -77,6 +78,18 @@ ANNOTATE_BACKENDS = {
 }
 # One "backend call failed for this checkpoint" signal, whichever backend raised it.
 AnnotateError = (ClaudeCliError, QwenAnnotateError)
+
+# Per-backend default worker counts for the parallel pass (override with --jobs). Checkpoints are
+# embarrassingly parallel: each annotate_checkpoint() reads only its own PNGs + the frozen topology
+# and writes only its own record; all fan-in (route hints, products, semantic map) happens after the
+# loop. The ceiling is therefore the BACKEND, not the work:
+#   claude-cli: 8 = 80% of Claude Code's documented default of 10 concurrent subagents (user
+#     directive 2026-07-30, "80% of the prescribed maximum for Claude Max"). Anthropic publishes no
+#     hard `claude -p` concurrency cap for the Max plan, so the 10-parallel-subagent default is the
+#     nearest prescribed figure. Each call is its own subprocess; billing is subscription-covered.
+#   qwen: 4 (user directive 2026-07-30). vLLM batches concurrent requests fine; 4 keeps the UCL
+#     server responsive for other users.
+DEFAULT_JOBS = {"claude-cli": 8, "qwen": 4}
 
 
 def add_route_hints(annotations, topology):
@@ -301,14 +314,17 @@ def run(args):
         print(f"[annotate_pass] resuming - {len(annotations)} checkpoint(s) already annotated")
 
     targets = select_checkpoints(topology, args)
+    jobs = args.jobs or DEFAULT_JOBS[args.backend]
     eff = args.effort if args.backend == "claude-cli" else "n/a"
     print(f"[annotate_pass] {len(targets)} target checkpoint(s); captures from {capture_dir}; "
-          f"backend={args.backend} model={args.model} effort={eff}")
+          f"backend={args.backend} model={args.model} effort={eff} jobs={jobs}")
 
+    # Filter down to the checkpoints that actually need a backend call, so the pool only holds
+    # real work and the skip accounting stays on the main thread.
     done = skipped = failed = 0
+    pending = []
     for cp in targets:
-        cid = str(cp["id"])
-        if args.resume and cid in annotations:
+        if args.resume and str(cp["id"]) in annotations:
             skipped += 1
             continue
         primary = primary_path(capture_dir, cp["id"])
@@ -316,30 +332,38 @@ def run(args):
             print(f"[annotate_pass] id={cp['id']:3d} no capture ({os.path.basename(primary)}) - skipping")
             skipped += 1
             continue
+        pending.append((cp, primary, view_paths(capture_dir, cp["id"])))
 
-        views = view_paths(capture_dir, cp["id"])
-        try:
-            rec = annotate_checkpoint(cp, primary, views, args, annotate_fn)
-        except AnnotateError as e:
-            print(f"[annotate_pass] id={cp['id']:3d} FAILED: {e}")
-            failed += 1
-            continue
+    # Fan out over checkpoints. Each worker only calls the backend (subprocess / HTTP - both
+    # stateless per call); the annotations dict and the incremental JSON write stay on the MAIN
+    # thread via as_completed, so --resume progress can never be clobbered by concurrent writes.
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = {pool.submit(annotate_checkpoint, cp, primary, views, args, annotate_fn): cp
+                   for cp, primary, views in pending}
+        for fut in as_completed(futures):
+            cp = futures[fut]
+            try:
+                rec = fut.result()
+            except AnnotateError as e:
+                print(f"[annotate_pass] id={cp['id']:3d} FAILED: {e}")
+                failed += 1
+                continue
 
-        annotations[cid] = rec
-        # Write after every checkpoint so an interrupted pass keeps its progress and --resume works.
-        with open(ann_path, "w", encoding="utf-8") as f:
-            json.dump(annotations, f, indent=2, ensure_ascii=False)
+            annotations[str(cp["id"])] = rec
+            # Write after every checkpoint so an interrupted pass keeps its progress and --resume works.
+            with open(ann_path, "w", encoding="utf-8") as f:
+                json.dump(annotations, f, indent=2, ensure_ascii=False)
 
-        ann = rec["annotation"]
-        if rec["effective_kind"] == SHELF_KIND:
-            detail = f"{ann.get('shelf_type')} {len(ann.get('items', []))} item(s)"
-        else:
-            detail = "non-shelf"
-        lbl = rec["classify_label"]
-        print(f"[annotate_pass] id={cp['id']:3d} kind={rec['topology_kind']:8s} "
-              f"classify={lbl or '-':9s} -> {rec['effective_kind']:9s} {detail} "
-              f"(${rec['cost_equiv_usd'] or 0:.3f})")
-        done += 1
+            ann = rec["annotation"]
+            if rec["effective_kind"] == SHELF_KIND:
+                detail = f"{ann.get('shelf_type')} {len(ann.get('items', []))} item(s)"
+            else:
+                detail = "non-shelf"
+            lbl = rec["classify_label"]
+            print(f"[annotate_pass] id={cp['id']:3d} kind={rec['topology_kind']:8s} "
+                  f"classify={lbl or '-':9s} -> {rec['effective_kind']:9s} {detail} "
+                  f"(${rec['cost_equiv_usd'] or 0:.3f})")
+            done += 1
 
     # Derived outputs - rebuilt in full each run from the (possibly resumed) annotations.
     refresh_graph_fields(annotations, topology)
@@ -388,6 +412,10 @@ def build_parser():
                    help="claude-cli only; ignored by the qwen backend.")
     p.add_argument("--base-url", default=None, help="qwen backend host (default $OPENAI_API_URL:8000/v1)")
     p.add_argument("--timeout", type=float, default=240.0)
+    p.add_argument("--jobs", type=int, default=0,
+                   help="Concurrent checkpoint annotations (0 = backend default: "
+                        f"{DEFAULT_JOBS['claude-cli']} for claude-cli, {DEFAULT_JOBS['qwen']} for qwen). "
+                        "Use --jobs 1 for the old sequential behaviour.")
     return p
 
 

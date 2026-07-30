@@ -23,10 +23,23 @@ Map awareness (Phase 6.3 #1/#3/#4):
   - order_legs() reorders independent (pickup->checkout) pairs nearest-first by graph hops.
   - the per-leg visit trace (nearest checkpoint each step) feeds the goto/compare predicates.
 
+Per-leg caps (2026-07-24): --max-steps and --max-minutes both DEFAULT TO 0, which means NO LIMIT for
+that dimension (unbounded step loop / no wall-clock check) - a leg ends only on a real terminal reason
+(the agent's STOP being predicate-granted, halt_forced, repeated errors, or the completion backstop).
+Pass a positive value to reinstate a hard ceiling for a batteried/time-boxed run.
+
+Run outputs (per-leg JSONL + per-step screenshots + summary.json) default to an auto-named
+<MMDD_HHMMSS>_<arm> dir under overhaul/subtask_run_outputs/; --run-dir pins an EXACT directory and
+--runs-dir relocates just the parent (keeping the timestamped per-run name). Every per-step artifact
+(step<NN>.png / step<NN>.txt / the step<NN>_center debug dir) also carries an _MMDD_HHMMSS stamp.
+
 Usage:
     python subtask_agents.py "get the green Piattos and bring it to the checkout counter"
     python subtask_agents.py --config ../runconfig.toml --task "..."
-    python subtask_agents.py --task "..." --arm graph --max-steps 150 --max-minutes 40
+    python subtask_agents.py --task "..." --arm graph            # uncapped by default (0/0)
+    python subtask_agents.py --task "..." --max-steps 150 --max-minutes 40  # opt-in hard caps
+    python subtask_agents.py --task "..." --run-dir path/to/run  # exact output dir for this run
+    python subtask_agents.py --task "..." --runs-dir path/to/runs  # base dir; auto-names the run
     python subtask_agents.py --task "..." --arm vlm      # control arm (old VLM navigation)
     python subtask_agents.py --task "..." --arm graph-advised  # per-hop advisor-VLM drive
     python subtask_agents.py --task "..." --completion-guard vlm  # optional VLM completion guards
@@ -53,6 +66,7 @@ run's displaced items:
 import argparse
 import ast
 import base64
+import itertools
 import json
 import os
 import re
@@ -1213,15 +1227,17 @@ def _model_facing_state(state: dict) -> dict:
     return view
 
 
-def write_step_output(out_dir, step, response):
-    """Dump a step's FULL agent output to out_dir/step<NN>.txt (untruncated, unlike the JSONL
+def write_step_output(out_dir, step, response, stamp=""):
+    """Dump a step's FULL agent output to out_dir/step<NN><STAMP>.txt (untruncated, unlike the JSONL
     fields) so it pairs with the step screenshot for debugging: the mode router's decision, the
     VLM actor's output, the episodic reflection (what_worked / what_to_avoid), and any nav note.
-    No-op if out_dir is falsy."""
+    `stamp` is the caller's per-step `_MMDD_HHMMSS` timestamp, woven into the name so the dump sorts
+    by step index yet still records WHEN it ran (same stamp as its .png / _center dir). No-op if
+    out_dir is falsy."""
     if not out_dir:
         return
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, f"step{step:02d}.txt"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(out_dir, f"step{step:02d}{stamp}.txt"), "w", encoding="utf-8") as fh:
         fh.write(f"=== STEP {step} | mode={response.get('agent_mode')} "
                  f"| halt={response.get('halt')} ===\n\n")
         if response.get("nav_note"):
@@ -1300,7 +1316,8 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
     generalised for a leg of a long-horizon task (see the module docstring for the three differences).
 
     `leg` is a TYPED dict ({"type", "text", ...(+plan-resolved candidates)}); a bare string degrades to
-    an `unknown` leg. `caps` = (max_steps, max_minutes) PER LEG. `sm` is the StoreMap (localisation +
+    an `unknown` leg. `caps` = (max_steps, max_minutes) PER LEG; either cap set to 0 means NO LIMIT for
+    that dimension (an unbounded step loop / no wall-clock check). `sm` is the StoreMap (localisation +
     the leg's seeded candidates). `visited` is the TASK-level checkpoint set the orchestrator threads
     through every leg (the compare predicate's visit trace); this leg keeps growing it.
 
@@ -1441,16 +1458,25 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
             "pickup", "checkout", "compare", "goto", "inspect")
     )
 
-    for step in range(1, max_steps + 1):
-        if (time.time() - t0) / 60 > max_minutes:
+    # A cap of 0 means NO LIMIT (now the default): max_steps 0 -> an unbounded step loop
+    # (itertools.count), max_minutes 0 -> the wall-clock check is skipped. So a leg ends only on a
+    # real terminal reason (halt_granted / halt_forced / errors / completed_no_stop). A positive cap
+    # restores the old bounded behaviour, including the `step_cap` end_reason after the loop.
+    step_iter = itertools.count(1) if not max_steps else range(1, max_steps + 1)
+    for step in step_iter:
+        if max_minutes and (time.time() - t0) / 60 > max_minutes:
             m["end_reason"] = "time_cap"
             break
         m["timesteps"] = step
+        # Per-step timestamp woven into every artifact name (the screenshot, the step<NN>.txt dump,
+        # the center-debug dir) so a step's files record WHEN it ran, not just its index — handy
+        # across retries and long unbounded runs. `_` prefix keeps step<NN> as the leading sort key.
+        step_stamp = f"_{datetime.now():%m%d_%H%M%S}"
 
         img_bytes = _REQUEST_SCREENSHOT_()["image"]
         if shots_dir:
             # Cap the SAVED debug frame at 1080p; the VLM below gets the NATIVE bytes (imageb64).
-            with open(os.path.join(shots_dir, f"step{step:02d}.png"), "wb") as fh:
+            with open(os.path.join(shots_dir, f"step{step:02d}{step_stamp}.png"), "wb") as fh:
                 fh.write(downscale_for_storage(img_bytes))
         imageb64 = base64.b64encode(img_bytes).decode("utf-8")
         state["visited_checkpoints"] = set(visited)   # compare predicate reads the task visit trace (code only)
@@ -1651,7 +1677,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
             continue
 
         if shots_dir:
-            write_step_output(shots_dir, step, response)
+            write_step_output(shots_dir, step, response, stamp=step_stamp)
 
         mode = response.get("agent_mode")
         if mode == "manipulation" and m["t_manip"] is None:
@@ -1764,7 +1790,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
         last_actor_text = response.get("text") or ""
         notes = parsed.get("notes", {})
 
-        center_dir = os.path.join(shots_dir, f"step{step:02d}_center") if shots_dir else None
+        center_dir = os.path.join(shots_dir, f"step{step:02d}{step_stamp}_center") if shots_dir else None
         acted, blocked_reason, center_msg, last_reach = [], False, None, None
         grab_failed, checkout_result, inspection_result = False, None, None
         action_batch = list(zip(parsed.get("actions", []), parsed.get("times", [])))
@@ -2074,27 +2100,29 @@ def _current_nearest_cp(sm):
         return sm.nearest_checkpoint(SPAWN_XZ)
 
 
-def _resolve_run_dir(run_dir, arm):
+def _resolve_run_dir(run_dir, arm, runs_dir=None):
     """Return an absolute, existing, attempt-unique output directory.
 
     An explicit path is owned by the caller (Distributed Sari Bench creates one per attempt).  A
     local invocation gets an atomically-created directory, so even same-arm runs started in the
-    same second cannot select the same fallback.
+    same second cannot select the same fallback. `runs_dir` relocates just that fallback's parent
+    (default overhaul/subtask_run_outputs/) while keeping the timestamped per-run name; it is
+    ignored when `run_dir` pins an exact directory.
     """
     if run_dir:
         resolved = os.path.abspath(os.fspath(run_dir))
         os.makedirs(resolved, exist_ok=True)
         return resolved
 
-    base = os.path.join(_OVERHAUL_DIR, "subtask_run_outputs")
+    base = runs_dir or os.path.join(_OVERHAUL_DIR, "subtask_run_outputs")
     os.makedirs(base, exist_ok=True)
     prefix = f"{datetime.now():%m%d_%H%M%S}_{arm}_"
     return tempfile.mkdtemp(prefix=prefix, dir=base)
 
 
-def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
+def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
                 resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1,
-                output_dir=None, completion_guard="deterministic", ocr_url=None):
+                output_dir=None, completion_guard="deterministic", ocr_url=None, runs_dir=None):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then
     run each with run_leg until the AGENT stops (predicate-granted) or a per-leg cap fires. Shared
     semantic/episodic memory + a between-leg findings summary carry context forward. A failed leg is
@@ -2107,7 +2135,14 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     arm: 'graph' (default - the measured-better navigator, right for long-horizon), 'vlm'
     (control), or 'graph-advised' (graph targets, per-hop advisor-VLM drive - see
     agent._advised_goto; adds one advisor call per graph hop, counted in llm_calls).
-    caps: (max_steps, max_minutes) PER LEG.
+    caps: (max_steps, max_minutes) PER LEG; either set to 0 means NO LIMIT for that dimension
+    (default (0, 0.0) = uncapped, so a leg ends only on a real terminal reason).
+
+    Output location: `run_dir` is the EXACT directory this run's artifacts (per-leg JSONL +
+    screenshots + summary.json) land in; when None, an auto-named `<MMDD_HHMMSS>_<arm>` dir is
+    created under `runs_dir` (the base, default overhaul/subtask_run_outputs/). Pass `run_dir` to
+    pin an exact folder, or `runs_dir` to just relocate the parent while keeping the timestamped
+    per-run name.
 
     completion_guard: 'deterministic' (default, unchanged baseline) or 'vlm'. The latter adds visual
     grounding for targeted pickup, compare, and unknown legs. Inspect always uses its mandatory
@@ -2134,7 +2169,7 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     # Resolve the attempt context before ANY logger, model, or agent is constructed. Helpers deep in
     # perception/sim resolve SARI_RUN_DIR at call time, keeping their scratch output attempt-local
     # without adding configuration to ordinary single-run commands.
-    run_dir = _resolve_run_dir(run_dir, arm)
+    run_dir = _resolve_run_dir(run_dir, arm, runs_dir=runs_dir)
     os.environ["SARI_RUN_DIR"] = run_dir
     if ocr_url:
         os.environ["SARI_OCR_URL"] = ocr_url
@@ -2175,8 +2210,9 @@ def orchestrate(task, arm="graph", caps=(150, 40.0), out=None, run_dir=None,
     token_meter.dump(run_dir)
     t0 = time.time()
     print(f"[ORCHESTRATOR] task: {task!r}")
+    _cap = lambda v, unit: "unlimited" if not v else f"{v} {unit}"
     print(f"[ORCHESTRATOR] arm={arm}  completion_guard={completion_guard}  "
-          f"caps={caps[0]} steps / {caps[1]} min per leg  run dir: {run_dir}")
+          f"caps={_cap(caps[0], 'steps')} / {_cap(caps[1], 'min')} per leg  run dir: {run_dir}")
 
     # -- decompose (1 LLM) + resolve each leg on the map (N LLM, plan time) --
     subtasks = decompose_task(client, task)
@@ -2423,14 +2459,21 @@ def main(argv=None):
                     default=configured("agent", "arm", "graph"),
                     help="navigation arm (default graph - the measured-better navigator; "
                          "graph-advised drives each graph hop through a per-hop advisor VLM)")
-    ap.add_argument("--max-steps", type=int, default=configured("limits", "max_steps", 150),
-                    help="per-leg step cap")
+    ap.add_argument("--max-steps", type=int, default=configured("limits", "max_steps", 0),
+                    help="per-leg step cap; 0 = NO LIMIT (default)")
     ap.add_argument("--max-minutes", type=float,
-                    default=configured("limits", "max_minutes", 40.0),
-                    help="per-leg wall-clock cap")
+                    default=configured("limits", "max_minutes", 0.0),
+                    help="per-leg wall-clock cap in minutes; 0 = NO LIMIT (default)")
     ap.add_argument("--out", default=configured("output", "summary"),
                     help="summary.json path (default: <run-dir>/summary.json)")
-    ap.add_argument("--run-dir", default=configured("output", "run_dir"))
+    ap.add_argument("--run-dir", default=configured("output", "run_dir"),
+                    help="EXACT directory for this run's outputs (per-leg JSONL + screenshots + "
+                         "summary.json). Default: an auto-named <MMDD_HHMMSS>_<arm> dir under "
+                         "--runs-dir.")
+    ap.add_argument("--runs-dir", default=configured("output", "runs_dir"),
+                    help="base directory the auto-named per-run folder is created under "
+                         "(default: overhaul/subtask_run_outputs/). Ignored when --run-dir pins an "
+                         "exact directory.")
     ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"],
                     default=configured("agent", "resolver_backend", "qwen"))
     ap.add_argument("--completion-guard", choices=["deterministic", "vlm"],
@@ -2475,8 +2518,9 @@ def main(argv=None):
         os.environ["SARI_WS_URI"] = args.ws_uri
 
     task = args.task_opt or args.task or configured("agent", "task") or input("Task: ")
-    orchestrate(task, arm=args.arm, caps=(args.max_steps, args.max_minutes), out=args.out,
-                run_dir=args.run_dir, resolver_backend=args.resolver_backend,
+    orchestrate(task, arm=args.arm, caps=(max(0, args.max_steps), max(0.0, args.max_minutes)),
+                out=args.out, run_dir=args.run_dir, runs_dir=args.runs_dir,
+                resolver_backend=args.resolver_backend,
                 reset_start=args.reset_start, restart_env=args.restart_env,
                 leg_retries=max(0, args.leg_retries), output_dir=args.output_dir,
                 completion_guard=args.completion_guard, ocr_url=args.ocr_url)

@@ -36,6 +36,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
@@ -142,9 +143,13 @@ class PipelineApp:
         self.ann_effort = tk.StringVar(value="medium")
         self._row(caf, 4, "Effort (claude only)", ttk.Combobox(
             caf, textvariable=self.ann_effort, values=["low", "medium", "high"], state="readonly", width=8))
+        # 0 = annotate_pass's backend default (8 for claude-cli, 4 for qwen); 1 = old sequential.
+        self.ann_jobs = tk.StringVar(value="0")
+        self._row(caf, 5, "Parallel jobs (0 = backend default)", ttk.Entry(caf, textvariable=self.ann_jobs, width=8))
         ttk.Label(caf, text="claude-cli = measured baseline (sonnet/medium). qwen = self-hosted,\n"
-                            "no subscription; model/effort fields ignored. A/B before trusting qwen.",
-                  foreground="grey").grid(row=5, column=0, columnspan=2, sticky="w")
+                            "no subscription; model/effort fields ignored. A/B before trusting qwen.\n"
+                            "Jobs default: 8 claude-cli, 4 qwen. Set 1 if rate limits bite.",
+                  foreground="grey").grid(row=6, column=0, columnspan=2, sticky="w")
 
         # --- run controls ---
         ctl = ttk.Frame(left)
@@ -240,6 +245,9 @@ class PipelineApp:
             if backend == "claude-cli":
                 # model/effort apply to claude only; qwen uses its own default (Qwen/Qwen3.6-27B).
                 ann += ["--model", self.ann_model.get(), "--effort", self.ann_effort.get()]
+            jobs = self.ann_jobs.get().strip()
+            if jobs and jobs != "0":  # 0/blank = let annotate_pass pick the backend default (8/4)
+                ann += ["--jobs", jobs]
             cmds.append(("Annotate", ann))
         return cmds
 
@@ -286,6 +294,7 @@ class PipelineApp:
                 break
             self._set_status(f"{name} ({i}/{len(cmds)})")
             self._log(f"\n===== [{i}/{len(cmds)}] {name} =====\n$ {subprocess.list2cmdline(cmd)}\n")
+            t0 = time.monotonic()
             try:
                 self.proc = subprocess.Popen(
                     cmd, cwd=_OVERHAUL_DIR, stdout=subprocess.PIPE,
@@ -297,15 +306,16 @@ class PipelineApp:
                 self._log(line)
             rc = self.proc.wait()
             self.proc = None
+            elapsed = time.monotonic() - t0
             if self.stop_requested.is_set():
-                self._log(f"[pipeline] {name} stopped by user.\n")
+                self._log(f"[pipeline] {name} stopped by user after {elapsed:.1f}s.\n")
                 break
             if rc != 0:
                 # A failed stage invalidates everything downstream of it - halt rather than
                 # annotate a map that never finished building.
-                self._log(f"[pipeline] {name} exited with code {rc} - halting pipeline.\n")
+                self._log(f"[pipeline] {name} exited with code {rc} after {elapsed:.1f}s - halting pipeline.\n")
                 break
-            self._log(f"[pipeline] {name} done.\n")
+            self._log(f"[pipeline] {name} finished in {elapsed:.1f}s.\n")
         else:
             self._log("\n[pipeline] all selected stages complete.\n")
         self._set_status("idle")
