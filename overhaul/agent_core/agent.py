@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Literal
 from dataclasses import dataclass, field
+import copy
 import os
 import base64
 import json
@@ -25,6 +26,8 @@ from agent_core.sys_inst import (
     SYS_INST_VLM_LEAN
 )
 from agent_core.memory import base_semantic_memory
+from agent_core.context import SemanticLog
+from agent_core.context_policy import ContextPolicy, validate_context_policy
 # Per-role token attribution. The meter counts every SDK call whether or not it is tagged; the
 # `role` blocks below only decide WHICH reasoner each call is billed to, so an ablation can read
 # off what the component it removed was actually costing. Import-cheap and sim-free.
@@ -325,8 +328,13 @@ class SemanticEpisodicAssociativeLearner(BaseAgent):
 
 
 class VLMAgent(BaseAgent):
-    def __init__(self, config: Optional[OpenRouterConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[OpenRouterConfig] = None,
+        context_policy: ContextPolicy = ContextPolicy(),
+    ) -> None:
         super().__init__(config)
+        self.context_policy = validate_context_policy(context_policy)
         self.client = OpenAI(
             base_url=self.config.base_url,
             api_key=self.config.api_key,
@@ -334,7 +342,7 @@ class VLMAgent(BaseAgent):
         )
         self.history: List[Dict[str, Any]] = []
         self.episodic_memory: str = ""
-        self.base_semantic_memory: str = ""
+        self.semantic_log = SemanticLog("", self.context_policy)
         logger.info(f"VLMAgent initialized with model: {self.config.model_id}")
 
     def reset_history(self):
@@ -344,7 +352,7 @@ class VLMAgent(BaseAgent):
         self.history.append({"role": "user", "content": content})
         messages = [
             {"role": "system", "content": SYS_INST_VLM_LEAN},
-            *self.history,
+            *self._outbound_history(),
         ]
         # Around the retry helper, not inside it, so the retries of a flaky actor call are billed to
         # the actor too - they are what the server was really charged for.
@@ -352,6 +360,39 @@ class VLMAgent(BaseAgent):
             reply = self._api_call_with_retry(self.client, messages)
         self.history.append({"role": "assistant", "content": reply})
         return reply
+
+    def _outbound_history(self) -> list[dict[str, Any]]:
+        """Return an API-only history view with old user images removed for A6.
+
+        The retained history remains byte-for-byte untouched because the episodic learner and
+        diagnostics consume it independently of the actor's outbound context.
+        """
+        keep = self.context_policy.actor_image_history
+        if keep is None:
+            return self.history
+
+        user_indices = [
+            index for index, message in enumerate(self.history)
+            if message.get("role") == "user"
+        ]
+        newest = set(user_indices[-keep:])
+        outbound: list[dict[str, Any]] = []
+        for index, message in enumerate(self.history):
+            content = message.get("content")
+            if (
+                index not in newest
+                and message.get("role") == "user"
+                and isinstance(content, list)
+            ):
+                filtered = [
+                    copy.deepcopy(part)
+                    for part in content
+                    if not (isinstance(part, dict) and part.get("type") == "image_url")
+                ]
+                outbound.append({**message, "content": filtered})
+            else:
+                outbound.append(message)
+        return outbound
 
     def get_history_text(self, n: int = 8) -> str:
         result = ""
@@ -402,9 +443,11 @@ class EmbodiedAgent:
                  resolver_backend: Literal['qwen', 'claude-cli'] = 'qwen',
                  advisor_backend: Literal['qwen', 'claude-cli'] = 'qwen',
                  map_output_dir: Optional[str] = None,
-                 run_dir: Optional[str] = None) -> None:
+                 run_dir: Optional[str] = None,
+                 context_policy: ContextPolicy = ContextPolicy()) -> None:
 
-        self.vlm_agent = VLMAgent(vlm_config)
+        self.context_policy = validate_context_policy(context_policy)
+        self.vlm_agent = VLMAgent(vlm_config, context_policy=self.context_policy)
         self.mode = mode
         # Phase 4.2 A/B switch. 'vlm': navigation mode hands the VLM its old action set
         # (the control arm). 'graph': navigation mode dispatches to resolver+goto_checkpoint
@@ -454,7 +497,9 @@ class EmbodiedAgent:
     def set_semantic_memory(self) -> None:
         # Rendered from the map dir THIS agent navigates (see agent_core/memory), so a run pointed
         # at an alternate map can't be given prose describing the default one.
-        self.vlm_agent.base_semantic_memory = base_semantic_memory(self._map_output_dir)
+        self.vlm_agent.semantic_log = SemanticLog(
+            base_semantic_memory(self._map_output_dir), self.context_policy
+        )
         logger.info("Base semantic memory set for VLMAgent.")
 
     def set_episodic_memory(self, episodic_memory: str) -> None:
@@ -965,7 +1010,7 @@ class EmbodiedAgent:
         if timestep == 1:
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## MAIN TASK: {main_task}\n"
-                        f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
+                        f"## SEMANTIC MEMORY: {self.vlm_agent.semantic_log.render()}\n"
                         f"## STATE: {state}\n")
 
             semantic_response_text = self._call_associative(
@@ -1035,7 +1080,9 @@ class EmbodiedAgent:
                 held_item_inspection=(inspect_mode == "held" and agent_mode == "manipulation"),
             )
 
-            self.vlm_agent.base_semantic_memory += f"{self._semantic_tag(timestep)}: {new_semantic_memory}\n"
+            self.vlm_agent.semantic_log.append(
+                self._semantic_tag(timestep), new_semantic_memory
+            )
 
             # Suppress the intended-action line once the graph dispatcher has already driven (nav_note
             # set): the learner's next_action ("move to the shelf") is then stale - the actor should
@@ -1073,7 +1120,7 @@ class EmbodiedAgent:
         else:
             user_msg = (f"## MAIN TASK: {main_task}\n"
                         f"## CURRENT TIMESTEP: {timestep}\n"
-                        f"## SEMANTIC MEMORY: {self.vlm_agent.base_semantic_memory}\n"
+                        f"## SEMANTIC MEMORY: {self.vlm_agent.semantic_log.render()}\n"
                         f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
                         f"## STATE: {state}\n")
 
@@ -1090,7 +1137,9 @@ class EmbodiedAgent:
             # MODE/ACTION HORIZON edit (2026-07-23): single next step, fed to the actor (sys_inst rule 4).
             next_action = semantic_response.get('next_action')
 
-            self.vlm_agent.base_semantic_memory += f"{self._semantic_tag(timestep)}: {new_semantic_memory}\n"
+            self.vlm_agent.semantic_log.append(
+                self._semantic_tag(timestep), new_semantic_memory
+            )
             print(f"SEMANTIC LEARNER RESPONSE: {semantic_response}")
 
             # Same override resolution as timestep 1. Keeping this after the unchanged learner call
@@ -1141,10 +1190,14 @@ class EmbodiedAgent:
 
             next_action_line = (f"## THIS STEP'S INTENDED ACTION: {next_action}\n"
                                 if next_action and not nav_note else "")
+            episodic_line = (
+                f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
+                if self.context_policy.episodic_in_actor else ""
+            )
             user_msg = (f"## CURRENT TIMESTEP: {timestep}\n"
                         f"## RECALL FROM SEMANTIC MEMORY: {recall}\n"
                         f"{next_action_line}"
-                        f"## EXISTING EPISODIC MEMORY: {self.vlm_agent.episodic_memory}\n"
+                        f"{episodic_line}"
                         f"## STATE: {state}\n"
                         f"## AGENT MODE: {agent_mode}\n"
                         f"## AVAILABLE ACTIONS:\n{available_actions}"
@@ -1169,7 +1222,7 @@ class EmbodiedAgent:
             self.set_episodic_memory(episodic_memory)
 
         self._write_text_atomic(
-            self._run_artifact("semantic_memory.txt"), self.vlm_agent.base_semantic_memory)
+            self._run_artifact("semantic_memory.txt"), self.vlm_agent.semantic_log.render())
         self._write_text_atomic(
             self._run_artifact("episodic_memory.txt"), self.vlm_agent.episodic_memory)
 

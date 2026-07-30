@@ -351,6 +351,16 @@ def test_orchestrate_returns_and_persists_the_same_final_response(tmp_path, monk
     assert summary["response"] == persisted_summary["response"] == memory["response"] == expected
     assert (tmp_path / "response.txt").read_text(encoding="utf-8").strip() == expected
     assert summary["response_source"] == persisted_summary["response_source"] == "model"
+    assert summary["context_policy"] == {
+        "semantic_dedupe": None,
+        "semantic_dedupe_window": 8,
+        "semantic_keep_last": None,
+        "findings_max_chars": None,
+        "findings_enabled": True,
+        "episodic_in_actor": True,
+        "actor_image_history": None,
+    }
+    assert summary["run_config"]["context_policy"] == "baseline"
     assert responder_roles == [orchestrator.token_meter.ROLE_RESPONDER]
     assert summary["llm_calls"] == 5  # decomposer + three per-step reasoners + responder
     assert summary["tokens"]["by_role"]["responder"]["calls"] == 1

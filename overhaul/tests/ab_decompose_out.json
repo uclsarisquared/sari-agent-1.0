@@ -5,10 +5,6 @@
       "id": "f1-canonical",
       "family": "1 fetch-to-counter",
       "prompt": "Get the orange Pringles and bring them to the checkout counter.",
-      "old": {
-        "raw": "\n\n[\"Pick up the orange Pringles.\", \"Carry the held orange Pringles to the checkout counter and place them down.\"]",
-        "error": null
-      },
       "new": {
         "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"orange Pringles\", \"text\": \"Pick up the orange Pringles.\"}, {\"type\": \"checkout\", \"text\": \"Take the held orange Pringles to the self-checkout: scan it and bag it.\"}]",
         "error": null
@@ -37,10 +33,6 @@
       "id": "f1-paraphrase",
       "family": "1 fetch-to-counter",
       "prompt": "Grab a Coke and take it to the counter to pay.",
-      "old": {
-        "raw": "\n\n[\"Pick up a Coke.\", \"Carry the held Coke to the checkout counter and place it down.\"]",
-        "error": null
-      },
       "new": {
         "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"Coke\", \"text\": \"Pick up a Coke.\"}, {\"type\": \"checkout\", \"text\": \"Take the held Coke to the self-checkout: scan it and bag it.\"}]",
         "error": null
@@ -69,12 +61,8 @@
       "id": "f2-explicit",
       "family": "2 multi-fetch",
       "prompt": "Bring the green Piattos and a Coke to the counter, one at a time.",
-      "old": {
-        "raw": "\n\n[\n  \"Pick up the green Piattos.\",\n  \"Carry the held green Piattos to the checkout counter and place it down.\",\n  \"Pick up a Coke.\",\n  \"Carry the held Coke to the checkout counter and place it down.\"\n]",
-        "error": null
-      },
       "new": {
-        "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"green Piattos\", \"text\": \"Pick up the green Piattos.\"}, {\"type\": \"checkout\", \"text\": \"Take the held green Piattos to the self-checkout: scan it and bag it.\"}, {\"type\": \"pickup\", \"target\": \"a Coke\", \"text\": \"Pick up a Coke.\"}, {\"type\": \"checkout\", \"text\": \"Take the held Coke to the self-checkout: scan it and bag it.\"}]",
+        "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"green Piattos\", \"text\": \"Pick up the green Piattos.\"}, {\"type\": \"checkout\", \"text\": \"Take the held green Piattos to the self-checkout: scan it and bag it.\"}, {\"type\": \"pickup\", \"target\": \"Coke\", \"text\": \"Pick up a Coke.\"}, {\"type\": \"checkout\", \"text\": \"Take the held Coke to the self-checkout: scan it and bag it.\"}]",
         "error": null
       },
       "new_parsed": [
@@ -90,7 +78,7 @@
         {
           "type": "pickup",
           "text": "Pick up a Coke.",
-          "target": "a Coke"
+          "target": "Coke"
         },
         {
           "type": "checkout",
@@ -112,76 +100,57 @@
       "id": "f2-paraphrase",
       "family": "2 multi-fetch",
       "prompt": "I want the Jin Ramen and the Leslie's Clover Chips checked out.",
-      "old": {
-        "raw": "\n\n[\"Pick up the Jin Ramen.\", \"Carry the held Jin Ramen to the checkout counter and place it down.\", \"Pick up the Leslie's Clover Chips.\", \"Carry the held Leslie's Clover Chips to the checkout counter and place it down.\"]",
-        "error": null
-      },
       "new": {
-        "raw": "\n\n[\n  {\"type\": \"pickup\", \"target\": \"Jin Ramen\", \"text\": \"Pick up the Jin Ramen.\"},\n  {\"type\": \"checkout\", \"text\": \"Take the held Jin Ramen to the self-checkout: scan it and bag it.\"},\n  {\"type\": \"pickup\", \"target\": \"Leslie's Clover Chips\", \"text\": \"Pick up the Leslie's Clover Chips.\"},\n  {\"type\": \"checkout\", \"text\": \"Take the held Leslie's Clover Chips to the self-checkout: scan it and bag it.\"}\n]",
+        "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"Jin Ramen and Leslie's Clover Chips\", \"count\": 2, \"text\": \"Pick up the Jin Ramen and the Leslie's Clover Chips - one in each hand.\"}, {\"type\": \"checkout\", \"text\": \"Take the held items to the self-checkout: scan them and bag them.\"}]",
         "error": null
       },
       "new_parsed": [
         {
           "type": "pickup",
-          "text": "Pick up the Jin Ramen.",
-          "target": "Jin Ramen"
+          "text": "Pick up the Jin Ramen and the Leslie's Clover Chips - one in each hand.",
+          "target": "Jin Ramen and Leslie's Clover Chips",
+          "count": 2
         },
         {
           "type": "checkout",
-          "text": "Take the held Jin Ramen to the self-checkout: scan it and bag it."
-        },
-        {
-          "type": "pickup",
-          "text": "Pick up the Leslie's Clover Chips.",
-          "target": "Leslie's Clover Chips"
-        },
-        {
-          "type": "checkout",
-          "text": "Take the held Leslie's Clover Chips to the self-checkout: scan it and bag it."
+          "text": "Take the held items to the self-checkout: scan them and bag them."
         }
       ],
       "new_summary": {
         "types": [
           "pickup",
-          "checkout",
-          "pickup",
           "checkout"
         ],
         "has_unknown": false,
-        "n": 4
+        "n": 2
       }
     },
     {
       "id": "f3-size",
       "family": "3 comparison",
       "prompt": "Of the two Pik Nik sizes on the shelf, bring the larger one to the counter.",
-      "old": {
-        "raw": "\n\n[\"Pick up the larger Pik Nik from the shelf.\", \"Carry the held larger Pik Nik to the counter and place it down.\"]",
-        "error": null
-      },
       "new": {
-        "raw": "\n\n[{\"type\": \"goto\", \"location\": \"the shelf\", \"text\": \"Go to the shelf with the Pik Nik products.\"}, {\"type\": \"compare\", \"targets\": [\"Pik Nik\", \"Pik Nik\"], \"criterion\": \"size\", \"text\": \"Compare the two Pik Nik sizes on the shelf to identify the larger one.\"}, {\"type\": \"pickup\", \"target\": \"larger Pik Nik\", \"text\": \"Pick up the larger Pik Nik.\"}, {\"type\": \"checkout\", \"text\": \"Take the held larger Pik Nik to the self-checkout: scan it and bag it.\"}]",
+        "raw": "\n\n[\n  {\"type\": \"goto\", \"location\": \"Pik Nik\", \"text\": \"Go to where the Pik Nik products are shelved.\"},\n  {\"type\": \"compare\", \"targets\": [\"the two Pik Nik sizes\"], \"criterion\": \"size\", \"text\": \"Look at the two Pik Nik sizes on the shelf and determine which one is larger.\"},\n  {\"type\": \"pickup\", \"target\": \"the larger Pik Nik\", \"text\": \"Pick up the larger Pik Nik.\"},\n  {\"type\": \"checkout\", \"text\": \"Take the held larger Pik Nik to the self-checkout: scan it and bag it.\"}\n]",
         "error": null
       },
       "new_parsed": [
         {
           "type": "goto",
-          "text": "Go to the shelf with the Pik Nik products.",
-          "location": "the shelf"
+          "text": "Go to where the Pik Nik products are shelved.",
+          "location": "Pik Nik"
         },
         {
           "type": "compare",
-          "text": "Compare the two Pik Nik sizes on the shelf to identify the larger one.",
+          "text": "Look at the two Pik Nik sizes on the shelf and determine which one is larger.",
           "targets": [
-            "Pik Nik",
-            "Pik Nik"
+            "the two Pik Nik sizes"
           ],
           "criterion": "size"
         },
         {
           "type": "pickup",
           "text": "Pick up the larger Pik Nik.",
-          "target": "larger Pik Nik"
+          "target": "the larger Pik Nik"
         },
         {
           "type": "checkout",
@@ -203,27 +172,20 @@
       "id": "f3-price",
       "family": "3 comparison",
       "prompt": "Between the two Pringles cans, buy the cheaper one.",
-      "old": {
-        "raw": "\n\n[\"Pick up the cheaper of the two Pringles cans.\", \"Carry the held Pringles can to the checkout counter and place it down.\"]",
-        "error": null
-      },
       "new": {
-        "raw": "\n\n[{\"type\": \"goto\", \"location\": \"the Pringles cans\", \"text\": \"Go to the Pringles cans.\"}, {\"type\": \"compare\", \"targets\": [\"the two Pringles cans\"], \"criterion\": \"price\", \"text\": \"Compare the two Pringles cans to identify the cheaper one.\"}, {\"type\": \"pickup\", \"target\": \"the cheaper Pringles can\", \"text\": \"Pick up the cheaper Pringles can.\"}, {\"type\": \"checkout\", \"text\": \"Take the held Pringles can to the self-checkout: scan it and bag it.\"}]",
+        "raw": "\n\n[{\"type\": \"goto\", \"location\": \"Pringles\", \"text\": \"Go to where the Pringles cans are shelved.\"}, {\"type\": \"inspect\", \"query\": \"Which of the two Pringles cans is cheaper?\", \"text\": \"Look at the two Pringles cans and report which one has the lower price without touching them.\"}, {\"type\": \"pickup\", \"target\": \"the cheaper Pringles can\", \"text\": \"Pick up the cheaper Pringles can.\"}, {\"type\": \"checkout\", \"text\": \"Take the held Pringles can to the self-checkout: scan it and bag it.\"}]",
         "error": null
       },
       "new_parsed": [
         {
           "type": "goto",
-          "text": "Go to the Pringles cans.",
-          "location": "the Pringles cans"
+          "text": "Go to where the Pringles cans are shelved.",
+          "location": "Pringles"
         },
         {
-          "type": "compare",
-          "text": "Compare the two Pringles cans to identify the cheaper one.",
-          "targets": [
-            "the two Pringles cans"
-          ],
-          "criterion": "price"
+          "type": "inspect",
+          "text": "Look at the two Pringles cans and report which one has the lower price without touching them.",
+          "query": "Which of the two Pringles cans is cheaper?"
         },
         {
           "type": "pickup",
@@ -238,7 +200,7 @@
       "new_summary": {
         "types": [
           "goto",
-          "compare",
+          "inspect",
           "pickup",
           "checkout"
         ],
@@ -250,32 +212,25 @@
       "id": "f4-budget",
       "family": "4 budget multi-fetch",
       "prompt": "Buy snacks for 100 pesos or less - bring them to the counter.",
-      "old": {
-        "raw": "\n\n[\"Pick up a snack.\", \"Carry the held snack to the checkout counter and place it down.\"]",
-        "error": null
-      },
       "new": {
-        "raw": "\n\n[{\"type\": \"goto\", \"location\": \"snack shelf\", \"text\": \"Go to the snack shelf.\"}, {\"type\": \"compare\", \"targets\": [\"snacks\"], \"criterion\": \"price of 100 pesos or less\", \"text\": \"Examine the snacks to find one priced at 100 pesos or less.\"}, {\"type\": \"pickup\", \"target\": \"snack priced at 100 pesos or less\", \"text\": \"Pick up the snack priced at 100 pesos or less.\"}, {\"type\": \"checkout\", \"text\": \"Take the held snack to the self-checkout: scan it and bag it.\"}]",
+        "raw": "\n\n[\n  {\"type\": \"goto\", \"location\": \"snacks\", \"text\": \"Go to where snacks are shelved.\"},\n  {\"type\": \"inspect\", \"query\": \"Which snacks are priced at 100 pesos or less?\", \"text\": \"Look at the snacks on the shelf and report which ones cost 100 pesos or less without touching them.\"},\n  {\"type\": \"pickup\", \"target\": \"a snack priced at 100 pesos or less\", \"text\": \"Pick up a snack that costs 100 pesos or less.\"},\n  {\"type\": \"checkout\", \"text\": \"Take the held snack to the self-checkout: scan it and bag it.\"}\n]",
         "error": null
       },
       "new_parsed": [
         {
           "type": "goto",
-          "text": "Go to the snack shelf.",
-          "location": "snack shelf"
+          "text": "Go to where snacks are shelved.",
+          "location": "snacks"
         },
         {
-          "type": "compare",
-          "text": "Examine the snacks to find one priced at 100 pesos or less.",
-          "targets": [
-            "snacks"
-          ],
-          "criterion": "price of 100 pesos or less"
+          "type": "inspect",
+          "text": "Look at the snacks on the shelf and report which ones cost 100 pesos or less without touching them.",
+          "query": "Which snacks are priced at 100 pesos or less?"
         },
         {
           "type": "pickup",
-          "text": "Pick up the snack priced at 100 pesos or less.",
-          "target": "snack priced at 100 pesos or less"
+          "text": "Pick up a snack that costs 100 pesos or less.",
+          "target": "a snack priced at 100 pesos or less"
         },
         {
           "type": "checkout",
@@ -285,7 +240,7 @@
       "new_summary": {
         "types": [
           "goto",
-          "compare",
+          "inspect",
           "pickup",
           "checkout"
         ],
@@ -297,27 +252,25 @@
       "id": "f4-budget-paraphrase",
       "family": "4 budget multi-fetch",
       "prompt": "Pick out some chips under a 50 peso budget and check them out.",
-      "old": {
-        "raw": "\n\n[\"Pick up a bag of chips that costs under 50 pesos.\", \"Carry the held chips to the checkout counter and place them down.\"]",
-        "error": null
-      },
       "new": {
-        "raw": "\n\n[{\"type\": \"compare\", \"targets\": [\"chips\"], \"criterion\": \"price under 50 pesos\", \"text\": \"Look at the available chips and identify one that costs under 50 pesos.\"}, {\"type\": \"pickup\", \"target\": \"chips\", \"text\": \"Pick up the selected chips.\"}, {\"type\": \"checkout\", \"text\": \"Take the held chips to the self-checkout: scan it and bag it.\"}]",
+        "raw": "\n\n[{\"type\": \"goto\", \"location\": \"chips\", \"text\": \"Go to where the chips are shelved.\"}, {\"type\": \"inspect\", \"query\": \"Which chips are priced under 50 pesos?\", \"text\": \"Look at the chips on the shelf and report which ones are priced under 50 pesos without touching them.\"}, {\"type\": \"pickup\", \"target\": \"chips under 50 pesos\", \"text\": \"Pick up a pack of chips that is under 50 pesos.\"}, {\"type\": \"checkout\", \"text\": \"Take the held chips to the self-checkout: scan it and bag it.\"}]",
         "error": null
       },
       "new_parsed": [
         {
-          "type": "compare",
-          "text": "Look at the available chips and identify one that costs under 50 pesos.",
-          "targets": [
-            "chips"
-          ],
-          "criterion": "price under 50 pesos"
+          "type": "goto",
+          "text": "Go to where the chips are shelved.",
+          "location": "chips"
+        },
+        {
+          "type": "inspect",
+          "text": "Look at the chips on the shelf and report which ones are priced under 50 pesos without touching them.",
+          "query": "Which chips are priced under 50 pesos?"
         },
         {
           "type": "pickup",
-          "text": "Pick up the selected chips.",
-          "target": "chips"
+          "text": "Pick up a pack of chips that is under 50 pesos.",
+          "target": "chips under 50 pesos"
         },
         {
           "type": "checkout",
@@ -326,22 +279,19 @@
       ],
       "new_summary": {
         "types": [
-          "compare",
+          "goto",
+          "inspect",
           "pickup",
           "checkout"
         ],
         "has_unknown": false,
-        "n": 3
+        "n": 4
       }
     },
     {
       "id": "anti-kw-1",
       "family": "anti-keyword",
       "prompt": "Obtain the green Piattos and deposit them at the till.",
-      "old": {
-        "raw": "\n\n[\"Pick up the green Piattos.\", \"Carry the held green Piattos to the till and place them down.\"]",
-        "error": null
-      },
       "new": {
         "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"green Piattos\", \"text\": \"Pick up the green Piattos.\"}, {\"type\": \"checkout\", \"text\": \"Take the held green Piattos to the self-checkout: scan it and bag it.\"}]",
         "error": null
@@ -370,10 +320,6 @@
       "id": "anti-kw-2",
       "family": "anti-keyword",
       "prompt": "Fetch a bottle of water and leave it at the self-checkout.",
-      "old": {
-        "raw": "\n\n[\"Pick up a bottle of water.\", \"Carry the held bottle of water to the self-checkout and place it down.\"]",
-        "error": null
-      },
       "new": {
         "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"bottle of water\", \"text\": \"Pick up a bottle of water.\"}, {\"type\": \"checkout\", \"text\": \"Take the held bottle of water to the self-checkout: scan it and bag it.\"}]",
         "error": null
@@ -402,10 +348,6 @@
       "id": "bare-pickup",
       "family": "1 fetch-to-counter",
       "prompt": "Pick up the milk.",
-      "old": {
-        "raw": "\n\n[\"Pick up the milk.\"]",
-        "error": null
-      },
       "new": {
         "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"milk\", \"text\": \"Pick up the milk.\"}]",
         "error": null
@@ -423,6 +365,244 @@
         ],
         "has_unknown": false,
         "n": 1
+      }
+    },
+    {
+      "id": "inspect-count",
+      "family": "5 inspection",
+      "prompt": "Count the Piattos on this shelf.",
+      "new": {
+        "raw": "\n\n[{\"type\": \"inspect\", \"query\": \"How many Piattos are on this shelf?\", \"text\": \"Look at the shelf, count the Piattos, and report the count without touching them.\"}]",
+        "error": null
+      },
+      "new_parsed": [
+        {
+          "type": "inspect",
+          "text": "Look at the shelf, count the Piattos, and report the count without touching them.",
+          "query": "How many Piattos are on this shelf?"
+        }
+      ],
+      "new_summary": {
+        "types": [
+          "inspect"
+        ],
+        "has_unknown": false,
+        "n": 1
+      },
+      "inspect_adoption": {
+        "expected_types": [
+          "inspect"
+        ],
+        "actual_types": [
+          "inspect"
+        ],
+        "passed": true,
+        "became_inspect_not_unknown": true
+      }
+    },
+    {
+      "id": "inspect-expiration",
+      "family": "5 inspection",
+      "prompt": "Read and report the expiration date printed on the milk.",
+      "new": {
+        "raw": "\n\n[{\"type\": \"goto\", \"location\": \"milk\", \"text\": \"Go to where the milk is shelved.\"}, {\"type\": \"inspect\", \"query\": \"What expiration date is printed on the milk?\", \"text\": \"Look closely at the milk and report its printed expiration date without touching it.\"}]",
+        "error": null
+      },
+      "new_parsed": [
+        {
+          "type": "goto",
+          "text": "Go to where the milk is shelved.",
+          "location": "milk"
+        },
+        {
+          "type": "inspect",
+          "text": "Look closely at the milk and report its printed expiration date without touching it.",
+          "query": "What expiration date is printed on the milk?"
+        }
+      ],
+      "new_summary": {
+        "types": [
+          "goto",
+          "inspect"
+        ],
+        "has_unknown": false,
+        "n": 2
+      },
+      "inspect_adoption": {
+        "expected_types": [
+          "goto",
+          "inspect"
+        ],
+        "actual_types": [
+          "goto",
+          "inspect"
+        ],
+        "passed": true,
+        "became_inspect_not_unknown": true
+      }
+    },
+    {
+      "id": "inspect-then-pickup",
+      "family": "5 inspection",
+      "prompt": "Read the expiration dates and pick up the one that is not expired.",
+      "new": {
+        "raw": "\n\n[{\"type\": \"inspect\", \"query\": \"Which candidate item is not expired?\", \"text\": \"Read the candidates' expiration dates and report which one is not expired without touching them.\"}, {\"type\": \"pickup\", \"target\": \"the item identified as not expired\", \"text\": \"Pick up the item identified as not expired.\"}]",
+        "error": null
+      },
+      "new_parsed": [
+        {
+          "type": "inspect",
+          "text": "Read the candidates' expiration dates and report which one is not expired without touching them.",
+          "query": "Which candidate item is not expired?"
+        },
+        {
+          "type": "pickup",
+          "text": "Pick up the item identified as not expired.",
+          "target": "the item identified as not expired"
+        }
+      ],
+      "new_summary": {
+        "types": [
+          "inspect",
+          "pickup"
+        ],
+        "has_unknown": false,
+        "n": 2
+      },
+      "inspect_adoption": {
+        "expected_types": [
+          "inspect",
+          "pickup"
+        ],
+        "actual_types": [
+          "inspect",
+          "pickup"
+        ],
+        "passed": true,
+        "became_inspect_not_unknown": true
+      }
+    },
+    {
+      "id": "inspect-nutrition-compare",
+      "family": "5 inspection",
+      "prompt": "Compare the nutritional facts of the two cereals and tell me which has less sugar.",
+      "new": {
+        "raw": "\n\n[{\"type\": \"pickup\", \"target\": \"the first cereal\", \"text\": \"Pick up the first cereal.\"}, {\"type\": \"pickup\", \"target\": \"the second cereal\", \"text\": \"Pick up the second cereal.\"}, {\"type\": \"inspect\", \"query\": \"Which cereal has less sugar per the printed nutritional facts?\", \"text\": \"Read both cereals' nutritional facts labels closely and report which has less sugar without touching them further.\"}]",
+        "error": null
+      },
+      "new_parsed": [
+        {
+          "type": "pickup",
+          "text": "Pick up the first cereal.",
+          "target": "the first cereal"
+        },
+        {
+          "type": "pickup",
+          "text": "Pick up the second cereal.",
+          "target": "the second cereal"
+        },
+        {
+          "type": "inspect",
+          "text": "Read both cereals' nutritional facts labels closely and report which has less sugar without touching them further.",
+          "query": "Which cereal has less sugar per the printed nutritional facts?"
+        }
+      ],
+      "new_summary": {
+        "types": [
+          "pickup",
+          "pickup",
+          "inspect"
+        ],
+        "has_unknown": false,
+        "n": 3
+      },
+      "inspect_adoption": {
+        "expected_types": [
+          "pickup",
+          "pickup",
+          "inspect"
+        ],
+        "actual_types": [
+          "pickup",
+          "pickup",
+          "inspect"
+        ],
+        "passed": true,
+        "became_inspect_not_unknown": true
+      }
+    },
+    {
+      "id": "inspect-goto-price",
+      "family": "5 inspection",
+      "prompt": "Find the Choco Mallows and tell me the price.",
+      "new": {
+        "raw": "\n\n[{\"type\": \"goto\", \"location\": \"Choco Mallows\", \"text\": \"Go to where the Choco Mallows are shelved.\"}, {\"type\": \"inspect\", \"query\": \"What is the printed price of the Choco Mallows?\", \"text\": \"Look at the Choco Mallows and report their printed price without touching them.\"}]",
+        "error": null
+      },
+      "new_parsed": [
+        {
+          "type": "goto",
+          "text": "Go to where the Choco Mallows are shelved.",
+          "location": "Choco Mallows"
+        },
+        {
+          "type": "inspect",
+          "text": "Look at the Choco Mallows and report their printed price without touching them.",
+          "query": "What is the printed price of the Choco Mallows?"
+        }
+      ],
+      "new_summary": {
+        "types": [
+          "goto",
+          "inspect"
+        ],
+        "has_unknown": false,
+        "n": 2
+      },
+      "inspect_adoption": {
+        "expected_types": [
+          "goto",
+          "inspect"
+        ],
+        "actual_types": [
+          "goto",
+          "inspect"
+        ],
+        "passed": true,
+        "became_inspect_not_unknown": true
+      }
+    },
+    {
+      "id": "inspect-here-no-goto",
+      "family": "5 inspection",
+      "prompt": "Count the Vcut chips on this shelf.",
+      "new": {
+        "raw": "\n\n[{\"type\": \"inspect\", \"query\": \"How many Vcut chips are on this shelf?\", \"text\": \"Look at the shelf, count the Vcut chips, and report the count without touching them.\"}]",
+        "error": null
+      },
+      "new_parsed": [
+        {
+          "type": "inspect",
+          "text": "Look at the shelf, count the Vcut chips, and report the count without touching them.",
+          "query": "How many Vcut chips are on this shelf?"
+        }
+      ],
+      "new_summary": {
+        "types": [
+          "inspect"
+        ],
+        "has_unknown": false,
+        "n": 1
+      },
+      "inspect_adoption": {
+        "expected_types": [
+          "inspect"
+        ],
+        "actual_types": [
+          "inspect"
+        ],
+        "passed": true,
+        "became_inspect_not_unknown": true
       }
     }
   ]

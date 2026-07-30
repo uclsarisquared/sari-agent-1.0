@@ -1,0 +1,40 @@
+{
+  "prompts": [
+    {
+      "id": "easy_01",
+      "family": "pickup",
+      "prompt": "Find and pick up Ritz Crackers",
+      "looking_for": "a pack of Ritz Crackers held in either hand"
+    },
+    {
+      "id": "easy_03",
+      "family": "pickup",
+      "prompt": "Go to Aisle 2 and pick up noodles",
+      "looking_for": "agent navigated to Aisle 2 and a noodle product held in either hand"
+    },
+    {
+      "id": "medium_01",
+      "family": "checkout",
+      "prompt": "Get Pocky and scan it at the checkout",
+      "looking_for": "Pocky scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "medium_03",
+      "family": "checkout",
+      "prompt": "Get Danisa Butter Cookies and then Clover Chips and scan them at the checkout",
+      "looking_for": "Danisa Butter Cookies and Clover Chips both scanned and bagged at the self-checkout"
+    },
+    {
+      "id": "hard_01",
+      "family": "reasoning",
+      "prompt": "Which of these two products have lower sugar content: Pocky or Hello Panda? Bring that item to the counter",
+      "looking_for": "the product (Pocky or Hello Panda) with the lower sugar content correctly identified and brought to the checkout counter"
+    },
+    {
+      "id": "hard_03",
+      "family": "reasoning",
+      "prompt": "You have 200 php. Buy as many chips as you can.",
+      "looking_for": "the maximum number of chips products affordable within a 200 php budget scanned and bagged at the self-checkout, without exceeding the budget"
+    }
+  ]
+}
