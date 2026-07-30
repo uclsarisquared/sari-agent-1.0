@@ -168,6 +168,7 @@ def test_completion_guard_is_threaded_into_agent_command_and_battery_config() ->
             [Prompt(id="p", prompt="pick it up")],
             workspace,
             completion_guard="vlm",
+            context_policy="a5",
         )
         lease = type("LeaseStub", (), {"commands_uri": "ws://127.0.0.1:51001/commands"})()
         command = runner._agent_command(
@@ -175,6 +176,9 @@ def test_completion_guard_is_threaded_into_agent_command_and_battery_config() ->
         index = command.index("--completion-guard")
         assert command[index + 1] == "vlm", command
         assert runner._semantic_config()["completion_guard"] == "vlm"
+        policy_index = command.index("--context-policy")
+        assert command[policy_index + 1] == "a5"
+        assert runner._semantic_config()["context_policy"] == "a5"
         ocr_index = command.index("--ocr-url")
         assert command[ocr_index + 1] == "http://127.0.0.1:9100"
         assert runner._semantic_config()["ocr_url"] == "http://127.0.0.1:9100"
@@ -182,11 +186,13 @@ def test_completion_guard_is_threaded_into_agent_command_and_battery_config() ->
         runner._write_battery_manifest(1)
         battery = json.loads((runner.output_dir / "battery.json").read_text())
         assert battery["completion_guard"] == "vlm"
+        assert battery["context_policy"] == "a5"
         assert battery["ocr_url"] == "http://127.0.0.1:9100"
 
         # A legacy battery without this field means deterministic, never an implicit VLM switch.
         legacy = runner._semantic_config()
         legacy.pop("completion_guard")
+        legacy["context_policy"] = "a5"
         try:
             runner._validate_resume_config(legacy)
         except ResumeError:
@@ -203,6 +209,7 @@ def test_completion_guard_is_threaded_into_agent_command_and_battery_config() ->
         )
         legacy = deterministic._semantic_config()
         legacy.pop("completion_guard")
+        legacy.pop("context_policy")
         deterministic._validate_resume_config(legacy)
     print("ok  completion guard reaches the agent command and durable battery config")
 
