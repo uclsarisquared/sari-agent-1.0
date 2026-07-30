@@ -42,7 +42,9 @@ Backend is annotate_claude_cli (claude -p on the claude.ai / Max-plan login). Sw
 import argparse
 import glob
 import json
+import math
 import os
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -53,7 +55,7 @@ if _SLAM_DIR not in sys.path:
 import _bootstrap  # noqa: F401,E402  (overhaul root + all slamtest category dirs)
 
 from annotator_sys_inst import (  # noqa: E402
-    SYS_INST_CLASSIFY, CLASSIFY_SCHEMA, SHELF_KIND,
+    SYS_INST_CLASSIFY, CLASSIFY_SCHEMA, SHELF_KIND, NON_SHELF_KIND,
     build_annotation_instructions, schema_for, effective_kind,
 )
 from annotate_claude_cli import (  # noqa: E402
@@ -90,6 +92,21 @@ AnnotateError = (ClaudeCliError, QwenAnnotateError)
 #   qwen: 4 (user directive 2026-07-30). vLLM batches concurrent requests fine; 4 keeps the UCL
 #     server responsive for other users.
 DEFAULT_JOBS = {"claude-cli": 8, "qwen": 4}
+
+
+def resolve_annotate_fn(args):
+    """Resolve --backend/--model/--base-url into the backend's ready-to-call annotate() (filling
+    args.model with the backend's default when unset). Shared by this offline pass and the fused
+    capture+annotate walk (capture_annotate_walk.py) so backend wiring lives in one place."""
+    annotate_fn, default_model = ANNOTATE_BACKENDS[args.backend]
+    if not args.model:
+        args.model = default_model
+    if args.backend == "qwen" and args.base_url:
+        # Only the qwen backend accepts base_url; inject it so classify/annotate_checkpoint stay
+        # backend-agnostic (they call annotate_fn with the shared signature only).
+        _base_fn = annotate_fn
+        annotate_fn = lambda *a, **k: _base_fn(*a, base_url=args.base_url, **k)
+    return annotate_fn
 
 
 def add_route_hints(annotations, topology):
@@ -286,17 +303,129 @@ def render_semantic_map(annotations, topology):
     return "\n".join(lines)
 
 
+# The sim's self-checkout kiosk announces itself: sign_text comes back "Welcome to Self
+# Checkout!" verbatim (measured on runs 0724_164652 and 0731_023222, sonnet/medium). The match is
+# deliberately loose (checkout / check-out / check out) so summary-only phrasing also hits.
+_CHECKOUT_PAT = re.compile(r"check[\s-]?outs?", re.IGNORECASE)
+
+
+def promote_checkout_landmarks(annotations, topology, topo_path, output_dir):
+    """Promote annotator-identified checkout checkpoints to kind="landmark" in the TOPOLOGY.
+
+    Why this exists, measured (2026-07-31): the geometric landmark pass
+    (shelf_coverage.find_landmark_checkpoints) only proposes structures NO checkpoint observes, and
+    on every fresh explore since 07-24 the shelf sweep reads the checkout counter itself (a shelf
+    node stands at its face), so the counter is eroded as "observed" and the graph gets NO landmark
+    from geometry - runs 0731_* shipped with no checkout node at all, which breaks go_to_counter /
+    the whole place subtask. Five geometric discriminators were tried and failed (see the
+    DEFAULT_LANDMARK_MIN_FREE_PERIMETER docstring in shelf_coverage for the list); the signal that
+    IS stable is semantic: the annotator reads the kiosk's "Welcome to Self Checkout!" signage at
+    that node on every run. So: the VLM judges what is in front of it (this), the graph owns where
+    it is (the node's existing cell/shelf_cell/neighbors are untouched).
+
+    A promoted record's effective_kind becomes "landmark", which makes the node a routable
+    destination for route hints and walk_map, and StoreMap.counter_checkpoint() finds it by
+    topology kind. interaction_xz (the cp54-style dock pose) is computed from grid_final.npy via
+    the same dock walk the geometric pass uses; best-effort - the drive/align primitives
+    (go_to_counter, align_to_scanner) need only kind + shelf_cell, not the dock pose.
+
+    Same-structure guard: if the topology already has a landmark whose shelf_cell is within 1.0m
+    of this node's (the frozen baseline, where the geometric pass found the counter itself), skip -
+    one checkout, one landmark. A landmark FARTHER away does not block promotion on purpose:
+    run_0724's pre-existing false landmark faces a wall corner 1.5m off, and the real counter must
+    still be promoted alongside it.
+
+    Runs BEFORE route hints in write_derived_outputs (a hint should route toward the promoted
+    kind), and rewrites topology_<tag>.json in place when anything changed. Re-running is
+    idempotent: an already-promoted node is kind "landmark" and is skipped by the guard."""
+    by_id = {c["id"]: c for c in topology["checkpoints"]}
+    landmarks = [c for c in topology["checkpoints"] if c.get("kind") == "landmark"]
+    promoted = []
+    for cid, rec in sorted(annotations.items(), key=lambda kv: int(kv[0])):
+        # "landmark" is accepted alongside non_shelf because promotion itself writes it into the
+        # record: if the topology is later REBUILT (kind reverts to "shelf") the record is the only
+        # memory left, and requiring non_shelf would make the promotion unrepeatable. Idempotency
+        # comes from the topology kind check below, not from the record.
+        if rec.get("effective_kind") not in (NON_SHELF_KIND, "landmark"):
+            continue
+        ann = rec.get("annotation") or {}
+        text = " ".join(filter(None, (ann.get("sign_text"), ann.get("semantic_summary"))))
+        if not _CHECKOUT_PAT.search(text):
+            continue
+        cp = by_id.get(int(cid))
+        if not cp or cp.get("kind") == "landmark" or not cp.get("shelf_cell"):
+            continue
+        sx, sz = cp["shelf_cell"]
+        if any(lm.get("shelf_cell") and
+               math.hypot(lm["shelf_cell"][0] - sx, lm["shelf_cell"][1] - sz) <= 10  # 1.0m @ 0.1m/cell
+               for lm in landmarks):
+            continue  # this structure already has its landmark (frozen-baseline case)
+
+        cp["kind"] = "landmark"
+        cp["interaction_xz"] = _checkout_interaction_xz(output_dir, cp)
+        rec["effective_kind"] = "landmark"
+        landmarks.append(cp)
+        promoted.append(cp["id"])
+        print(f"[annotate_pass] cp{cp['id']} annotated as a checkout "
+              f"-> promoted to kind=landmark (interaction_xz={cp['interaction_xz']})")
+
+    if promoted:
+        with open(topo_path, "w", encoding="utf-8") as f:
+            json.dump(topology, f, indent=2)
+    return promoted
+
+
+def _checkout_interaction_xz(output_dir, cp):
+    """cp54-style dock pose for a promoted checkout node, from grid_final.npy. Best-effort: None
+    if the grid file isn't alongside the topology (an annotations-only directory) - the consumers
+    that matter don't require it (see promote_checkout_landmarks)."""
+    grid_path = os.path.join(output_dir, "grid_final.npy")
+    if not os.path.exists(grid_path):
+        return None
+    import numpy as np
+    from occupancy_grid import OccupancyGrid
+    from shelf_coverage import dock_interaction_xz
+    log_odds = np.load(grid_path)
+    grid = OccupancyGrid(size_m=log_odds.shape[0] * 0.1, resolution=0.1)  # the pipeline's fixed 0.1m res
+    grid.log_odds = log_odds
+    occupied = grid.log_odds > grid.OCCUPIED_THRESHOLD
+    sx, sz = cp["shelf_cell"]
+    r = int(round(1.2 / grid.res))  # the landmark pass's observed radius: "this structure", locally
+    structure = [(x, z) for x in range(sx - r, sx + r + 1) for z in range(sz - r, sz + r + 1)
+                 if grid.in_bounds(x, z) and occupied[x, z]]
+    if not structure:
+        return None
+    return dock_interaction_xz(grid, occupied, structure, tuple(cp["cell"]), (sx, sz))
+
+
+def write_derived_outputs(annotations, topology, ann_path, prod_path, map_path,
+                          topo_path=None, output_dir=None):
+    """The fan-in: refresh graph-owned fields, recompute route hints, rebuild the flat product
+    index and the rendered semantic map. Needs the COMPLETE annotations dict (a route hint depends
+    on how every OTHER checkpoint classified), so both drivers - this offline pass and the fused
+    capture+annotate walk - call it exactly once, after their per-checkpoint work finishes.
+
+    When topo_path/output_dir are given, checkout promotion runs first (it may rewrite the
+    topology file and flip records to effective_kind "landmark", both of which the derived
+    outputs must see)."""
+    if topo_path and output_dir:
+        promote_checkout_landmarks(annotations, topology, topo_path, output_dir)
+    refresh_graph_fields(annotations, topology)
+    add_route_hints(annotations, topology)
+    with open(ann_path, "w", encoding="utf-8") as f:
+        json.dump(annotations, f, indent=2, ensure_ascii=False)
+    products = flatten_products(annotations)
+    with open(prod_path, "w", encoding="utf-8") as f:
+        json.dump(products, f, indent=2, ensure_ascii=False)
+    with open(map_path, "w", encoding="utf-8") as f:
+        f.write(render_semantic_map(annotations, topology))
+    return products
+
+
 def run(args):
     # Resolve the backend: its annotate() and its default model. --model overrides the default,
     # so `--backend qwen` without --model uses Qwen/Qwen3.6-27B, not sonnet.
-    annotate_fn, default_model = ANNOTATE_BACKENDS[args.backend]
-    if not args.model:
-        args.model = default_model
-    if args.backend == "qwen" and args.base_url:
-        # Only the qwen backend accepts base_url; inject it so classify/annotate_checkpoint stay
-        # backend-agnostic (they call annotate_fn with the shared signature only).
-        _base_fn = annotate_fn
-        annotate_fn = lambda *a, **k: _base_fn(*a, base_url=args.base_url, **k)
+    annotate_fn = resolve_annotate_fn(args)
 
     topo_path = os.path.join(args.output_dir, f"topology_{args.topology_tag}.json")
     with open(topo_path, encoding="utf-8") as f:
@@ -366,15 +495,8 @@ def run(args):
             done += 1
 
     # Derived outputs - rebuilt in full each run from the (possibly resumed) annotations.
-    refresh_graph_fields(annotations, topology)
-    add_route_hints(annotations, topology)
-    with open(ann_path, "w", encoding="utf-8") as f:
-        json.dump(annotations, f, indent=2, ensure_ascii=False)
-    products = flatten_products(annotations)
-    with open(prod_path, "w", encoding="utf-8") as f:
-        json.dump(products, f, indent=2, ensure_ascii=False)
-    with open(map_path, "w", encoding="utf-8") as f:
-        f.write(render_semantic_map(annotations, topology))
+    products = write_derived_outputs(annotations, topology, ann_path, prod_path, map_path,
+                                     topo_path=topo_path, output_dir=args.output_dir)
 
     total_cost = sum(r.get("cost_equiv_usd") or 0 for r in annotations.values())
     cost_note = ("subscription-covered on Max" if args.backend == "claude-cli"
@@ -387,18 +509,12 @@ def run(args):
     print(f"[annotate_pass]   {map_path}")
 
 
-def build_parser():
-    p = argparse.ArgumentParser(description="Annotate captured checkpoints and write durable map outputs.")
-    p.add_argument("output_dir", help="Directory holding topology_<tag>.json; outputs written here")
-    p.add_argument("--capture-dir", default=None, help="Where the cp<id>_primary.png live (default: <output_dir>/captures)")
-    p.add_argument("--topology-tag", default="final_shelf")
+def add_annotator_args(p):
+    """The annotator-side flags, shared VERBATIM by this offline pass and the fused
+    capture+annotate walk (capture_annotate_walk.py composes them onto capture_walk's parser).
+    Deliberately excludes the selection args (output_dir/--capture-dir/--kind/--ids/--limit),
+    which both parsers define themselves - in the fused driver the CAPTURE side owns selection."""
     p.add_argument("--out-tag", default="final_shelf", help="Suffix for the output files")
-    p.add_argument("--kind", default="shelf,landmark",
-                   help="Comma-separated kinds to annotate (default: shelf,landmark; 'all' for every kind). "
-                        "A landmark gets the non-shelf overlay, which describes the place instead of "
-                        "enumerating products - right for a checkout counter.")
-    p.add_argument("--ids", type=int, nargs="*", default=None, help="Only these checkpoint ids")
-    p.add_argument("--limit", type=int, default=0, help="At most this many checkpoints (0 = all)")
     p.add_argument("--resume", action="store_true", help="Skip checkpoints already in annotations_<tag>.json")
     p.add_argument("--skip-classify", action="store_true", help="Skip Stage 1; treat every shelf-kind checkpoint as a real shelf")
     p.add_argument("--backend", choices=list(ANNOTATE_BACKENDS), default="claude-cli",
@@ -417,6 +533,20 @@ def build_parser():
                         f"{DEFAULT_JOBS['claude-cli']} for claude-cli, {DEFAULT_JOBS['qwen']} for qwen). "
                         "Use --jobs 1 for the old sequential behaviour.")
     return p
+
+
+def build_parser():
+    p = argparse.ArgumentParser(description="Annotate captured checkpoints and write durable map outputs.")
+    p.add_argument("output_dir", help="Directory holding topology_<tag>.json; outputs written here")
+    p.add_argument("--capture-dir", default=None, help="Where the cp<id>_primary.png live (default: <output_dir>/captures)")
+    p.add_argument("--topology-tag", default="final_shelf")
+    p.add_argument("--kind", default="shelf,landmark",
+                   help="Comma-separated kinds to annotate (default: shelf,landmark; 'all' for every kind). "
+                        "A landmark gets the non-shelf overlay, which describes the place instead of "
+                        "enumerating products - right for a checkout counter.")
+    p.add_argument("--ids", type=int, nargs="*", default=None, help="Only these checkpoint ids")
+    p.add_argument("--limit", type=int, default=0, help="At most this many checkpoints (0 = all)")
+    return add_annotator_args(p)
 
 
 if __name__ == "__main__":

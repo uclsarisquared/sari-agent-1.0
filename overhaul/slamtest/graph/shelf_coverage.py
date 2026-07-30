@@ -363,14 +363,32 @@ the first version omitted it: the counter's node was placed 1.00m from the count
 an unrelated structure behind it, and audit_standability immediately flagged it as a node the
 navigator would refuse to walk to. Being at reading distance from the target is necessary and not
 sufficient - the spot also has to be somewhere the agent can actually stand."""
-DEFAULT_LANDMARK_MIN_FREE_PERIMETER = 0.60
+DEFAULT_LANDMARK_MIN_FREE_PERIMETER = 0.65
 """Fraction of a structure's perimeter that must border FREE space for it to count as a landmark
-rather than a wall. Measured on the frozen grid, the separation is wide and unambiguous: the
-checkout counter scores 0.71, while the three unobserved wall segments score 0.44, 0.45 and 0.48.
+rather than a wall. On the frozen grid the separation is wide: the checkout counter's cluster
+scores 0.71, wall segments 0.44-0.57.
 
-The intuition is what makes it robust: a free-standing island is walkable-around, so most of its
-edge touches floor. A wall has floor on ONE side and unknown/outside on the other, capping it near
-0.5. Anything that clears 0.6 is something you can walk around - which is what a landmark is."""
+Raised 0.60 -> 0.65 (2026-07-31) after a measured false positive: on run_0724_164652 the shelf
+sweep read the counter itself (so the counter dropped out of this pass as "observed"), and the
+leftover unobserved SW WALL-CORNER cluster scored 0.62 - over the old bar - so the run's one
+"landmark" faced a bare wall, not the counter. Re-scored across five grids (frozen + four fresh
+explores), every wall/corner rump lands in 0.41-0.62 while the true island cluster, when it exists
+at all, scores 0.71. 0.65 splits those cleanly; do not lower it back without re-measuring all five.
+
+KNOWN LIMIT, measured, do not re-attempt geometrically: when a shelf checkpoint reads the counter
+(which the current 2.0m sweep does on every fresh explore since 07-24), the counter is eroded as
+"observed" and this pass CANNOT recover it - the graph then gets no landmark from geometry alone.
+Five discriminators were tried against the four fresh grids and all failed: raw free-perimeter
+(0.45-0.62, overlaps walls), perimeter of the reconstructed full structure (merges into the wall
+component - connectivity to the wall is run-dependent: 4-and-8-connected, 8-only, or separate,
+across the five grids), a 0.4-0.8m free-space shell (counter sits too close to the west wall),
+interior-vs-exterior unknown (the counter's unknown fringe drains around the wall to the outside),
+and 1-cell morphological erosion cores (the counter scans too thin on some runs - 46-56 occupied
+cells over its 10x16 footprint - and dissolves). The robust recovery is SEMANTIC, not geometric:
+the annotator reliably reads the sim's "Welcome to Self Checkout!" signage at that node, and
+annotate_pass.promote_checkout_landmarks() promotes it to kind="landmark" in the topology. This
+geometric pass remains the path for maps where the sweep does NOT claim the counter (the frozen
+baseline), and the two are deduped there by promote's same-structure guard."""
 
 
 def _unobserved_clusters(occupied, free, observed_cells, res, *, min_cells, observed_radius_m,
@@ -426,6 +444,34 @@ def _unobserved_clusters(occupied, free, observed_cells, res, *, min_cells, obse
         if perimeter and bordering_free / perimeter >= min_free_perimeter:
             out.append(cells)
     return out
+
+
+def dock_interaction_xz(grid, occupied, structure_cells, stand_cell, target_cell, *,
+                        body_radius=0.3,
+                        interaction_gap_m=DEFAULT_LANDMARK_INTERACTION_GAP_M,
+                        max_approach_m=DEFAULT_LANDMARK_MAX_APPROACH_M):
+    """The dock pose: step from `stand_cell` toward `target_cell` until the body surface is
+    interaction_gap_m from the structure (`structure_cells`, its occupied cells). Walked one cell
+    at a time rather than solved, since "distance to the structure" means distance to its nearest
+    cell, which changes as you move. Returns world (x, z), or None if the walk hits an obstacle or
+    runs out of range first.
+
+    Shared by find_landmark_checkpoints() (dock toward a discovered cluster's centroid) and
+    annotate_pass.promote_checkout_landmarks() (dock an existing checkpoint toward its shelf_cell
+    when the annotator identifies the checkout) so the two landmark paths derive the same pose."""
+    want_centre_dist = body_radius + interaction_gap_m
+    vx, vz = target_cell[0] - stand_cell[0], target_cell[1] - stand_cell[1]
+    norm = math.hypot(vx, vz) or 1.0
+    vx, vz = vx / norm, vz / norm
+    for step in range(1, int(math.ceil(max_approach_m / grid.res)) + 1):
+        px = int(round(stand_cell[0] + vx * step))
+        pz = int(round(stand_cell[1] + vz * step))
+        if not grid.in_bounds(px, pz) or occupied[px, pz]:
+            break
+        gap_m = min(math.hypot(a - px, b - pz) for a, b in structure_cells) * grid.res
+        if gap_m <= want_centre_dist:
+            return grid.to_world(px, pz)
+    return None
 
 
 def find_landmark_checkpoints(grid, graph, *,
@@ -517,23 +563,9 @@ def find_landmark_checkpoints(grid, graph, *,
         centre = (int(round(sum(c[0] for c in cells) / len(cells))),
                   int(round(sum(c[1] for c in cells) / len(cells))))
 
-        # The dock pose: step from the standing cell toward the centroid until the body surface is
-        # interaction_gap_m from the structure. Walked one cell at a time rather than solved, since
-        # "distance to the structure" means distance to its nearest cell, which changes as you move.
-        want_centre_dist = body_radius + interaction_gap_m
-        vx, vz = centre[0] - cell[0], centre[1] - cell[1]
-        norm = math.hypot(vx, vz) or 1.0
-        vx, vz = vx / norm, vz / norm
-        interaction_xz = None
-        for step in range(1, int(math.ceil(max_approach_m / grid.res)) + 1):
-            px = int(round(cell[0] + vx * step))
-            pz = int(round(cell[1] + vz * step))
-            if not grid.in_bounds(px, pz) or occupied[px, pz]:
-                break
-            gap_m = min(math.hypot(a - px, b - pz) for a, b in cells) * grid.res
-            if gap_m <= want_centre_dist:
-                interaction_xz = grid.to_world(px, pz)
-                break
+        interaction_xz = dock_interaction_xz(
+            grid, occupied, cells, cell, centre, body_radius=body_radius,
+            interaction_gap_m=interaction_gap_m, max_approach_m=max_approach_m)
 
         proposals.append({
             "cell": cell,

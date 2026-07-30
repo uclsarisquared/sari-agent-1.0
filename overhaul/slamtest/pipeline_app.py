@@ -65,6 +65,7 @@ class PipelineApp:
         self.stop_requested = threading.Event()
         self.log_queue = queue.Queue()
         self._last_map_mtime = None
+        self._running = False            # True while stages run; _refresh_map picks its rule by this
         self._map_photo = None           # keep a reference or Tk garbage-collects the image
 
         self._build_ui()
@@ -146,10 +147,17 @@ class PipelineApp:
         # 0 = annotate_pass's backend default (8 for claude-cli, 4 for qwen); 1 = old sequential.
         self.ann_jobs = tk.StringVar(value="0")
         self._row(caf, 5, "Parallel jobs (0 = backend default)", ttk.Entry(caf, textvariable=self.ann_jobs, width=8))
+        # Fused stages 4+5 (capture_annotate_walk.py): annotate each checkpoint while the walk
+        # drives to the next. Only takes effect when BOTH stages are ticked; off by default so the
+        # baseline sequential behaviour is unchanged.
+        self.fuse_cap_ann = tk.BooleanVar(value=False)
+        ttk.Checkbutton(caf, text="Fuse capture+annotate (annotate during the walk)",
+                        variable=self.fuse_cap_ann).grid(row=6, column=0, columnspan=2, sticky="w")
         ttk.Label(caf, text="claude-cli = measured baseline (sonnet/medium). qwen = self-hosted,\n"
                             "no subscription; model/effort fields ignored. A/B before trusting qwen.\n"
-                            "Jobs default: 8 claude-cli, 4 qwen. Set 1 if rate limits bite.",
-                  foreground="grey").grid(row=6, column=0, columnspan=2, sticky="w")
+                            "Jobs default: 8 claude-cli, 4 qwen. Set 1 if rate limits bite.\n"
+                            "Fused runs as ONE stage; needs both stage 4 and 5 ticked.",
+                  foreground="grey").grid(row=7, column=0, columnspan=2, sticky="w")
 
         # --- run controls ---
         ctl = ttk.Frame(left)
@@ -233,22 +241,38 @@ class PipelineApp:
             cmds.append(("Audit", py + [os.path.join(_SLAM_DIR, "graph", "audit_standability.py"),
                                         out, "--topology-tag", "final_shelf"]))
 
-        if self.stage_vars["capture"].get():
-            cmds.append(("Capture", py + [os.path.join(_SLAM_DIR, "capture", "capture_walk.py"), out,
-                                          "--limit", self.limit.get(),
-                                          "--angles", self.angles.get(),
-                                          "--uri", self.uri.get()]))
-
-        if self.stage_vars["annotate"].get():
+        def annotator_flags():
             backend = self.ann_backend.get()
-            ann = py + [os.path.join(_SLAM_DIR, "annotate", "annotate_pass.py"), out, "--backend", backend]
+            flags = ["--backend", backend]
             if backend == "claude-cli":
                 # model/effort apply to claude only; qwen uses its own default (Qwen/Qwen3.6-27B).
-                ann += ["--model", self.ann_model.get(), "--effort", self.ann_effort.get()]
+                flags += ["--model", self.ann_model.get(), "--effort", self.ann_effort.get()]
             jobs = self.ann_jobs.get().strip()
             if jobs and jobs != "0":  # 0/blank = let annotate_pass pick the backend default (8/4)
-                ann += ["--jobs", jobs]
-            cmds.append(("Annotate", ann))
+                flags += ["--jobs", jobs]
+            return flags
+
+        # Fusing replaces stages 4 and 5 with ONE command (capture_annotate_walk.py) that
+        # annotates each checkpoint while walking to the next. Only when both stages are ticked -
+        # a lone capture or lone annotate has nothing to fuse with.
+        fuse = (self.fuse_cap_ann.get() and self.stage_vars["capture"].get()
+                and self.stage_vars["annotate"].get())
+        if fuse:
+            cmds.append(("Capture+Annotate", py +
+                         [os.path.join(_SLAM_DIR, "capture", "capture_annotate_walk.py"), out,
+                          "--limit", self.limit.get(),
+                          "--angles", self.angles.get(),
+                          "--uri", self.uri.get()] + annotator_flags()))
+        else:
+            if self.stage_vars["capture"].get():
+                cmds.append(("Capture", py + [os.path.join(_SLAM_DIR, "capture", "capture_walk.py"), out,
+                                              "--limit", self.limit.get(),
+                                              "--angles", self.angles.get(),
+                                              "--uri", self.uri.get()]))
+
+            if self.stage_vars["annotate"].get():
+                cmds.append(("Annotate", py + [os.path.join(_SLAM_DIR, "annotate", "annotate_pass.py"),
+                                               out] + annotator_flags()))
         return cmds
 
     def start(self):
@@ -267,7 +291,7 @@ class PipelineApp:
         if not cmds:
             messagebox.showinfo("Nothing to do", "No stages selected.")
             return
-        needs_sim = [n for n, _ in cmds if n in ("Explore", "Capture")]
+        needs_sim = [n for n, _ in cmds if n in ("Explore", "Capture", "Capture+Annotate")]
         if needs_sim and not messagebox.askokcancel(
                 "Sim check", f"{' and '.join(needs_sim)} need the Unity sim in Play mode.\n"
                              f"Is it running?"):
@@ -276,6 +300,7 @@ class PipelineApp:
         os.makedirs(out, exist_ok=True)
         self.stop_requested.clear()
         self._last_map_mtime = None
+        self._running = True   # _refresh_map: newest-PNG (live) mode while stages run
         self.run_btn.config(state="disabled")
         self.stop_btn.config(state="normal")
         self.worker = threading.Thread(target=self._run_stages, args=(cmds,), daemon=True)
@@ -344,24 +369,37 @@ class PipelineApp:
                 elif kind == "__controls__":
                     self.run_btn.config(state="normal")
                     self.stop_btn.config(state="disabled")
+                    self._running = False        # settle the map panel on the shelf graph
+                    self._last_map_mtime = None  # force one re-pick under the idle rule
         except queue.Empty:
             pass
         self._refresh_map()
         self.root.after(POLL_MS, self._poll)
 
     def _refresh_map(self):
-        """Show the newest grid_*.png in the output dir. With snapshot-every=1 this is the live
-        map during Explore; afterwards it settles on grid_final.png."""
+        """Map panel source, by pipeline state:
+          * RUNNING: newest grid_*.png or shelf_graph_*.png wins. With snapshot-every=1 the grid
+            snapshots are the live map during Explore, and the moment the shelf-graph stage writes
+            its PNG that becomes the newest, so the panel upgrades mid-run.
+          * IDLE: shelf_graph_*.png wins WHENEVER IT EXISTS, else newest grid. Presence beats
+            mtime here on purpose: the graph (checkpoints + edges over the same geometry) is the
+            informative final view, and mtimes can lie when idle - the frozen baseline's
+            grid_final.png is literally newer on disk than its shelf graph."""
         d = self.out_dir.get()
         if not os.path.isdir(d):
             return
         newest, newest_m = None, -1
         try:
-            for fn in os.listdir(d):
-                if fn.startswith("grid_") and fn.endswith(".png"):
-                    m = os.path.getmtime(os.path.join(d, fn))
-                    if m > newest_m:
-                        newest, newest_m = fn, m
+            candidates = [fn for fn in os.listdir(d)
+                          if (fn.startswith("grid_") or fn.startswith("shelf_graph_"))
+                          and fn.endswith(".png")]
+            if not self._running:
+                graphs = [fn for fn in candidates if fn.startswith("shelf_graph_")]
+                candidates = graphs or candidates
+            for fn in candidates:
+                m = os.path.getmtime(os.path.join(d, fn))
+                if m > newest_m:
+                    newest, newest_m = fn, m
         except OSError:
             return
         if newest is None or newest_m == self._last_map_mtime:

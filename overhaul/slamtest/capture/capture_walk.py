@@ -243,13 +243,26 @@ def select_checkpoints(topology, args):
     return cps
 
 
-def run(args):
+def run(args, on_captured=None, skip_ids=()):
+    """Walk the selected checkpoints and capture each one.
+
+    `on_captured(cp, shots)` is the fused capture+annotate hook (capture_annotate_walk.py): called
+    on the walk thread right after a checkpoint's shots are all on disk AND the agent is back
+    standing/level - so the sim is safe to keep moving no matter what the callback does. `shots`
+    is the saved paths in capture_plan order (primary first). Not called for unreachable or
+    shot-less checkpoints. `skip_ids` drops checkpoints from the walk entirely (the fused
+    driver's --resume: a checkpoint already annotated needs no re-capture either)."""
     grid = load_grid(args.output_dir, args.grid_tag, args.resolution)
     with open(os.path.join(args.output_dir, f"topology_{args.topology_tag}.json")) as f:
         topology = json.load(f)
     inflated = _inflate_occupied(grid, args.body_radius)
 
     targets = select_checkpoints(topology, args)
+    if skip_ids:
+        n_all = len(targets)
+        targets = [c for c in targets if c["id"] not in skip_ids]
+        if len(targets) != n_all:
+            print(f"[capture_walk] skipping {n_all - len(targets)} already-annotated checkpoint(s)")
     if not targets:
         print(f"[capture_walk] no '{args.kind}' checkpoints matched - nothing to do")
         return
@@ -298,6 +311,8 @@ def run(args):
 
             print(f"[capture_walk] id={cp['id']:3d} at ({pos[0]:.2f},{pos[2]:.2f}) "
                   f"yaw={rot[1]:.0f} pitch={rot[0]:.1f} -> {len(shots)} shot(s)")
+            if on_captured and shots:
+                on_captured(cp, shots)
     finally:
         if args.stow_hands:
             SetHandsActive(True, uri=args.uri)
