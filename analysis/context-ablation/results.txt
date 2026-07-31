@@ -1,0 +1,427 @@
+
+0. Scoring rule
+===============
+Every prompt has a denominator of 3. An attempt counts as a success only
+if a human reviewer passed it on replay. Attempts halted because a sibling
+had already won score as non-successes like any other -- no arm gets a
+smaller denominator. The baseline is now graded on the same terms as the
+arms, so all eight are comparable.
+arm       attempts  pass/fail judged  invalid  unreviewed  auto-pass -> human-fail  auto-fail -> human-pass
+--------  --------  ----------------  -------  ----------  -----------------------  -----------------------
+baseline  18        18                0        0           4                        0                      
+a1        18        15                3        0           1                        0                      
+a2c       18        15                3        0           3                        0                      
+a3        18        16                2        0           3                        0                      
+a4        18        14                0        4           1                        1                      
+a5        18        16                2        0           1                        0                      
+a6-2      18        17                1        0           1                        0                      
+a6-4      18        15                3        0           3                        0                      
+
+The auto predicate in subtask_completion.py over-grants: 17 of 94 auto-passes
+(18.1%, 95% CI [11.6%, 27.1%]) were overturned on review, against
+1 auto-fail promoted to a pass. Unreviewed rows fall back to the auto
+verdict; only A4 has any, and all four are attempts it never got to finish.
+
+1. Success rate over 3 tries per prompt
+=======================================
+arm       auto (ungraded)  graded  rate   wilson95      vs baseline  fisher p
+--------  ---------------  ------  -----  ------------  -----------  --------
+baseline  15/18            11/18   0.611  [0.39, 0.80]  +0.000       -       
+a1        9/18             8/18    0.444  [0.25, 0.66]  -0.167       0.505   
+a2c       12/18            9/18    0.500  [0.29, 0.71]  -0.111       0.738   
+a3        11/18            8/18    0.444  [0.25, 0.66]  -0.167       0.505   
+a4        10/18            10/18   0.556  [0.34, 0.75]  -0.056       1.000   
+a5        10/18            9/18    0.500  [0.29, 0.71]  -0.111       0.738   
+a6-2      13/18            12/18   0.667  [0.44, 0.84]  +0.056       1.000   
+a6-4      14/18            11/18   0.611  [0.39, 0.80]  +0.000       1.000   
+
+Grading costs the baseline 4 of its 15 auto-passes, which is the single
+largest correction in the table and the reason the earlier draft read the
+arms as uniformly worse than the control.
+
+2. Per-prompt successes out of 3
+================================
+arm       easy_01  easy_03  medium_01  medium_03  hard_01  hard_03  total
+--------  -------  -------  ---------  ---------  -------  -------  -----
+baseline  2        3        2          3          1        0        11   
+a1        0        3        1          3          1        0        8    
+a2c       2        3        1          3          0        0        9    
+a3        1        2        2          3          0        0        8    
+a4        1        2        2          3          2        0        10   
+a5        1        3        1          3          1        0        9    
+a6-2      1        3        3          2          3        0        12   
+a6-4      1        3        2          3          0        2        11   
+
+Prompts solved at least once, out of 6:
+arm       prompts solved >=1
+--------  ------------------
+baseline  5                 
+a1        4                 
+a2c       4                 
+a3        4                 
+a4        5                 
+a5        5                 
+a6-2      5                 
+a6-4      5                 
+
+3. What the flat denominator costs A4
+=====================================
+A4 had 7 attempts halted after a sibling won; under a denominator of 3 they
+score as failures. This is what the arm would read if those rows were
+dropped instead -- shown so the choice is visible, not to score on it.
+arm       scored (over 3)  if halted rows dropped  rows dropped
+--------  ---------------  ----------------------  ------------
+baseline  11/18 (0.61)     11/18 (0.61)            0           
+a1        8/18 (0.44)      8/15 (0.53)             3           
+a2c       9/18 (0.50)      9/15 (0.60)             3           
+a3        8/18 (0.44)      8/14 (0.57)             4           
+a4        10/18 (0.56)     10/11 (0.91)            7           
+a5        9/18 (0.50)      9/16 (0.56)             2           
+a6-2      12/18 (0.67)     12/17 (0.71)            1           
+a6-4      11/18 (0.61)     11/15 (0.73)            3           
+
+4. Run-order drift check
+========================
+run_all.sh ran the arms back to back on one machine and one sandbox fleet,
+so a machine that degraded over the day would masquerade as an arm effect.
+order  arm       battery                                graded success
+-----  --------  -------------------------------------  --------------
+1      baseline  20260730_040404                        0.61          
+2      a5        20260730_051207_context-ablation-a5    0.50          
+3      a6-2      20260730_080607_context-ablation-a6-2  0.67          
+4      a6-4      20260730_102443_context-ablation-a6-4  0.61          
+5      a2c       20260730_123306_context-ablation-a2c   0.50          
+6      a1        20260730_143507_context-ablation-a1    0.44          
+7      a3        20260730_172208_context-ablation-a3    0.44          
+8      a4        20260730_192703_context-ablation-a4    0.56          
+
+Spearman rho(run order, graded success) = -0.43 over 8 arms, exact p = 0.299.
+Not significant: with eight arms a rho of this size is unremarkable, and
+the highest-scoring arm ran third. No drift correction is warranted.
+
+5. Context cost per LLM call (costable attempts)
+================================================
+Input tokens per call reads context size directly, but it is an average over
+that arm's own call mix -- an arm whose runs went longer took more late-leg
+calls, which are the expensive ones. Read section 7 for the deconfounded view.
+arm       n   actor/call  semantic/call  episodic/call  perception/call  all/call
+--------  --  ----------  -------------  -------------  ---------------  --------
+baseline  17  29,522      12,720         5,325          1,094            12,111  
+a1        15  45,335      11,202         5,448          1,096            18,766  
+a2c       16  40,010      12,038         5,346          1,093            15,945  
+a3        14  37,506      12,501         5,154          1,094            16,185  
+a4        11  17,443      11,608         4,586          1,091            9,530   
+a5        17  37,713      13,626         4,099          1,094            16,901  
+a6-2      17  32,605      13,907         5,508          1,100            14,791  
+a6-4      17  27,781      14,170         5,579          1,093            11,780  
+
+6. Cost per step and per attempt (costable attempts)
+====================================================
+arm       n   steps  steps/att  tok_in/step  tok_in/att  wall_min
+--------  --  -----  ---------  -----------  ----------  --------
+baseline  17  309    18.2       55,067       1,000,926   30.1    
+a1        15  562    37.5       65,348       2,448,383   50.7    
+a2c       16  453    28.3       61,949       1,753,927   40.9    
+a3        14  393    28.1       59,673       1,675,102   41.4    
+a4        11  159    14.5       42,914       620,305     28.9    
+a5        17  673    39.6       58,765       2,326,390   55.7    
+a6-2      17  539    31.7       56,393       1,787,984   40.1    
+a6-4      17  465    27.4       54,288       1,484,948   42.4    
+
+tok_in/att is dominated by how long an arm survived, not by its context
+policy: an attempt that runs to the 40-minute leg cap spends 40 minutes of
+tokens. Section 7 removes the run-length term.
+
+8. Permutation tests on cost vs baseline (costable attempts)
+============================================================
+arm   tok_in/att     actor/call    steps          semantic chars
+----  -------------  ------------  -------------  --------------
+a1    +145% p=0.094  +60% p=0.088  +106% p=0.077  -22% p=0.000  
+a2c   +75% p=0.317   +32% p=0.304  +56% p=0.297   -11% p=0.066  
+a3    +67% p=0.345   +38% p=0.228  +54% p=0.276   +11% p=0.302  
+a4    -38% p=0.672   -15% p=0.629  -20% p=0.693   -5% p=0.663   
+a5    +132% p=0.091  +43% p=0.131  +118% p=0.053  +24% p=0.062  
+a6-2  +79% p=0.289   +16% p=0.552  +74% p=0.205   +17% p=0.201  
+a6-4  +48% p=0.466   +7% p=0.784   +50% p=0.331   +12% p=0.302  
+
+9. Semantic store size at end of run (chars, all attempts)
+==========================================================
+arm       n   min     median  mean    max   
+--------  --  ------  ------  ------  ------
+baseline  18  17,439  20,181  21,678  41,738
+a1        17  17,162  17,162  17,162  17,162
+a2c       17  17,916  19,649  19,400  21,095
+a3        16  18,708  21,816  26,269  42,667
+a4        15  18,498  20,613  23,388  42,847
+a5        17  17,767  22,293  27,210  46,444
+a6-2      17  18,423  20,249  25,704  47,532
+a6-4      17  18,358  21,404  24,471  46,908
+
+Base store is 17,161 chars. A1 pinning every run to 17,162 and A2c capping
+the maximum at ~21k are the invariant checks that those two seams fired.
+
+10. Failure texture
+===================
+arm       leg retries  legs planned/att  halt_forced  time_cap  tok_out/att
+--------  -----------  ----------------  -----------  --------  -----------
+baseline  2            2.56              1            1         30,758     
+a1        10           2.00              1            5         47,310     
+a2c       2            2.28              0            4         37,518     
+a3        12           1.83              0            3         41,193     
+a4        8            1.56              1            0         28,588     
+a5        4            2.39              1            6         44,989     
+a6-2      2            2.44              0            4         42,709     
+a6-4      2            2.94              1            2         41,231     
+
+11. Multi-leg vs single-leg split (the split A3/A4 target)
+==========================================================
+Findings summaries only cross a leg boundary, so a task the decomposer
+split into one leg is unaffected by A3/A4 by construction.
+arm       single-leg  multi-leg
+--------  ----------  ---------
+baseline  2/3         9/14     
+a1        0/3         8/12     
+a2c       2/3         7/12     
+a3        1/3         7/11     
+a4        1/1         9/10     
+a5        1/3         8/12     
+a6-2      1/3         11/14    
+a6-4      1/2         10/13    
+
+12. Cost of a win (reviewed wins that ran to their own stop)
+============================================================
+arm       n wins  tok_in/win  steps/win  wall_min/win
+--------  ------  ----------  ---------  ------------
+baseline  11      432,445     10.6       21.5        
+a1        8       754,316     15.4       34.7        
+a2c       9       394,866     9.7        20.3        
+a3        8       654,735     14.1       24.7        
+a4        10      658,644     15.3       30.0        
+a5        9       627,560     14.8       33.5        
+a6-2      12      446,930     11.3       24.2        
+a6-4      11      802,035     16.0       30.5        
+
+This is the fairest cost column in the report: it compares arms only on
+runs that reached the same outcome, so it cannot be inflated by an arm that
+simply failed for longer.
+
+
+########## growth.py
+
+Per-leg growth fit, legs with >= 3 calls of the role.
+
+
+role = actor   (A5 / A6 act here)
+arm       legs  base tok/call  slope tok/call  slope 95% CI    R2    vs baseline
+--------  ----  -------------  --------------  --------------  ----  -----------
+baseline  32    7,822          2,272           [2,003, 2,389]  1.00  -          
+a1        30    10,297         2,105           [1,962, 2,707]  1.00  -7%        
+a2c       30    7,839          2,233           [2,046, 2,447]  1.00  -2%        
+a3        27    9,360          2,132           [2,064, 2,341]  1.00  -6%        
+a4        20    8,227          2,110           [1,911, 2,835]  0.99  -7%        
+a5        35    9,584          1,728           [1,630, 1,881]  1.00  -24%       
+a6-2      30    18,205         936             [792, 1,742]    0.99  -59%       
+a6-4      38    13,146         1,238           [1,130, 1,519]  1.00  -46%       
+
+role = semantic   (A1 / A2c act here)
+arm       legs  base tok/call  slope tok/call  slope 95% CI  R2    vs baseline
+--------  ----  -------------  --------------  ------------  ----  -----------
+baseline  40    11,490         106             [-124, 181]   0.98  -          
+a1        34    11,459         -18             [-43, 19]     1.00  -117%      
+a2c       34    11,397         39              [-24, 90]     0.99  -63%       
+a3        31    9,822          186             [0, 266]      0.98  +75%       
+a4        27    11,327         63              [-38, 192]    0.99  -41%       
+a5        39    10,481         188             [66, 304]     0.97  +77%       
+a6-2      39    10,779         174             [53, 324]     0.98  +64%       
+a6-4      44    11,970         159             [-68, 254]    0.97  +50%       
+
+role = episodic   (A5 moves this indirectly)
+arm       legs  base tok/call  slope tok/call  slope 95% CI  R2    vs baseline
+--------  ----  -------------  --------------  ------------  ----  -----------
+baseline  32    5,274          21              [-11, 146]    0.99  -          
+a1        30    5,685          -5              [-33, 104]    0.98  -123%      
+a2c       30    5,265          14              [-22, 59]     0.99  -36%       
+a3        27    5,209          17              [-6, 91]      0.99  -21%       
+a4        20    4,430          106             [1, 795]      0.96  +403%      
+a5        35    4,550          -26             [-46, -0]     0.99  -221%      
+a6-2      30    6,726          -46             [-71, 90]     0.98  -316%      
+a6-4      38    6,039          -19             [-45, 41]     0.98  -189%      
+
+
+Predicted actor input tokens at matched leg lengths
+(the growth fit evaluated at a fixed n, which is what a step of a long
+leg actually costs -- immune to arms whose legs ran longer)
+arm       call 5         call 10        call 20        call 40      
+--------  -------------  -------------  -------------  -------------
+baseline  16,912         28,273         50,997         96,445       
+a1        18,718 (+11%)  29,245 (+3%)   50,298 (-1%)   92,405 (-4%) 
+a2c       16,770 (-1%)   27,933 (-1%)   50,260 (-1%)   94,914 (-2%) 
+a3        17,888 (+6%)   28,549 (+1%)   49,870 (-2%)   92,511 (-4%) 
+a4        16,665 (-1%)   27,213 (-4%)   48,308 (-5%)   90,498 (-6%) 
+a5        16,497 (-2%)   25,140 (-11%)  42,425 (-17%)  76,994 (-20%)
+a6-2      21,949 (+30%)  26,629 (-6%)   35,990 (-29%)  54,710 (-43%)
+a6-4      18,096 (+7%)   24,284 (-14%)  36,659 (-28%)  61,410 (-36%)
+
+Read down a column: that is what one actor call costs at that point in a
+leg. The rightmost column is where the compounding arms are supposed to pay
+off, and it is the only place they clearly do.
+
+
+########## logscan.py
+
+arm       steps  learner_unparseable  episodic_unparseable  nav_candidates_exhausted  api_retry  unparseable /100 steps
+--------  -----  -------------------  --------------------  ------------------------  ---------  ----------------------
+baseline  314    1                    0                     1                         7          0.32                  
+a1        656    3                    0                     69                        18         0.46                  
+a2c       456    1                    1                     13                        4          0.44                  
+a3        577    1                    0                     23                        0          0.17                  
+a4        380    14                   1                     14                        2          3.95                  
+a5        673    2                    0                     158                       25         0.30                  
+a6-2      539    4                    0                     6                         0          0.74                  
+a6-4      465    1                    0                     105                       0          0.22                  
+
+steps is every step the arm ran, including attempts excluded from the
+success tables, because a crash counts wherever it happened.
+
+
+########## findings.py
+
+arm       summaries  min    median  mean   max    exactly 600 chars
+--------  ---------  -----  ------  -----  -----  -----------------
+baseline  27         2,986  3,654   3,686  4,293  0/27             
+a1        19         2,905  3,928   3,838  5,142  0/19             
+a2c       18         2,561  3,668   3,588  4,185  0/18             
+a3        0          -      -       -      -      -                
+a4        18         476    588     565    598    0/18             
+a5        19         2,748  3,554   3,574  4,644  0/19             
+a6-2      24         2,696  3,480   3,428  4,199  0/24             
+a6-4      35         2,719  3,652   3,646  4,755  0/35             
+
+A3 should show zero summaries: findings generation is skipped entirely.
+For A4, 'exactly 600 chars' counts summaries the cap actually truncated;
+everything below that length was produced short by the rewritten prompt.
+
+
+########## examples.py
+
+
+==============================================================================
+A1 — SemanticLog.render() returns base only
+==============================================================================
+Seam: agent_core/context.py:42-48. keep_last=0 renders zero appended entries.
+
+BEFORE  20260730_040404/medium_01/try01/semantic_memory.txt
+        18,913 bytes, 8 appended entries
+        last two entries the learner re-read every step:
+
+          @ leg 2 step 1: The self-checkout station is located at Checkpoint 64. It connects to Checkpoint 35, which is adjacent to the biscuit aisle (Checkpoint 32). To reach the checkout from the shelves, navigate via Checkpoint 35.
+          @ leg 2 step 2: The self-checkout station at Checkpoint 64 features a terminal with a 'Start' button and a barcode scanner. To scan an item, the agent must be in manipulation mode and position the held item over the scanner.
+
+AFTER   20260730_143507_context-ablation-a1/medium_01/try01/semantic_memory.txt
+        17,162 bytes, 0 appended entries
+        the store ends at the last line of the base map dump:
+
+          - Checkpoint 64 (counter) has the target position -> translation: (-3.85, 1.36, -5.05), rotation: (0.0, 241.9, 0.0)
+
+==============================================================================
+A2c — drop an entry too similar to one of the last 8; render the last 12
+==============================================================================
+Seam: agent_core/context.py:30-48 (append) and render().
+Replaying the rule (ratio > 0.8, window 8) over baseline stores,
+so the same entries are seen with and without the seam.
+
+Over 345 baseline entries: 247 kept, 98 dropped (28% near-duplicate).
+
+Three real drops, each shown against the entry that suppressed it:
+
+  20260730_040404/easy_01/try01  @ leg 1 step 4   similarity 0.98
+    DROPPED : The Ritz Crackers are located on the middle shelf of the biscuit aisle at Checkpoint 33, in a red box with yellow text. They are positioned to the right of the Frootees packs and to the left of the Pringles cans.
+    AGAINST : The Ritz Crackers are on the middle shelf of the biscuit aisle at Checkpoint 33, in a red box with yellow text. They are positioned to the right of the Frootees packs and to the left of the Pringles cans.
+
+  20260730_040404/easy_01/try01  @ leg 1 step 6   similarity 1.00
+    DROPPED : The Ritz Crackers box is on the middle shelf at Checkpoint 33, positioned between Frootees packs and Pringles cans. It is a red box with yellow text.
+    AGAINST : The Ritz Crackers box is on the middle shelf at Checkpoint 33, positioned between Frootees packs and Pringles cans. It is a red box with yellow text.
+
+  20260730_040404/easy_01/try01  @ leg 1 step 7   similarity 0.97
+    DROPPED : The Ritz Crackers box is confirmed on the middle shelf at Checkpoint 33, positioned between Frootees packs and Pringles cans. It is a red box with yellow text.
+    AGAINST : The Ritz Crackers box is on the middle shelf at Checkpoint 33, positioned between Frootees packs and Pringles cans. It is a red box with yellow text.
+
+
+==============================================================================
+A3 — skip findings entirely / A4 — 'cap' findings at 600 chars
+==============================================================================
+Seam: orchestrator/subtask_agents.py:221-250 and _generate_findings_if_enabled.
+
+BEFORE (baseline): 27 findings summaries emitted
+    20260730_040404/easy_03/try01  —  3,247 chars
+    **1. POSITION:** Currently standing at Checkpoint 31, positioned at the entrance/mid-section of Aisle 2. World coordinates: `[-1.6, 1.56, -3.61]`. The agent is facing forward along the aisle axis (rotation `[0.0, 0.0, 0.0]`) with a clear, unobstructed line of sight down the shelving rows. **2. HANDS:** Both hands are completely empty. No items are gripped, hovered, or queued for interaction. Left  …
+
+AFTER (a4): 18 findings summaries emitted
+    20260730_192703_context-ablation-a4/easy_03/try01  —  512 chars
+    Position: Checkpoint 31 at [-1.6, 1.56, -3.61], rotation [0.0, 0.0, 0.0]. Hands: Both empty. Locations/Routes: Aisle 2 confirmed at CP 31, marked by 'Noodles / Chips' sign. Shelves contain biscuits and snacks. CP 35 is adjacent. Valid target checkpoints: 18, 20, 44, 45, 46, 50, 60. Failed Approaches: None; no grip failures or navigation blocks recorded. Next Task Prep: Aisle 2 navigation complete. …
+
+AFTER (a3): 0 findings summaries emitted
+    (none — generate_findings_summary is never called)
+
+
+==============================================================================
+A5 — drop '## EXISTING EPISODIC MEMORY:' from the actor's user message
+==============================================================================
+Seam: agent_core/agent.py:1193-1196. The blob is rebuilt every step and
+appended to the actor's history, which is never trimmed, so step k carries
+k copies of something superseded k-1 times.
+
+  baseline  episodic_memory.txt: n=18 median 1,672 bytes, max 2,401 bytes
+  a5        episodic_memory.txt: n=17 median 1,541 bytes, max 1,967 bytes
+
+BEFORE  the actor received this line every step, 1,243 chars of it:
+        20260730_040404/medium_01/try01/episodic_memory.txt
+
+          ## EXISTING EPISODIC MEMORY: @ timestep 2: ## DENSE SUMMARY: The agent successfully navigated from the snack aisle (Checkpoint 32) to the self-checkout station (Checkpoint 64) while holding the target item, Glico Pocky, in its left hand. Upon arrival, the agent initially attempted to checkout while in perception mode, which fai …
+
+AFTER   the line is absent; the episodic learner still writes the same file
+        and still reads get_history_text(n=8). Only the actor's copy is gone.
+
+==============================================================================
+A6 — strip image parts from all but the newest N user messages
+==============================================================================
+Seam: agent_core/agent.py:365-395 (_outbound_history). self.history keeps
+every frame; only the outgoing message list is filtered.
+
+One 1280x720 frame is ~1,125 tokens by encoder geometry. What a leg sends:
+
+    leg length (actor calls)  baseline                  a6-4                      a6-2                      
+    5                         5 frames                  4 frames                  2 frames                  
+    10                        10 frames                 4 frames                  2 frames                  
+    20                        20 frames                 4 frames                  2 frames                  
+    40                        40 frames                 4 frames                  2 frames                  
+
+Longest legs actually observed, by frames retained in the run directory:
+  baseline   48 steps  20260730_040404/easy_01/try02/leg00_retry1
+  a6-2       70 steps  20260730_080607_context-ablation-a6-2/hard_03/try02/leg00_retry1
+  a6-4       61 steps  20260730_102443_context-ablation-a6-4/medium_01/try02/leg01_retry1
+
+At those lengths the baseline actor is re-sending every frame it has ever
+seen on every call; a6-2 is sending two.
+
+
+########## censoring.py
+
+arm       prompts stopped early  attempts destroyed  destroyed on a grant review overturned
+--------  ---------------------  ------------------  --------------------------------------
+baseline  5                      0                   0                                     
+a1        4                      1                   0                                     
+a2c       5                      0                   0                                     
+a3        5                      2                   2                                     
+a4        6                      7                   2                                     
+a5        5                      0                   0                                     
+a6-2      6                      0                   0                                     
+a6-4      6                      0                   0                                     
+
+Cases where a prompt's remaining tries were destroyed for a grant that did
+not survive review:
+  a3  hard_01  hard_01/try01  auto=True  review=fail  2 sibling(s) destroyed
+  a4  hard_03  hard_03/try01  auto=True  review=fail  2 sibling(s) destroyed
+
+4 attempts across the battery were spent this way. Each one is a
+chance to solve that prompt that the harness threw away on a false positive.

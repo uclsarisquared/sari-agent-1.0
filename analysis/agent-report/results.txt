@@ -1,0 +1,91 @@
+==============================================================================
+SARI AGENT PERFORMANCE REPORT
+==============================================================================
+  easy    20260727_020820-easy  23 prompts x 5 tries = 116 attempts  (arm=graph, completion_guard=none)
+  medium  20260728_143857-medium  12 prompts x 5 tries = 60 attempts  (arm=graph, completion_guard=vlm)
+  hard    20260730_205702-hard  19 prompts x 3 tries = 57 attempts  (arm=graph, completion_guard=vlm)
+
+PER-DIFFICULTY HEADLINE
+------------------------------------------------------------------------------
+metric                                      easy        medium          hard
+avg time to a graded success            20.2 min      42.0 min      24.9 min
+median time to graded success           12.1 min      41.6 min       8.9 min
+human grading success rate                 55.1%         68.0%         28.6%
+  (graded pass / graded)                   54/98         17/25         12/42
+avg tokens per graded success               675k          783k          389k
+total tokens used                        102578k        49885k       113038k
+tokens per solved prompt                   4663k         4535k        16148k
+avg runtime per attempt (all)           23.4 min      39.6 min      57.6 min
+
+COVERAGE AND PROMPT-LEVEL SOLVE
+------------------------------------------------------------------------------
+metric                                      easy        medium          hard
+prompts solved (any try passed)            22/23         11/12          7/19
+prompt solve rate (all prompts)            95.7%         91.7%         36.8%
+prompt solve rate (reviewed)               95.7%         91.7%         36.8%
+grading coverage of attempts               84.5%         41.7%         73.7%
+ungraded attempts                              3             0             1
+excluded (invalid/already-won)                15            35            14
+
+COST AND TIME DETAIL
+------------------------------------------------------------------------------
+metric                                      easy        medium          hard
+avg tokens per attempt                      884k          831k         1983k
+avg tokens per graded failure              1246k         1284k         3223k
+tokens in / out                    100193k/2386k  48262k/1622k 110583k/2455k
+total LLM calls                            8,527         6,269         7,905
+avg LLM calls per success                     65           122            66
+avg graded-failure runtime              32.0 min      37.7 min      74.5 min
+summed agent runtime                      44.1 h        39.6 h        53.7 h
+battery elapsed span                      42.5 h         3.5 h         7.3 h
+parallelism factor                          1.0x         11.5x          7.4x
+
+HARNESS SELF-REPORT vs HUMAN VERDICT (graded attempts only)
+------------------------------------------------------------------------------
+metric                                      easy        medium          hard
+agreement                                  69.4%         76.0%         85.7%
+agent claimed win, human said no              16             6             5
+agent claimed loss, human said yes            14             0             1
+
+ACROSS ALL THREE BATTERIES
+------------------------------------------------------------------------------
+  attempts run                       233
+  avg runtime per attempt (incl. failures)  36.0 min
+  median runtime per attempt         23.3 min
+  summed agent runtime               137.5 h
+  combined battery elapsed span      53.2 h
+  tokens burned                      265,500,748
+  LLM calls                          22,701
+  graded attempts                    165 (83 pass, 82 fail)
+  overall human grading success rate 50.3%
+
+BY TASK FAMILY (graded attempts, all difficulties)
+------------------------------------------------------------------------------
+family            graded   pass     rate   avg pass time   avg tokens
+attribute             70     35    50.0%        17.8 min         517k
+reasoning             29      8    27.6%        39.0 min         697k
+pickup                20     13    65.0%        16.0 min         670k
+checkout              16     13    81.2%        36.1 min         712k
+counting              10      5    50.0%        26.1 min        1031k
+navigate              10      1    10.0%        93.7 min        2541k
+inspect               10      8    80.0%        33.7 min         632k
+
+WHICH TRY WON (graded passes, by attempt index)
+------------------------------------------------------------------------------
+  try01   20 pass(es)
+  try02   20 pass(es)
+  try03   17 pass(es)
+  try04   12 pass(es)
+  try05   14 pass(es)
+
+SLOWEST AND CHEAPEST GRADED PASSES
+------------------------------------------------------------------------------
+  slowest  easy_19/try05       93.7 min    2541k  Find an item near the checkout
+  slowest  hard_09/try01       92.7 min     985k  Buy chips, noodles, and soup while staying w
+  slowest  medium_08/try01     91.2 min    2653k  Get Pringles, then go to the fridge and get 
+  cheapest easy_15/try01        4.8 min      32k  Find chips that cost less than 30 php.
+  cheapest easy_15/try03        5.0 min      34k  Find chips that cost less than 30 php.
+  cheapest easy_16/try04        5.2 min      34k  Find a noodle product that is priced between
+
+[wrote] /home/akawm/sari-agent-1.0/analysis/agent-report/attempts.csv
+[wrote] /home/akawm/sari-agent-1.0/analysis/agent-report/stats.json
