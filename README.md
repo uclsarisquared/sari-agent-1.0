@@ -1,5 +1,17 @@
-Sari Agent²
-========================
+
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/9b52e148-3998-420e-ba2a-cb15b0011681">
+    <img width="180" height="180" alt="Sarilogofilled" src="https://github.com/user-attachments/assets/9b52e148-3998-420e-ba2a-cb15b0011681" />
+  </picture>
+</p>
+
+<h1 align="center">Sari Agent²</h1>
+
+<p align="center">
+  <em>Embodied agent for virtual retail stores with a scene-graph based world map.</em>
+</p>
 
 An embodied agent that navigates and manipulates objects in Sari Sandbox 1.0/2.0. The store
 is mapped offline into an **LLM-consumable checkpoint graph** — each shelf node knows what products
