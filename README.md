@@ -10,7 +10,7 @@
 <h1 align="center">Sari Agent²</h1>
 
 <p align="center">
-  <em>Embodied agent for virtual retail stores with a scene-graph based world map.</em>
+  <em>Embodied agent for virtual retail environments.</em>
 </p>
 
 An embodied agent that navigates and manipulates objects in Sari Sandbox 1.0/2.0. The store
