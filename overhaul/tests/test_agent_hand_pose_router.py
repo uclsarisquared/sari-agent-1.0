@@ -976,6 +976,82 @@ def test_inspect_dispatch_allows_visual_camera_only_when_no_item_held():
     assert blocked["blocked"] and blocked["executed"] is False
 
 
+def test_inspect_dispatch_spends_a_metered_approach_budget_when_no_item_is_held():
+    """An unheld inspect leg may step closer, clamped to the allowance it was given.
+
+    The decomposer contract has always defined inspect as covering "stepping closer"; before
+    2026-07-30 the scope gate allowed camera actions only, so an inspect leg that started away from
+    its target could only pan forever (every other exit is sealed - see _INSPECT_MOVE_BUDGET_STEPS).
+    """
+    from orchestrator import subtask_agents as SA
+
+    calls = []
+    original = SA.NAVIGATION_ACTIONS_REF["move_forward"]
+    SA.NAVIGATION_ACTIONS_REF["move_forward"] = lambda n: calls.append(n) or {"moved": n}
+    try:
+        ok = SA.dispatch_action(
+            "move_forward", 5, {}, mode="perception", leg_type="inspect",
+            state={"leftGrippedState": False, "rightGrippedState": False},
+            inspect_move_allowance=20)
+        clamped = SA.dispatch_action(
+            "move_forward", 10, {}, mode="perception", leg_type="inspect",
+            state={"leftGrippedState": False, "rightGrippedState": False},
+            inspect_move_allowance=3)
+    finally:
+        SA.NAVIGATION_ACTIONS_REF["move_forward"] = original
+    assert calls == [5, 3], "an over-large request must be clamped to what is left, not refused"
+    assert ok["inspect_move_steps"] == 5 and clamped["inspect_move_steps"] == 3
+    assert not ok.get("blocked") and not clamped.get("blocked")
+
+
+def test_inspect_dispatch_blocks_approach_once_the_budget_is_spent_and_points_at_stop():
+    from orchestrator import subtask_agents as SA
+
+    calls = []
+    original = SA.NAVIGATION_ACTIONS_REF["move_forward"]
+    SA.NAVIGATION_ACTIONS_REF["move_forward"] = lambda n: calls.append(n)
+    try:
+        spent = SA.dispatch_action(
+            "move_forward", 4, {}, mode="perception", leg_type="inspect",
+            state={"leftGrippedState": False, "rightGrippedState": False},
+            inspect_move_allowance=0)
+    finally:
+        SA.NAVIGATION_ACTIONS_REF["move_forward"] = original
+    assert calls == []
+    assert spent["blocked"] and spent["executed"] is False
+    assert spent["inspect_scope_violation"] is True
+    # The block must name the exit, or the agent is back in the pan-forever loop it came from.
+    assert "not at this location" in spent["reason"] and "STOP" in spent["reason"]
+
+
+def test_inspect_approach_budget_never_applies_while_an_item_is_held():
+    """A held-item inspect reads a label already in hand - walking cannot help, and the restricted
+    macro owns that path. The budget must not reopen body motion there."""
+    from orchestrator import subtask_agents as SA
+
+    calls = []
+    original = SA.NAVIGATION_ACTIONS_REF["move_forward"]
+    SA.NAVIGATION_ACTIONS_REF["move_forward"] = lambda n: calls.append(n)
+    try:
+        result = SA.dispatch_action(
+            "move_forward", 2, {}, mode="perception", leg_type="inspect",
+            state={"leftGrippedState": True, "rightGrippedState": False},
+            inspect_move_allowance=20)
+    finally:
+        SA.NAVIGATION_ACTIONS_REF["move_forward"] = original
+    assert calls == []
+    assert result["blocked"] and result["inspect_scope_violation"] is True
+
+
+def test_inspect_guard_accepts_a_definite_absence_but_still_refuses_inability():
+    from orchestrator.pickup_vlm_guard import INSPECT_GUARD_SYSTEM as G
+
+    assert "DEFINITE ABSENCE is a real answer" in G     # the new exit
+    assert "not on this shelf" in G
+    # ... without reopening the visibility excuse the guard exists to refuse.
+    assert "needs rotation" in G and "match=false" in G
+
+
 def test_inspect_dispatch_refuses_restricted_macro_when_no_item_is_held():
     from orchestrator import subtask_agents as SA
 

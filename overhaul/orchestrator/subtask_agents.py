@@ -378,6 +378,18 @@ _INSPECT_HELD_ACTIONS = set(_INSPECT_MACRO_ACTIONS)
 _INSPECT_VISUAL_ACTIONS = {
     "pan_left", "pan_right", "tilt_up", "tilt_down", "center_object_on_screen",
 }
+# Small body repositioning inside an UNHELD inspect leg (2026-07-30). The decomposer contract has
+# always defined inspect as covering "small in-place repositioning to get a better look (stepping
+# closer, panning, crouching)" - but the scope gate allowed camera actions ONLY, so the contract
+# promised a capability dispatch denied. Measured consequence: an inspect leg that starts away from
+# its target (plan_legs gives inspect legs no checkpoints) can only pan forever - every other exit is
+# sealed (a STOP saying "I cannot see it" is refused by INSPECT_GUARD_SYSTEM, and an agent that
+# correctly declines to STOP never trips HALT_REFUSAL_CAP either), so the leg burns to its step cap.
+# This is a BUDGET, not a licence to navigate: the graph navigator still owns real travel (doctrine),
+# so the allowance is metered in 0.1 m steps and, once spent, the block message points at STOP with a
+# not-found answer rather than leaving the agent to guess.
+_INSPECT_APPROACH_ACTIONS = {"move_forward", "move_backward", "move_left", "move_right"}
+_INSPECT_MOVE_BUDGET_STEPS = 20   # 20 x 0.1 m = 2.0 m of repositioning per unheld inspect leg
 _RESTRICTED_INSPECTION_TURNS = (
     tuple(("x", index, (45.0, 0.0, 0.0)) for index in range(1, 9))
     + (
@@ -1071,7 +1083,8 @@ def parse_actor_response(text: str, pattern) -> dict:
 def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str = None,
                     mode: str = None, debug_dir: str = None, agent=None, leg_type: str = None,
                     state: dict = None, inspection_query: str = None,
-                    inspection_log=None, inspection_frames_dir: str = None) -> dict:
+                    inspection_log=None, inspection_frames_dir: str = None,
+                    inspect_move_allowance: int = 0) -> dict:
     """Execute one action. Returns a result dict; grab actions include a 'gripped' key, and the
     checkout macro returns its {scanned, placed, ...} verdict (surfaced by run_leg as `last_checkout`).
 
@@ -1086,6 +1099,7 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         item). A wrong-mode emit blocks and the router flips to manipulation next step.
 
     `leg_type=None` disables the leg gate (eval_pickup, which has no legs, calls it that way)."""
+    inspect_move_steps = 0   # >0 only when THIS call spends part of an inspect leg's approach budget
     if leg_type == "inspect":
         inspect_state = state
         if not isinstance(inspect_state, dict):
@@ -1097,13 +1111,25 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         held = bool(inspect_state.get("leftGrippedState")
                     or inspect_state.get("rightGrippedState"))
         allowed = _INSPECT_HELD_ACTIONS if held else _INSPECT_VISUAL_ACTIONS
-        if action not in allowed:
-            reason = (
-                f"{action} is outside inspect scope: "
-                + ("a held-item inspect leg allows only a restricted inspect_held_item macro"
-                   if held else
-                   "an unheld inspect leg allows only camera pan/tilt and visual centering")
-            )
+        # The approach budget is UNHELD-ONLY: a held-item inspect reads a label already in hand, so
+        # walking cannot help it, and the restricted macro owns that path end to end.
+        approach = (not held) and action in _INSPECT_APPROACH_ACTIONS
+        if approach and inspect_move_allowance > 0:
+            time_units = max(1, min(int(time_units), int(inspect_move_allowance)))
+            inspect_move_steps = time_units
+        elif action not in allowed:
+            if approach:
+                reason = (f"{action} is outside inspect scope: this inspect leg has spent its "
+                          "repositioning allowance. If the target still is not visible from here it "
+                          "is not at this location - emit STOP and report that in reported_answer")
+            else:
+                reason = (
+                    f"{action} is outside inspect scope: "
+                    + ("a held-item inspect leg allows only a restricted inspect_held_item macro"
+                       if held else
+                       "an unheld inspect leg allows only camera pan/tilt, visual centering, and a "
+                       "small metered amount of stepping closer")
+                )
             print(f"[BLOCKED] {reason}.")
             return {"blocked": True, "executed": False, "reason": reason,
                     "inspect_scope_violation": True}
@@ -1201,7 +1227,12 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         return {"gripped": False, "reach_verdict": plan["verdict"],
                 "move_steps": plan["move_steps"], "last_reach": _last_reach_line(plan)}
     else:
-        return action_ref(time_units) or {}
+        result = action_ref(time_units) or {}
+        if inspect_move_steps:
+            # run_leg decrements the leg's remaining allowance by this; reported only when the budget
+            # was actually spent, so non-inspect legs' results are byte-identical to before.
+            result["inspect_move_steps"] = inspect_move_steps
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -1380,8 +1411,14 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
             "reposition that held item until the requested expiration date, nutritional facts, or "
             "ingredient label DIRECTLY FACES THE CAMERA and is clearly legible in the CURRENT screen. "
             "A glimpse at an angle is not enough: do not emit STOP until the printed surface is "
-            "front-facing. Never grab, release, check out, or navigate during this inspect leg. If "
-            "no item is held, use only camera pan/tilt and visual centering."
+            "front-facing. Never grab, release, or check out during this inspect leg. If no item is "
+            "held, use camera pan/tilt and visual centering, plus - only if the target is not "
+            "visible from where you stand - a few small steps toward it (move_forward/backward/"
+            "left/right). That stepping allowance is about 2 metres for the WHOLE subtask and is "
+            "not a substitute for travelling: you were already routed here. If the target is still "
+            "not visible once the allowance is spent, it is NOT at this location - emit STOP and say "
+            "exactly that in `reported_answer` (for example 'no Choco Mallows are on this shelf'). "
+            "Reporting a definite absence is a valid answer; spinning in place is not."
         )
     if future_legs:
         numbered = "\n".join(f"  {i+1}. {s.get('text') if isinstance(s, dict) else s}"
@@ -1479,6 +1516,9 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
     # completion guard must judge the accumulated frames TOGETHER - a single frame can never show
     # both labels front-facing, and the old one-frame guard therefore refused every such STOP.
     inspection_evidence = {}
+    # Remaining 0.1 m steps of body repositioning for an UNHELD inspect leg (see
+    # _INSPECT_MOVE_BUDGET_STEPS). Non-inspect legs keep 0, which leaves the dispatch gate inert.
+    inspect_move_left = _INSPECT_MOVE_BUDGET_STEPS if leg.get("type") == "inspect" else 0
     targeted_vlm_pickup = (
         completion_guard == "vlm"
         and leg.get("type") == "pickup"
@@ -1873,7 +1913,12 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
                                       (lambda row: log({"step": step, **row}))
                                       if raw_action in _INSPECT_MACRO_ACTIONS else None
                                   ),
-                                  inspection_frames_dir=inspection_frames_dir) or {}
+                                  inspection_frames_dir=inspection_frames_dir,
+                                  inspect_move_allowance=inspect_move_left) or {}
+            if res.get("inspect_move_steps"):
+                inspect_move_left = max(0, inspect_move_left - int(res["inspect_move_steps"]))
+                log({"event": "inspect_approach_step", "step": step, "action": raw_action,
+                     "steps": int(res["inspect_move_steps"]), "budget_left": inspect_move_left})
             if scope_pre_state is not None:
                 scope_event = inspect_scope_violation(raw_action, step, scope_pre_state, res)
                 if scope_event:

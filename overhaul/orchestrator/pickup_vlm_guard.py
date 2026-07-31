@@ -34,6 +34,17 @@ GUARD_SYSTEM = (
     "not make two specifically named products equivalent. Return only the required JSON object."
 )
 
+# The definite-absence exception below is a CODIFICATION, not a behaviour change (MEASURED
+# 2026-07-31, A/B on three saved run frames, temperature 0): the pre-2026-07-31 wording ALREADY
+# returned match=true for "no X are on this shelf" 3/3, while holding "I cannot see it / need to get
+# closer" at match=false 3/3 and an invented price for an off-frame product at match=false 3/3. The
+# hypothesis this edit was written to fix - that the guard could not tell absence from inability, and
+# so sealed the last exit from an inspect leg whose target is not here - was WRONG; the model drew
+# that line on its own. What actually sealed that leg was the scope gate blocking all body motion
+# (see subtask_agents._INSPECT_MOVE_BUDGET_STEPS, the real fix). Kept because the distinction was
+# emergent rather than specified, and pinning it costs nothing. Do NOT loosen the inability clause on
+# the theory that it blocks completion: it is what forces the rotate-until-front-facing behaviour,
+# and an inspect leg that may answer "I could not see it" is trivially completable.
 INSPECT_GUARD_SYSTEM = (
     "You are a visual inspection verifier for a grocery-store robot. You receive one or more images "
     "the robot actually used, in the order it observed them, an observation QUERY, and the robot's "
@@ -58,7 +69,14 @@ INSPECT_GUARD_SYSTEM = (
     "with the requested facts, values, count, date, or identification. A statement about visibility "
     "or a needed next action—such as saying the label is unreadable, needs rotation, or needs a "
     "better view—is not an answer to the query and must return match=false even when the image "
-    "supports that statement. Return only the required JSON object."
+    "supports that statement. ONE exception, and only one: a DEFINITE ABSENCE is a real answer. When "
+    "the reported answer states that the queried item is simply NOT PRESENT here—not on this shelf, "
+    "not in this aisle—return match=true if the supplied images show that area clearly enough for "
+    "that claim to hold: the shelves are visible and the item is not among them. Absence is not the "
+    "same as inability, and the distinction is the whole point: 'no Choco Mallows are on this shelf' "
+    "is an answer, while 'I cannot see it yet', 'I need to get closer', or 'it needs rotation' stay "
+    "match=false. If the images are too dark, too distant, or too narrow to tell presence from "
+    "absence, return match=false. Return only the required JSON object."
 )
 
 INSPECTION_VISIBILITY_SYSTEM = (
