@@ -140,6 +140,19 @@ class CoordinatorClient:
         reply = await self._request(encode("bench.status"), "bench.pool")
         return list(reply.get("sandboxes") or [])
 
+    async def pool_status(self) -> tuple[list[dict[str, Any]], int]:
+        """The pool plus how many acquires are parked behind it.
+
+        Separate from `pool` because only the dashboard needs the second number, and a coordinator
+        too old to report it must read as "no queue" rather than as an error.
+        """
+        reply = await self._request(encode("bench.status"), "bench.pool")
+        try:
+            waiting = max(0, int(reply.get("waiting") or 0))
+        except (TypeError, ValueError):
+            waiting = 0
+        return list(reply.get("sandboxes") or []), waiting
+
     async def wait_for_sandbox_lost(self, lease: Lease) -> SandboxLost:
         """Resolves only if *this* lease's sandbox dies. Race it against the attempt."""
         while True:

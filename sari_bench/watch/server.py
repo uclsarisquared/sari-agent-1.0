@@ -32,7 +32,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
 from sari_bench import capture, storage, video
-from sari_bench.protocol import DEFAULT_COORDINATOR_PORT
+from sari_bench.protocol import DEFAULT_COORDINATOR_PORT, STATE_READY
 from sari_bench.storage import edit_json_locked
 from sari_bench.watch import health, notify, replay as replay_mod, scan
 
@@ -100,6 +100,9 @@ class WatchState:
         self._views: dict[str, tuple[float, dict[str, Any]]] = {}
         self._pool: list[dict[str, Any]] = []
         self._pool_error = ""
+        # Acquires parked at the coordinator, from the last pool poll. Includes the battery runner's
+        # own workers, which is the point: a retry queues behind them and nothing else can say so.
+        self._pool_waiting = 0
         self._announced_start = False
         self._announced_done = False
         self.battery: Path | None = None
@@ -228,6 +231,7 @@ class WatchState:
             ).as_dict()
             view["pool"] = self._pool
             view["pool_error"] = self._pool_error
+            view["queue"] = self._queue_locked()
             view["now"] = now
             view["bench_root"] = str(self.bench_root)
             view["mode"] = "pinned"
@@ -251,6 +255,7 @@ class WatchState:
                     "counts": {},
                     "pool": self._pool,
                     "pool_error": self._pool_error,
+                    "queue": self._queue_locked(),
                     "discovered": [],
                     "watching_id": None,
                     "bench_root": str(self.bench_root),
@@ -273,6 +278,7 @@ class WatchState:
             ).as_dict()
             view["pool"] = self._pool
             view["pool_error"] = self._pool_error
+            view["queue"] = self._queue_locked()
             view["now"] = now
             view["bench_root"] = str(self.bench_root)
             view["mode"] = "pinned" if self.fixed_battery else "auto"
@@ -396,10 +402,101 @@ class WatchState:
             self.replay.invalidate(key)
         _log(f"re-rendering {key}: its replay was made while the run was still going")
 
-    def set_pool(self, pool: list[dict[str, Any]], error: str = "") -> None:
+    def set_pool(self, pool: list[dict[str, Any]], error: str = "", waiting: int = 0) -> None:
         with self._lock:
             self._pool = pool
             self._pool_error = error
+            self._pool_waiting = waiting
+
+    # -- queue -----------------------------------------------------------------------------
+    #
+    # What the watcher can honestly say about dispatch order. It knows its own retry jobs exactly -
+    # it started them - and it knows from the pool how many sandboxes are free and how many acquires
+    # are parked coordinator-side. It does NOT know the battery runner's pending work items: a
+    # worker creates its run dir only after it holds a lease, so an attempt still waiting for one
+    # exists nowhere but in another process's asyncio queue. Those show up here only as the
+    # `coordinator_waiting` count they contribute to.
+
+    # Retry states that are not yet holding a sandbox, in the order `_retry_worker` moves through
+    # them. "running" has one; "error" has stopped needing one.
+    _QUEUE_WAITING_STATES = ("stopping", "cleaning", "queued")
+
+    def _free_sandboxes_locked(self) -> int:
+        """Sandboxes the coordinator would hand out right now - its own `Sandbox.leasable` rule."""
+        return sum(
+            1 for sandbox in self._pool
+            if not sandbox.get("lease_id")
+            and sandbox.get("state") == STATE_READY
+            and bool(sandbox.get("store_loaded", True))
+        )
+
+    def _queue_locked(self) -> dict[str, Any]:
+        entries: list[dict[str, Any]] = []
+        position = 0
+        for key, job in self._retry_jobs.items():
+            waiting = job["state"] in self._QUEUE_WAITING_STATES
+            if waiting:
+                position += 1
+            entries.append({
+                "key": key,
+                "battery_id": job.get("battery_id", ""),
+                "prompt_id": str(job["attempt"].get("prompt_id") or ""),
+                "attempt": job["attempt"].get("attempt"),
+                "kind": "retry",
+                "state": job["state"],
+                "error": job.get("error", ""),
+                "waiting": waiting,
+                # 1-based among the waiting entries, and absent for the ones that are not waiting:
+                # a number beside a running row would read as a place in a line it has already left.
+                "position": position if waiting else None,
+                "since": job.get("queued_at", 0.0),
+            })
+        return {
+            "entries": entries,
+            "waiting": position,
+            "running": sum(1 for entry in entries if entry["state"] == "running"),
+            "free_sandboxes": self._free_sandboxes_locked(),
+            "coordinator_waiting": self._pool_waiting,
+            "pool_error": self._pool_error,
+        }
+
+    def queue(self) -> dict[str, Any]:
+        with self._lock:
+            return self._queue_locked()
+
+    def _placement_locked(self, key: str) -> dict[str, Any]:
+        """Where a just-queued job sits, and whether it should start without waiting.
+
+        A prediction, not a promise: this job still has to stop and clean its old try before it
+        asks for a sandbox, the pool reading behind it is a poll or two old, and the coordinator
+        hands leases out first-come-first-served across every runner. So everything already asking
+        counts as ahead of it, and a free sandbox is "immediate" only if there are more of them than
+        there are claims on them.
+
+        Claims are counted once. A job already in `queued` is blocked inside `bench.acquire`, so the
+        coordinator is already counting it; only the jobs still stopping or cleaning are ahead of
+        this one *and* invisible from there.
+        """
+        queue = self._queue_locked()
+        entry = next((row for row in queue["entries"] if row["key"] == key), None)
+        position = (entry or {}).get("position") or queue["waiting"]
+        ahead_here = 0
+        for row in queue["entries"]:
+            if row["key"] == key:
+                break
+            if row["state"] in ("stopping", "cleaning"):
+                ahead_here += 1
+        ahead = queue["coordinator_waiting"] + ahead_here
+        return {
+            "position": position,
+            "ahead": ahead,
+            "free_sandboxes": queue["free_sandboxes"],
+            "coordinator_waiting": queue["coordinator_waiting"],
+            "pool_error": queue["pool_error"],
+            # An unreachable coordinator leaves `free_sandboxes` at 0, which would otherwise read as
+            # a full fleet. Say "queued" there too - it is the claim that survives not knowing.
+            "immediate": bool(not self._pool_error and queue["free_sandboxes"] > ahead),
+        }
 
     # -- actions ---------------------------------------------------------------------------
 
@@ -635,8 +732,13 @@ class WatchState:
                 "error": "",
                 "attempt": attempt_view,
                 "source_manifest": manifest,
+                "queued_at": time.time(),
             }
+            # Re-queued rather than overwritten in place: re-dispatching a job that errored an hour
+            # ago must take its turn at the back, not inherit the position it had then.
+            self._retry_jobs.pop(canonical_key, None)
             self._retry_jobs[canonical_key] = job
+            placement = self._placement_locked(canonical_key)
             self._invalidate_locked()
             self._announced_done = False
             if self.replay is not None:
@@ -650,8 +752,16 @@ class WatchState:
             name=f"retry-{prompt_id}-{attempt}",
             daemon=True,
         ).start()
-        _log(f"retry requested for {canonical_key}; prior history will be deleted")
-        return {"ok": True, "key": canonical_key, "retry_state": "stopping"}
+        _log(
+            f"retry requested for {canonical_key}; prior history will be deleted"
+            + ("" if placement["immediate"] else f"; {placement['ahead']} ahead of it in the queue")
+        )
+        return {
+            "ok": True,
+            "key": canonical_key,
+            "retry_state": "stopping",
+            "queue": placement,
+        }
 
     def _set_retry_state(self, key: str, state: str, error: str = "") -> None:
         with self._lock:
@@ -1251,7 +1361,8 @@ class _PoolPoller(threading.Thread):
         while not self._stop.is_set():
             try:
                 async with CoordinatorClient(self.coordinator_url) as client:
-                    self.state.set_pool(await client.pool())
+                    pool, waiting = await client.pool_status()
+                    self.state.set_pool(pool, waiting=waiting)
             except Exception as error:  # noqa: BLE001 - the dashboard survives a dead coordinator
                 self.state.set_pool([], f"{error!r}")
             await asyncio.sleep(POOL_REFRESH_SECONDS)

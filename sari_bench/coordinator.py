@@ -358,7 +358,12 @@ class Coordinator:
                 elif message_type == "bench.release":
                     await self._handle_release(websocket, message)
                 elif message_type == "bench.status":
-                    await _send(websocket, encode("bench.pool", sandboxes=self.pool_snapshot()))
+                    # `waiting` is the only place the parked acquires are visible from outside this
+                    # process: a worker blocked in `bench.acquire` has nothing on disk and no lease,
+                    # so without this count a full fleet and a queue behind it look identical.
+                    await _send(websocket, encode(
+                        "bench.pool", sandboxes=self.pool_snapshot(), waiting=len(self._waiters),
+                    ))
                 else:
                     await _send(
                         websocket,

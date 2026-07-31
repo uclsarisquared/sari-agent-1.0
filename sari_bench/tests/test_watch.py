@@ -1220,6 +1220,61 @@ def test_retry_config_preserves_completion_guard_and_context_policy() -> None:
     print("ok  watcher retry preserves completion guard and context policy")
 
 
+def test_queue_orders_retries_and_predicts_the_wait() -> None:
+    """The queue dropdown's whole claim: who is ahead of whom, and whether a sandbox is free."""
+    with tempfile.TemporaryDirectory() as temp:
+        battery = Path(temp) / "b"
+        make_attempt(battery, "p", 1, steps=healthy_steps(2), state="finished",
+                     outcome="completed", success=True, end_reason="halt_granted")
+        state = WatchState(bench_root=Path(temp), fixed_battery=battery,
+                           discord=Discord(enabled=False), min_interval=0.0)
+
+        def job(key: str, prompt_id: str, attempt: int, job_state: str) -> None:
+            state._retry_jobs[key] = {
+                "key": key, "battery_id": "b", "run_id": "r-" + key, "state": job_state,
+                "error": "", "attempt": {"prompt_id": prompt_id, "attempt": attempt},
+                "queued_at": time.time(),
+            }
+
+        # One sandbox free, one leased, and two acquires already parked - which is what a battery
+        # runner's own waiting workers look like from here.
+        state.set_pool([
+            {"sandbox_id": "s1", "state": "Ready", "lease_id": None, "store_loaded": True},
+            {"sandbox_id": "s2", "state": "Leased", "lease_id": "L1", "store_loaded": True},
+            # Ready but serving nothing: the coordinator will not lease it, so neither do we.
+            {"sandbox_id": "s3", "state": "Ready", "lease_id": None, "store_loaded": False},
+        ], waiting=2)
+        job("p/try02", "p", 2, "running")
+        job("q/try01", "q", 1, "queued")
+        job("q/try02", "q", 2, "stopping")
+
+        queue = state.queue()
+        assert [(e["key"], e["position"]) for e in queue["entries"]] == [
+            ("p/try02", None), ("q/try01", 1), ("q/try02", 2),
+        ], queue["entries"]
+        assert queue["waiting"] == 2 and queue["running"] == 1, queue
+        assert queue["free_sandboxes"] == 1, queue
+        assert queue["coordinator_waiting"] == 2, queue
+
+        # Two parked acquires ahead of it, one of which IS the q/try01 row above - a job in
+        # `queued` is already blocked inside bench.acquire, so it is counted there and not again
+        # here. Two claims on one free sandbox, so this one waits.
+        placement = state._placement_locked("q/try02")
+        assert placement["ahead"] == 2 and placement["immediate"] is False, placement
+        # Nothing else asking and a sandbox idle: it starts as soon as its old try is cleared.
+        state.set_pool([
+            {"sandbox_id": "s1", "state": "Ready", "lease_id": None, "store_loaded": True},
+        ], waiting=0)
+        del state._retry_jobs["q/try01"]
+        assert state._placement_locked("q/try02")["immediate"] is True
+        # An unreachable coordinator reports no sandboxes. That is not the same as a free one.
+        state.set_pool([], error="ConnectionRefusedError()")
+        assert state._placement_locked("q/try02")["immediate"] is False
+
+        assert state.snapshot(force=True)["queue"]["waiting"] == 1
+        print("ok  the run queue orders retries, counts parked acquires and predicts the wait")
+
+
 def test_invalid_verdict_in_the_report() -> None:
     from sari_bench.report import ATTEMPT_COLUMNS, collect
 
@@ -1787,6 +1842,7 @@ def main() -> int:
     test_verdict_round_trip_and_refusals()
     test_invalid_verdict_is_excluded_rather_than_failed()
     test_retry_config_preserves_completion_guard_and_context_policy()
+    test_queue_orders_retries_and_predicts_the_wait()
     test_invalid_verdict_in_the_report()
     test_success_verdict_cancels_only_same_prompt_siblings()
     test_response_body_ignores_client_disconnects_only()

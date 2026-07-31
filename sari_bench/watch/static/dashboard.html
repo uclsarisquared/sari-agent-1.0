@@ -45,13 +45,20 @@
   .menu .m-note { color: var(--dim); font-size: 11.5px; }
   .menu .m-empty { color: var(--dim); cursor: default; }
   .menu .m-empty:hover { background: none; }
-  /* Renaming is a deliberate act on a row whose whole surface already means "switch to this run",
-     so the button stays out of the way until the row is under the cursor or its own key focus. */
-  .menu .m-edit { border: 0; background: transparent; color: var(--dim); cursor: pointer;
-                  padding: 0 2px; font-size: 12px; line-height: 1; opacity: 0; }
-  .menu li:hover .m-edit, .menu .m-edit:focus-visible { opacity: 1; }
-  .menu .m-edit:hover { color: var(--ink); }
-  .menu .m-edit[disabled] { display: none; }
+  /* Renaming and copying are deliberate acts on a row whose whole surface already means "switch to
+     this run", so the buttons stay out of the way until the row is under the cursor or key focus. */
+  .menu .m-act { border: 0; background: transparent; color: var(--dim); cursor: pointer;
+                 padding: 0 2px; font-size: 12px; line-height: 1; opacity: 0; }
+  .menu li:hover .m-act, .menu .m-act:focus-visible { opacity: 1; }
+  .menu .m-act:hover { color: var(--ink); }
+  .menu .m-act[disabled] { display: none; }
+  /* The queue is a readout, not a picker: clicking a row does nothing, so it must not light up
+     under the cursor the way a run this page can switch to does. */
+  .menu li.q-row, .menu li.q-foot { cursor: default; }
+  .menu li.q-row:hover, .menu li.q-foot:hover { background: none; }
+  .menu .q-pos { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .menu li.q-foot { border-top: 1px solid var(--line); border-radius: 0; margin-top: 2px;
+                    padding-top: 7px; color: var(--dim); font-size: 11.5px; white-space: normal; }
   main { padding: 16px; display: grid; gap: 14px;
          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
   /* `display: grid` beats the hidden attribute's UA rule, so the inactive tab needs saying twice. */
@@ -422,6 +429,14 @@
   </span>
   <button class="pill" id="collapse" data-act="collapse-toggle" aria-pressed="false">
     collapse signals: off</button>
+  <!-- Beside the pool, because the two are one thought: what is dispatched, and what it is waiting
+       on. -->
+  <span class="picker">
+    <button class="pill" id="queue" data-act="queue-menu" aria-haspopup="listbox" aria-expanded="false">
+      <span id="queue-label">queue: —</span><span class="caret">▾</span>
+    </button>
+    <ul class="menu" id="queue-menu" role="listbox" hidden></ul>
+  </span>
   <span class="muted" id="progress"></span>
   <span class="muted" id="pool"></span>
   <span class="muted" id="updated" style="margin-left:auto"></span>
@@ -519,6 +534,16 @@ let lastOrder = "";
 // verdict out of it on every refresh without being rebuilt.
 let modalKey = null;
 let latest = [];
+// The whole of that payload, for the handful of readers that need something other than the attempt
+// list: the battery's planned tries, the fleet, the dispatch queue.
+let latestState = {};
+
+// Whether a runner is still working the battery on screen. `discovered` is the only place that is
+// recorded, because it is a fact about the directory rather than about any one attempt.
+function batteryLive() {
+  const here = (latestState.discovered || []).find(d => d.id === latestState.battery_id);
+  return Boolean(here && here.live);
+}
 
 // "live" or "overview". Only the live tab pays for frame decodes and log polling.
 let activeTab = "live";
@@ -1310,6 +1335,12 @@ function renderOverview(state) {
   // Elapsed of the first passing try, over the prompts that have one. An attempt whose elapsed was
   // never recorded is left out of the mean rather than counted as an instant win.
   let winTime = 0, winTimeN = 0;
+  // What a single run costs: the mean elapsed of every try in the grid, whatever it ended as, as
+  // against the avg-success-time line above it, which only ever sees the winners. Only `finished`
+  // tries carry a settled wall time - a live one is still ticking, and an orphaned or requeued dir
+  // reports `now - started`, which keeps growing for as long as the dir sits there and would put a
+  // day-old orphan of a 120m prompt into the mean as sixteen hours. `allTimeTries` is the coverage.
+  let allTime = 0, allTimeTries = 0;
   // What the battery has cost outright: every try in the grid, whatever it ended as. The averages
   // below it are per-prompt and exclude things; this line excludes nothing.
   let totalIn = 0, totalOut = 0;
@@ -1347,6 +1378,9 @@ function renderOverview(state) {
       tokIn += Number(a.tokens_in) || 0;
       tokOut += Number(a.tokens_out) || 0;
       ranTries += 1;
+      if (a.state === "finished" && Number.isFinite(Number(a.elapsed_seconds))) {
+        allTime += Number(a.elapsed_seconds); allTimeTries += 1;
+      }
       addRoles(rowRoles, a.tokens_by_role);
       if (addRoles(roleTotals, a.tokens_by_role)) roleTries += 1;
       // An invalid try leaves the denominator entirely - that exclusion is the whole point of the
@@ -1454,6 +1488,12 @@ function renderOverview(state) {
     <tr>
       <td class="lbl" colspan="${span}">avg success time — mean elapsed of the first passing try over ${winTimeN} solved prompt(s)</td>
       <td colspan="3">${winTimeN ? fmtMin(Math.round(winTime / winTimeN)) : "—"}</td>
+    </tr>
+    <tr>
+      <td class="lbl" colspan="${span}">avg time per run — mean elapsed over ${
+        allTimeTries === ranTries ? `all ${ranTries}` : `the ${allTimeTries} of ${ranTries}`
+      } dispatched tr(ies) that finished, passing or not · ${fmtMin(Math.round(allTime))} in total</td>
+      <td colspan="3">${allTimeTries ? fmtMin(Math.round(allTime / allTimeTries)) : "—"}</td>
     </tr>
     <tr>
       <td class="lbl" colspan="${span}">reliability — mean of (passing tries / tries counted, invalid excluded) over ${reliabilityN} dispatched prompt(s)</td>
@@ -1606,7 +1646,8 @@ function tipVotes(root) {
 // The battery pill's own tooltip drops over the list it opens, so while that list is up the pill
 // explains nothing: the run names under it are the answer the reader came for.
 function tipSuppressed(el) {
-  return el.id === "battery" && !document.getElementById("battery-menu").hidden;
+  return (el.id === "battery" || el.id === "queue")
+    && !document.getElementById(el.id + "-menu").hidden;
 }
 
 function showHelp(el) {
@@ -1757,13 +1798,42 @@ function renderPicker(state) {
       + `<span class="dot${d.live ? " live" : ""}"></span>`
       + `<span class="m-id">${esc(d.id)}</span>`
       + `<span class="m-note">${esc(note)}</span>`
+      // Copying stays available on a live run: the name is just as useful to paste while the
+      // runner is still working as it is afterwards.
+      + `<button class="m-act" data-act="battery-copy" data-battery="${esc(d.id)}"`
+      + ` title="copy this run's name" aria-label="copy ${esc(d.id)}">⧉</button>`
       // Hidden rather than merely refused while a runner works: the server will not rename a live
       // battery, and an affordance that is always going to fail is worse than no affordance.
-      + `<button class="m-edit" data-act="battery-rename" data-battery="${esc(d.id)}"`
+      + `<button class="m-act" data-act="battery-rename" data-battery="${esc(d.id)}"`
       + ` title="rename this bench run" aria-label="rename ${esc(d.id)}"`
       + `${d.live ? " disabled" : ""}>✎</button></li>`;
   });
   setHTML(menu, rows.length ? rows.join("") : '<li class="m-empty">no bench runs on disk</li>');
+}
+
+// The name is what every CLI flag and every share of a run is phrased in terms of, so it is worth
+// a click. navigator.clipboard only exists in a secure context - localhost is one, a LAN address
+// this page is often opened on is not - so the old selection trick stays as the fallback.
+async function copyBatteryName(id) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(id);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = id;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (!ok) throw new Error("copy refused");
+    }
+  } catch (e) {
+    notify(`Could not copy ${id} to the clipboard.`);
+    return;
+  }
+  notify(`Copied ${id}.`);
 }
 
 // The directory under bench_runs/ is the run's only name - there is no display name stored beside
@@ -1800,9 +1870,66 @@ async function renameBattery(id) {
   refresh();
 }
 
+// -- run queue -------------------------------------------------------------------------------
+// What the watcher has been asked to dispatch and has not finished dispatching. It knows its own
+// retries exactly - it started them - and it knows from the coordinator how many sandboxes are free
+// and how many acquires are parked. It cannot list the battery runner's pending tries: a worker
+// creates its run dir only once it holds a lease, so a try still waiting for one exists nowhere but
+// inside that process. Those are in the parked count and nowhere else, which the footer says.
+const TIP_QUEUE = "Retries this watcher is dispatching, oldest first. A retry stops and deletes its "
+  + "old try, then asks the coordinator for a sandbox and waits its turn behind everything already "
+  + "asking — it never displaces a run that is already going.";
+const QUEUE_NOTE = {
+  stopping: "stopping the old run",
+  cleaning: "deleting its old history",
+  queued: "waiting for a sandbox",
+  running: "running",
+  error: "dispatch failed",
+};
+
+function renderQueue(state) {
+  const queue = state.queue || {};
+  const entries = queue.entries || [];
+  const waiting = Number(queue.waiting) || 0;
+  const running = Number(queue.running) || 0;
+  setText(document.getElementById("queue-label"),
+    waiting ? `queue: ${waiting} waiting` : (running ? `queue: ${running} running` : "queue: empty"));
+  const pill = document.getElementById("queue");
+  pill.dataset.tipTerm = "run queue";
+  pill.dataset.tip = TIP_QUEUE;
+
+  const rows = entries.map(e => {
+    const note = QUEUE_NOTE[e.state] || e.state;
+    // The battery is named only when it is not the one on screen: on the usual single-run page it
+    // would be the same word on every row.
+    const where = e.battery_id && e.battery_id !== state.battery_id ? ` · ${e.battery_id}` : "";
+    return `<li class="q-row" role="option" aria-selected="false"`
+      + ` title="${esc(e.error || note)}">`
+      + `<span class="q-pos">${e.position ? e.position + "." : "▸"}</span>`
+      + `<span class="dot${e.state === "running" ? " live" : ""}"></span>`
+      + `<span class="m-id">${esc(e.key)}</span>`
+      + `<span class="m-note">${esc(note + where)}</span></li>`;
+  });
+  if (!rows.length) rows.push('<li class="m-empty">nothing queued — retries appear here</li>');
+
+  const free = Number(queue.free_sandboxes) || 0;
+  const parked = Number(queue.coordinator_waiting) || 0;
+  // The parked count is the only sign of the battery runner's own waiting tries: a worker writes
+  // nothing to disk until it holds a lease, so those cannot have rows of their own up there.
+  const fleet = queue.pool_error
+    ? "coordinator unreachable — the fleet and the wait ahead are unknown"
+    : `${free} of ${(state.pool || []).length} sandbox(es) free`
+      + (parked ? ` · ${parked} waiting to lease one: the queued rows above, plus any battery `
+                  + `tries, which get a row only once they are running` : "");
+  rows.push(`<li class="q-foot">${esc(fleet)}</li>`);
+  setHTML(document.getElementById("queue-menu"), rows.join(""));
+}
+
 function closeMenu() {
-  document.getElementById("battery-menu").hidden = true;
-  document.getElementById("battery").setAttribute("aria-expanded", "false");
+  for (const id of ["battery", "queue"]) {
+    document.getElementById(id + "-menu").hidden = true;
+    document.getElementById(id).setAttribute("aria-expanded", "false");
+  }
 }
 
 // Switching runs mid-review would leave both overlays naming an attempt from the battery just left,
@@ -1847,7 +1974,9 @@ async function refresh() {
   if (asked !== batteryChoice) return;
 
   batteryId = state.battery_id || null;
+  latestState = state;
   renderPicker(state);
+  renderQueue(state);
   const b = state.battery || {}, atts = state.attempts || [];
   // The server already ranks worst-first, but by the whole collapse score. Re-rank by the score
   // this page is set to read (scan.py's key otherwise, exactly) so that with the repetition signals
@@ -2168,14 +2297,37 @@ function flashCell(key) {
 
 const verdictsInFlight = new Set();
 
+// What a pass would actually cut short: the other tries of THIS prompt that are still going, plus
+// the ones the runner has not dispatched yet and now never will. Siblings only - a live attempt on
+// some other prompt is untouched by this verdict - and undispatched tries count only while a runner
+// is alive to have dispatched them. When both are empty the verdict takes nothing away, and a
+// dialog that appears when it can change nothing is what teaches a reviewer to click through the
+// one that can.
+function siblingsAtRisk(key) {
+  const self = latest.find(a => a.key === key);
+  if (!self) return { live: [], pending: 0 };
+  const mine = latest.filter(a => a.prompt_id === self.prompt_id);
+  const live = mine.filter(a => a.key !== key && (isLive(a) || a.state === "retrying"));
+  let pending = 0;
+  if (batteryLive()) {
+    const tries = Math.max(1, Number((latestState.battery || {}).tries) || 1);
+    const dispatched = new Set(mine.map(a => a.attempt));
+    for (let t = 1; t <= tries; t++) if (!dispatched.has(t)) pending += 1;
+  }
+  return { live, pending };
+}
+
 async function recordVerdict(key, verdict) {
   if (!key || verdictsInFlight.has(key)) return;
-  // With nothing running there is no process for a successful verdict to interrupt, so the warning
-  // adds no useful protection. Queued siblings may still be skipped, which the toast reports.
   // Only a pass cancels anything: an invalid try decides nothing, so its siblings must keep going.
-  if (verdict === "pass" && latest.some(isLive) && !confirm(
-    `Mark ${key} successful?\n\nThis irreversibly stops or skips every other try of this prompt. ` +
-    `Changing or clearing the verdict later will not restart them.`
+  const risk = verdict === "pass" ? siblingsAtRisk(key) : { live: [], pending: 0 };
+  const going = [
+    risk.live.length ? risk.live.map(a => "try " + a.attempt).join(", ") + " still going" : "",
+    risk.pending ? `${risk.pending} not dispatched yet` : "",
+  ].filter(Boolean).join("; ");
+  if (going && !confirm(
+    `Mark ${key} successful?\n\nThis irreversibly stops or skips every other try of this prompt ` +
+    `(${going}). Changing or clearing the verdict later will not restart them.`
   )) return;
 
   verdictsInFlight.add(key);
@@ -2192,19 +2344,26 @@ document.addEventListener("click", async ev => {
   // this run", and renaming a battery must not also drag the page onto it.
   const rename = ev.target.closest("#battery-menu button[data-act='battery-rename']");
   if (rename) { renameBattery(rename.dataset.battery); return; }
+  const copy = ev.target.closest("#battery-menu button[data-act='battery-copy']");
+  if (copy) { copyBatteryName(copy.dataset.battery); return; }
   const option = ev.target.closest("#battery-menu li[data-battery]");
   if (option) { selectBattery(option.dataset.battery); return; }
   const button = ev.target.closest("button[data-act]");
   // Anywhere else on the page closes an open picker, the way a menu is expected to behave.
-  if (!button || button.dataset.act !== "battery-menu") closeMenu();
+  const MENUS = ["battery-menu", "queue-menu"];
+  if (!button || !MENUS.includes(button.dataset.act)) closeMenu();
   if (!button) return;
   const key = button.dataset.key;
   const act = button.dataset.act;
 
-  if (act === "battery-menu") {
-    const menu = document.getElementById("battery-menu");
-    menu.hidden = !menu.hidden;
-    button.setAttribute("aria-expanded", String(!menu.hidden));
+  if (MENUS.includes(act)) {
+    const menu = document.getElementById(act);
+    const opening = menu.hidden;
+    // One list at a time: the two hang off pills a few pixels apart, and the second would open
+    // over the first.
+    closeMenu();
+    menu.hidden = !opening;
+    button.setAttribute("aria-expanded", String(opening));
     // The cursor is still on the pill either way, and no mousemove is coming to re-ask.
     if (menu.hidden) showHelp(button); else hideHelp();
     return;
@@ -2262,8 +2421,31 @@ async function retryAttempt(key) {
   const res = await fetch(api(key, "retry"), { method: "POST" });
   const data = await res.json();
   if (!data.ok) alert("Retry failed: " + (data.error || "unknown"));
+  else announceRetry(key, data.queue || {});
   refresh();
   return data.ok;
+}
+
+// A retry is accepted long before it starts: it has an old try to stop and delete first, and then
+// it queues for a sandbox like any other worker. Say which of the two the reader is waiting on -
+// the answer is invisible otherwise, since both look like a tile that has not changed yet.
+function announceRetry(key, placement) {
+  if (placement.immediate) {
+    notify(`Retrying ${key} now — a sandbox is free, so it starts as soon as its old try is cleared.`);
+    return;
+  }
+  const ahead = Number(placement.ahead) || 0;
+  const why = placement.pool_error ? "the coordinator is unreachable"
+    : (ahead ? `${ahead} run(s) asked first` : "the fleet is busy");
+  // The banner opens the list it is talking about: the queue is where this retry can be watched
+  // from here on, and the toast is gone in five seconds. Deferred by a tick because the click that
+  // dismissed the banner is still bubbling, and it closes every open menu on its way to the
+  // document - including the one this is about to open.
+  notify(
+    `${key} is queued — ${why}, so it starts when a sandbox frees up. Nothing already running is `
+    + `stopped. Open the queue.`,
+    () => setTimeout(() => document.getElementById("queue").click(), 0),
+  );
 }
 
 // Which attempts the R shortcut and retry button act on: anything not already mid-retry. Unlike

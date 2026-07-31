@@ -316,6 +316,18 @@ leases a fresh sandbox for the same prompt and try number. The watcher owns the 
 so retry remains available after the original battery runner exits. This is deliberately destructive:
 the dashboard confirms before deleting logs, frames, replay clips, verdicts, and report data.
 
+A retry **queues; it never preempts**. Its replacement runner asks the coordinator for a sandbox like
+any other worker and parks there until one frees up, behind everything that asked first — so a full
+fleet delays the retry rather than displacing a run already going. The header's **queue** picker is
+that line: every retry this watcher is dispatching, oldest first, with what each is doing
+(`stopping the old run` → `deleting its old history` → `waiting for a sandbox` → `running`), over a
+footer counting free sandboxes and acquires parked at the coordinator. The battery runner's own
+pending tries cannot be listed — a worker creates its run dir only once it holds a lease, so a try
+still waiting for one exists nowhere but inside that process — but they are in that parked count,
+which is why the coordinator now reports it on `bench.status`. Starting a retry posts a banner saying
+which happened: a sandbox was free and it starts as soon as the old try is cleared, or it is queued
+and behind how much.
+
 `--host` defaults to `127.0.0.1`. Binding `0.0.0.0` exposes the destructive kill and retry endpoints
 to the network; there is no auth.
 
@@ -379,6 +391,10 @@ standing in for the whole run.
   `operator_kill`; queued siblings are recorded as zero-runtime `skipped` attempts. Both carry
   `end_reason=already_successful` and the winning attempt key, so the planned denominator and report
   coverage remain intact.
+  Confirmation is asked for only when the verdict can actually take something away: a sibling of the
+  same prompt still running or mid-retry, or - while a runner is alive to dispatch them - tries of
+  that prompt it has not reached yet. A prompt whose every try has already halted is graded with one
+  click, because there is nothing left for the ✓ to stop.
 * **Verdict metadata is correctable; cancellation is not.** Pressing the other button overwrites and
   `clear` removes the review stamp, but neither action restarts, requeues, or restores siblings
   stopped by an earlier successful verdict.
