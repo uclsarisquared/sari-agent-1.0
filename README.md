@@ -19,7 +19,7 @@ are on it — so the agent can resolve *"find and pick up Pepero"* without a VLM
 reasoning.
 
 The Unity project is a **separate repo** (`SariSandboxV2`). It is the sim and the ground-truth
-product catalog; this repo is the agent/mapping side.
+product catalog; this repo is the agent, mapping, and benchmarking side.
 
 ## Quickstart
 
@@ -127,9 +127,6 @@ at all (`REPLICATE_API_TOKEN`).
 |---|---|---|
 | **Annotator** (offline, pipeline step 5) | `claude -p`, Sonnet, medium effort — pinned | Annotation quality is measured and frozen on Sonnet |
 | **Agent runtime** (per-step VLM calls) | OpenAI-compatible VLM endpoint | Agent behaviour is measured on `Qwen3.6-27B` |
-
-Also note `claude -p` bills a claude.ai subscription while the `anthropic` SDK path bills API
-credits — different accounts. Don't switch silently.
 
 ---
 
