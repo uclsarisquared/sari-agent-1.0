@@ -221,7 +221,7 @@ uv run python legacy/run.py "your task"      # polls the sim, posts to /predict
 
 ---
 
-## The mapping pipeline
+## Mapping Pipeline
 
 This is the **offline build step** that produces the map the agent navigates on. It is a one-time
 build, not part of a normal agent run.
