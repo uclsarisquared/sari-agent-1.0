@@ -12,10 +12,8 @@ vision models for local perception, manipulation, and task reasoning. The Unity 
 the separate `SariSandboxV2` repository.
 
 ## Quick start
-
-Requirements:
-* [uv](https://docs.astral.sh/uv/)
-* Sari Sandbox 1.0/Sari Sandbox² running in Unity Play mode or a build
+* Install [uv](https://docs.astral.sh/uv/)
+* Run Sari Sandbox 1.0/Sari Sandbox² in Unity Play mode/a build
   * If on Sandbox², `sariSandboxV1CompatibilityLayer` must be enabled
 * Python is pinned to 3.10.13.
 
