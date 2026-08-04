@@ -13,8 +13,11 @@ the separate `SariSandboxV2` repository.
 
 ## Quick start
 
-You need [uv](https://docs.astral.sh/uv/), the simulator running in Unity Play mode, and its
-**Sari Sandbox V1 Compatibility Layer** enabled. Python is pinned to 3.10.13.
+Requirements:
+* [uv](https://docs.astral.sh/uv/)
+* Sari Sandbox 1.0/Sari Sandbox² running in Unity Play mode or a build
+  * If on Sandbox², `sariSandboxV1CompatibilityLayer` must be enabled
+* Python is pinned to 3.10.13.
 
 ```bash
 uv sync
