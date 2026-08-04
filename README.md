@@ -27,7 +27,7 @@ Set `OPENAI_API_URL` (a bare host with no scheme or port) and `OPENAI_API_KEY` i
 unavailable.
 
 The checked-in [`runconfig.toml`](runconfig.toml) already points at the complete map in
-`overhaul/slamtest/output_runs/run_0724_164652`. Start these in separate terminals:
+`overhaul/slamtest/output_runs/run_0724_164652`. This is specifically for Sandbox²'s `Store 2.json` Start these in separate terminals:
 
 ```bash
 # Terminal 1: required shared OCR service
