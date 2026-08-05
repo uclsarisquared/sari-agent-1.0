@@ -243,7 +243,7 @@ class BenchmarkRunner:
         self.context_policy = context_policy
         self.map_dir = map_dir
         self.leg_retries = leg_retries
-        if completion_guard not in {"deterministic", "vlm"}:
+        if completion_guard not in {"deterministic", "vlm", "none"}:
             raise ValueError(f"unsupported completion guard: {completion_guard!r}")
         self.completion_guard = completion_guard
         self.timeout_grace = timeout_grace
@@ -1632,9 +1632,10 @@ async def async_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--leg-retries", type=int, default=configured("leg_retries", 1))
     parser.add_argument(
         "--completion-guard",
-        choices=["deterministic", "vlm"],
+        choices=["deterministic", "vlm", "none"],
         default=configured("completion_guard", "deterministic"),
-        help="Pickup completion guard passed to the agent (default deterministic).",
+        help="Completion verification passed to the agent; none accepts STOP without "
+             "verification (default deterministic).",
     )
     args = parser.parse_args(argv)
 

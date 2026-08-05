@@ -18,14 +18,14 @@ class RunConfigError(ValueError):
 _SCHEMA: dict[str, dict[str, object]] = {
     "agent": {
         "task": str,
-        "arm": {"vlm", "graph", "graph-advised"},
+        "navigation_strategy": {"vlm", "graph", "graph-advised"},
         "context_policy": set(CONTEXT_POLICY_NAMES),
         # "endpoint" = the configured OpenAI-compatible endpoint on $SARI_MODEL (renamed from
         # "qwen" 2026-08-05: the model is config, not a vendor, so the value now names the
         # transport like its sibling does). The old spelling still loads - see
         # _DEPRECATED_VALUES.
         "resolver_backend": {"endpoint", "claude-cli"},
-        "completion_guard": {"deterministic", "vlm"},
+        "completion_guard": {"deterministic", "vlm", "none"},
         "leg_retries": int,
     },
     "limits": {
@@ -62,7 +62,7 @@ _SCHEMA: dict[str, dict[str, object]] = {
         "map_dir": str,
         "ocr_url": str,
         "leg_retries": int,
-        "completion_guard": {"deterministic", "vlm"},
+        "completion_guard": {"deterministic", "vlm", "none"},
     },
 }
 
@@ -74,6 +74,12 @@ _DEPRECATED_VALUES: dict[tuple[str, str], dict[str, str]] = {
     # 2026-08-05: the resolver's endpoint backend was named after the model that happened to be
     # behind the endpoint. The model is $SARI_MODEL's business, so the value names the transport.
     ("agent", "resolver_backend"): {"qwen": "endpoint"},
+}
+
+# Deprecated option names are rewritten before strict unknown-key validation. This keeps existing
+# local configs usable while ensuring every consumer sees only the current, descriptive spelling.
+_DEPRECATED_KEYS: dict[tuple[str, str], str] = {
+    ("agent", "arm"): "navigation_strategy",
 }
 
 _PATH_OPTIONS = {
@@ -185,6 +191,20 @@ def load_run_config(path: str | Path) -> RunConfig:
     for section, section_values in raw.items():
         if not isinstance(section_values, dict):
             raise RunConfigError(f"{config_path}: [{section}] must be a TOML table")
+        for (deprecated_section, deprecated_key), replacement in _DEPRECATED_KEYS.items():
+            if section != deprecated_section or deprecated_key not in section_values:
+                continue
+            if replacement in section_values:
+                raise RunConfigError(
+                    f"{config_path}: {section}.{deprecated_key} and {section}.{replacement} "
+                    "cannot both be set"
+                )
+            print(
+                f"[{config_path}] {section}.{deprecated_key} is DEPRECATED and will stop "
+                f"working; use {section}.{replacement}. Continuing with the new name.",
+                file=sys.stderr,
+            )
+            section_values[replacement] = section_values.pop(deprecated_key)
         unknown_keys = sorted(set(section_values) - set(_SCHEMA[section]))
         if unknown_keys:
             names = ", ".join(f"{section}.{key}" for key in unknown_keys)

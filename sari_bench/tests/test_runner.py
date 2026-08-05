@@ -189,6 +189,18 @@ def test_completion_guard_is_threaded_into_agent_command_and_battery_config() ->
         assert battery["context_policy"] == "a5"
         assert battery["ocr_url"] == "http://127.0.0.1:9100"
 
+        disabled = _runner(
+            "ws://127.0.0.1:1",
+            [Prompt(id="p", prompt="pick it up")],
+            workspace,
+            completion_guard="none",
+        )
+        disabled_command = disabled._agent_command(
+            disabled.prompts["p"], lease, workspace / "runs" / "p" / "try02")
+        disabled_index = disabled_command.index("--completion-guard")
+        assert disabled_command[disabled_index + 1] == "none"
+        assert disabled._semantic_config()["completion_guard"] == "none"
+
         # A legacy battery without this field means deterministic, never an implicit VLM switch.
         legacy = runner._semantic_config()
         legacy.pop("completion_guard")

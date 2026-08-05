@@ -6,13 +6,18 @@
 #
 # Explicit command-line flags override this file. Relative paths are resolved from this file,
 # regardless of the directory from which the command is launched.
+#
+# A leg is one typed subtask produced by the task decomposer (for example, goto, pickup, inspect,
+# compare, or checkout). Each leg gets its own agent loop and limits; failed legs may be retried.
+# A step is one observe-decide-act iteration inside a leg: the agent receives a fresh observation,
+# chooses and executes an action batch, and then updates state. A leg usually contains many steps.
 
 [agent]
 # Optional fixed task. Usually leave this commented and pass the prompt on the command line.
 # task = "Pick up Ritz Crackers"
 
 # Navigation strategy: "graph", "vlm", or "graph-advised".
-arm = "graph"
+navigation_strategy = "graph"
 context_policy = "baseline"
 
 # Backend VLM used to resolve a target to map checkpoints.
@@ -22,8 +27,8 @@ context_policy = "baseline"
 # "qwen" is the old name for "endpoint": still accepted, warns on load, and will be removed.
 resolver_backend = "endpoint"
 
-# Pickup/compare/unknown completion verification: "deterministic" or "vlm".
-# Inspect tasks are VLM-verified in either mode.
+# Completion verification: "deterministic", "vlm", or "none".
+# "none" disables verification and accepts an explicit STOP without running completion guards.
 completion_guard = "vlm"
 
 # Failed-leg retries before the entire task is aborted.

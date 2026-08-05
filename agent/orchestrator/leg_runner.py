@@ -367,12 +367,12 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
         state["visited_checkpoints"] = set(visited)   # compare predicate reads the task visit trace (code only)
         step_inspect_guard = None
         step_unknown_guard = None
-        if leg.get("type") == "inspect":
+        if leg.get("type") == "inspect" and completion_guard != "none":
             # This closure is bound to the exact frame passed to execute_lean below, PLUS every
             # earlier frame this leg proved a label in (the evidence ledger - a two-item comparison
             # is only verifiable across frames). Its cache makes identical STOP/backstop checks
-            # within this step one VLM call, and inspection ignores --completion-guard because
-            # inspection is mandatory-VLM in both modes.
+            # within this step one VLM call. Inspection uses mandatory VLM verification in the
+            # deterministic and VLM modes; "none" skips this entire block.
             evidence_frames = [
                 {"label": (f"{inspection_evidence[side]['sku'] or 'held item'} "
                            f"({side} hand, step {inspection_evidence[side]['step']})"),
@@ -460,7 +460,14 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
         # not touch actor history. Untargeted/empty/unidentified grips make no call and fail closed.
         step_guard_verdicts = (_deterministic_guard_details(leg, state)
                                if completion_guard == "deterministic" else None)
-        if targeted_vlm_pickup:
+        if completion_guard == "none":
+            # With verification disabled, only an explicit STOP ends the leg. Do not turn the
+            # unconditional STOP grant into a per-step completion nudge/backstop.
+            goal_met_streak = 0
+            state["goal_check"] = None
+            met = False
+            met_reason = "completion guard disabled; waiting for explicit STOP"
+        elif targeted_vlm_pickup:
             held_skus = {
                 side: gripped_names.get(side)
                 for side in ("left", "right")
@@ -845,7 +852,14 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
         # (the leg-overrun failure). The agent still chooses STOP - this is a nudge, not an auto-end. But
         # if it stays satisfied for COMPLETION_BACKSTOP steps without ever proposing STOP, end the leg
         # anyway (success=True, the goal holds) - the symmetric twin of the refusal cap.
-        if targeted_vlm_pickup:
+        if completion_guard == "none":
+            # No verifier means there is no measurable completion signal for the nudge/backstop.
+            # The explicit STOP path below is still granted unconditionally.
+            goal_met_streak = 0
+            state["goal_check"] = None
+            met = False
+            met_reason = "completion guard disabled; waiting for explicit STOP"
+        elif targeted_vlm_pickup:
             # The step guard describes the screenshot/held state from BEFORE this step's action.
             # Do not reuse it against a newly changed grip here; the next fresh screenshot evaluates
             # that state. Its result already drove this step's nudge/streak above.

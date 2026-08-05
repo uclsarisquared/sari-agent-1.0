@@ -401,8 +401,8 @@ def pickup_has_target(sub: dict) -> bool:
 
 
 def _validate_guard_backend(guard_backend):
-    """Reject completion-guard backends outside the supported deterministic/VLM set."""
-    if guard_backend not in ("deterministic", "vlm"):
+    """Reject completion-guard backends outside the supported set."""
+    if guard_backend not in ("deterministic", "vlm", "none"):
         raise ValueError(f"unknown completion guard backend: {guard_backend!r}")
 
 
@@ -430,6 +430,8 @@ def mismatched_hands(sub: dict, state: dict, start_grips=(),
     injected conclusive negative is actionable: missing/failed verdicts refuse completion but never
     cause a corrective release, and deterministic matching is not used as a silent fallback."""
     _validate_guard_backend(guard_backend)
+    if guard_backend == "none":
+        return []
     target = (sub or {}).get("target") or ""
     if not _tokens(target):
         return []
@@ -480,6 +482,8 @@ def predicate_pickup(sub: dict, state: dict, guard_backend="deterministic",
     `guard_backend="vlm"` replaces targeted name matching with injected per-hand verdicts. Missing,
     malformed, and failed verdicts fail closed; deterministic matching is never a VLM fallback."""
     _validate_guard_backend(guard_backend)
+    if guard_backend == "none":
+        return True, "completion guard disabled: STOP accepted without pickup verification"
     try:
         count = max(1, int(sub.get("count") or 1))
     except (TypeError, ValueError) as error:
@@ -622,6 +626,9 @@ def predicate_compare(sub: dict, state: dict, final_text: str = "",
     the visit half is skipped and flagged [unverified] rather than wrongly blocking; a physical-
     inspection eval should ensure they resolve. With no declared targets we can't check the choice
     either, so we grant [unverified]."""
+    _validate_guard_backend(guard_backend)
+    if guard_backend == "none":
+        return True, "completion guard disabled: STOP accepted without comparison verification"
     targets = sub.get("targets") or []
     if not targets:
         if guard_backend == "vlm":
@@ -683,6 +690,9 @@ def predicate_unknown(sub: dict, state: dict, final_text: str = "",
     The deterministic backend preserves the pre-6.3 behavior. The opt-in VLM backend keeps those
     checks as prerequisites, then verifies the free-text completion claim against the current frame.
     """
+    _validate_guard_backend(guard_backend)
+    if guard_backend == "none":
+        return True, "completion guard disabled: STOP accepted without task verification"
     text = str(sub.get("text") or "").lower()
     grip = _gripping(state)
     is_pickup = any(kw in text for kw in _PICKUP_KW)
@@ -909,6 +919,8 @@ def completion_predicate(sub: dict, state: dict, final_text: str = "",
     unrecognized type routes to the `unknown` keyword fallback, so this never raises on a malformed
     subtask."""
     _validate_guard_backend(guard_backend)
+    if guard_backend == "none":
+        return True, "completion guard disabled: STOP accepted without verification"
     t = (sub or {}).get("type")
     if t == "pickup":
         return predicate_pickup(sub, state, guard_backend=guard_backend,

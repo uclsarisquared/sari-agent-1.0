@@ -417,6 +417,21 @@ def test_vlm_backend_leaves_untargeted_and_nonpickup_predicates_deterministic():
         {"type": "checkout"}, checkout, guard_backend="vlm")[0] is True
 
 
+def test_none_completion_guard_accepts_stop_without_verification():
+    """Disabling the guard bypasses every typed predicate, including inspection verification."""
+    for sub in (
+        {"type": "pickup", "target": "Piattos"},
+        {"type": "checkout"},
+        {"type": "goto", "target_checkpoint": [99]},
+        {"type": "compare", "targets": ["A", "B"]},
+        {"type": "inspect", "query": "expiration date"},
+        {"type": "unknown", "text": "drop the item"},
+    ):
+        granted, reason = completion_predicate(sub, _state(), guard_backend="none")
+        assert granted is True
+        assert "disabled" in reason
+
+
 def test_vlm_attribute_target_match_and_mismatch():
     st = _state(leftGrippedState=True,
                 gripped_names={"left": "CDO_HOME_STYLE_CORNED_BEEF_150G", "right": None})

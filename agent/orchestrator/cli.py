@@ -34,7 +34,7 @@ def main(argv=None):
                     help="the long-horizon task (or use --task)")
     ap.add_argument("--task", dest="task_opt", default=None, help="the long-horizon task")
     ap.add_argument("--arm", choices=["vlm", "graph", "graph-advised"],
-                    default=configured("agent", "arm", "graph"),
+                    default=configured("agent", "navigation_strategy", "graph"),
                     help="navigation arm (default graph - the measured-better navigator; "
                          "graph-advised drives each graph hop through a per-hop advisor VLM)")
     ap.add_argument(
@@ -69,10 +69,11 @@ def main(argv=None):
                          "OpenAI-compatible endpoint on $SARI_MODEL - the same model as the rest of "
                          "the run; 'claude-cli' shells out to `claude -p` instead. ('qwen' is a "
                          "DEPRECATED alias for 'endpoint'.)")
-    ap.add_argument("--completion-guard", choices=["deterministic", "vlm"],
+    ap.add_argument("--completion-guard", choices=["deterministic", "vlm", "none"],
                     default=configured("agent", "completion_guard", "deterministic"),
-                    help="optional pickup/compare/unknown completion backend "
-                         "(default deterministic; inspect is always VLM-verified)")
+                    help="completion verification backend: deterministic code checks, VLM-backed "
+                         "checks, or none to accept STOP without verification (default "
+                         "deterministic)")
     ap.add_argument("--output-dir", default=configured("environment", "map_dir"),
                     help="mapping output dir to load the map from (topology/annotations/grid). "
                          "Default: $SARI_MAP_DIR, else mapping/output (StoreMap's "
