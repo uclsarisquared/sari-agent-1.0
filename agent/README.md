@@ -17,7 +17,6 @@ points carry a `sys.path` shim so `python orchestrator/subtask_agents.py "task"`
 | `manip/` | `manipulation.py` | Reach/place envelopes, hand poses, grab primitive |
 | `nav/` | `store_map.py`, `locate_task.py` | Checkpoint-graph navigation, checkout macros, item resolver |
 | `orchestrator/` | `subtask_agents.py` (**CURRENT entry**), `subtask_planning.py`, `subtask_completion.py` | Long-horizon typed-subtask orchestrator: decompose → run legs → judge → retry |
-| `evals/` | `eval_pickup.py` (Phase 4.2 A/B; imported by the orchestrator), `env_simulation.py` (legacy single-task loop; VMap_Plan.md builds on it) | Eval harnesses / legacy entry |
 
 Run the agent:
 
@@ -25,35 +24,27 @@ Run the agent:
 python orchestrator/subtask_agents.py "find and pick up Pepero"
 ```
 
-Cross-package facts worth knowing: `orchestrator.subtask_agents` imports `evals.eval_pickup`
-(for `return_to_start`); slamtest keeps FLAT imports (`from capture_walk import ...`) with its
-files in category subfolders — `slamtest/_bootstrap.py` puts those dirs on `sys.path`, and
+Cross-package facts worth knowing: mapping keeps FLAT imports (`from capture_walk import ...`) with its
+files in category subfolders — `mapping/_bootstrap.py` puts those dirs on `sys.path`, and
 agent consumers (`nav.store_map`, `nav.locate_task`, `agent_core.memory_gen`) import it;
-slamtest scripts import `sim.env` / `nav.store_map` back.
+mapping scripts import `sim.env` / `nav.store_map` back.
 Root-level runtime state stays at the root because the code writes it CWD-relative:
 `episodic_memory.txt`, `semantic_memory.txt` (written by `agent_core.memory_runtime`).
 
-## Leaf folders (nothing imports these)
+## Supporting folders
 
-- **`tests/`** — offline unit checks, no sim: `test_plan_reach.py`, `test_plan_place.py`
-  (frozen-envelope geometry tables), `center_offline_check.py` (centring math A/B on saved PNGs).
-- **`probes/`** — 🎮 interactive calibration probes and their offline fitters: `reach_probe.py` /
-  `fit_envelope.py`, `place_probe.py` / `fit_place_envelope.py`, `center_live_test.py`,
-  `probe_translation.py`. Fitters read the CSVs the probes write under `slamtest/output/`.
-- **`gates/`** — 🎮 phase-gate and smoke harnesses: `gate_checkout.py` (Phase 6.2 5-run gate),
-  `smoke_checkout.py` (one-item checkout chain dry-run).
+- **`../validation/`** — all maintained offline tests, probes, calibration tools, evals, and
+  supervised acceptance checks. Generated evidence goes to its gitignored `artifacts/` directory.
 - **`tools/`** — human-driven utilities: `keyboard_control.py` (WASD driving).
 - **`deprecated/`** — superseded code kept for reference; see its README. Currently
   `subagent_run.py` (OpenRouter-era orchestrator, replaced by `orchestrator/subtask_agents.py`).
-- **`slamtest/`** — the mapping + annotation pipeline (own README, `plans/`, `tests/`, frozen
-  `output/` — now also home to the phase-6 measurement evidence `gate6_1_out/`, `step0_out/`).
+- **`mapping/`** — the mapping + annotation pipeline (own README, `plans/`, frozen `output/`).
   Files live in category subfolders (`core/`, `graph/`, `drivers/`, `capture/`, `annotate/`,
   `scoring/`, `app/`) but imports stay flat via `_bootstrap.py`.
 - **`logs/`, `screenshots/`, `subtask_run_outputs/`** — run outputs, written by the runtime with
   these exact paths. Don't relocate without editing the writers.
 
-New leaf scripts go in the matching folder WITH the two-line `sys.path` shim
-(`_ROOT = dirname(dirname(abspath(__file__)))`); new runtime modules go in the matching package
-with package-qualified imports.
+New runtime modules go in the matching package with package-qualified imports. New validation
+scripts follow the taxonomy in `../validation/README.md`.
 
 🎮 = needs the Unity sim in Play mode (ws://localhost:8080). Run everything from `agent/`.

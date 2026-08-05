@@ -8,7 +8,7 @@ and pick up Pepero"* without a VLM ever doing spatial reasoning.
 
 The Unity project is a **separate repo** (e.g. `SariSandboxV2`) at a path that differs per machine —
 set `SARI_SANDBOX_DIR` in `config.env` to point at it (see `agent/sim/sim_paths.py`; catalog
-grounding and the offline scoring/reconciliation scripts under `slamtest/scoring/` read it). It is
+grounding and the offline scoring/reconciliation scripts under `mapping/scoring/` read it). It is
 the sim and the ground-truth product catalog; this repo is the agent/mapping side.
 
 ## The principle that explains most decisions here
@@ -17,7 +17,7 @@ the sim and the ground-truth product catalog; this repo is the agent/mapping sid
 > verifies on arrival.**
 
 The navigation-failure diagnosis (formerly `NavReasonPlan.md`, removed 2026-07-19 — its
-load-bearing quote survives verbatim in `slamtest/plans/phase4.1_navigation_ablation.md`, and the
+load-bearing quote survives verbatim in `mapping/plans/phase4.1_navigation_ablation.md`, and the
 file itself is in git history) documents open-ended VLM navigation as this agent's primary failure mode — it
 collides with walls and burns its budget on global path planning it cannot do from a first-person
 view. So: navigation and geometry are deterministic (A*, LiDAR, the skeleton graph); the VLM is
@@ -30,11 +30,11 @@ Run from `agent/`. 🎮 = needs the sim in Play mode; the rest are offline.
 
 | # | Phase | Command | Produces |
 |---|---|---|---|
-| 1 | Map 🎮 | `python slamtest/drivers/explore.py` | `grid_final.npy/.png`, `topology_final.json` |
-| 2 | Shelf graph | `python slamtest/graph/build_shelf_graph.py slamtest/output` | `topology_final_shelf.json` + graph PNG |
-| 3 | Reachability | `python slamtest/graph/audit_standability.py slamtest/output --topology-tag final_shelf` | prints |
-| 4 | Capture 🎮 | `python slamtest/capture/capture_walk.py slamtest/output --limit 0 --angles 2` | `output/captures/cp<id>_primary.png`, `_crouch.png` |
-| 5 | Annotate | `python slamtest/annotate/annotate_pass.py slamtest/output` | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
+| 1 | Map 🎮 | `python mapping/drivers/explore.py` | `grid_final.npy/.png`, `topology_final.json` |
+| 2 | Shelf graph | `python mapping/graph/build_shelf_graph.py mapping/output` | `topology_final_shelf.json` + graph PNG |
+| 3 | Reachability | `python mapping/graph/audit_standability.py mapping/output --topology-tag final_shelf` | prints |
+| 4 | Capture 🎮 | `python mapping/capture/capture_walk.py mapping/output --limit 0 --angles 2` | `output/captures/cp<id>_primary.png`, `_crouch.png` |
+| 5 | Annotate | `python mapping/annotate/annotate_pass.py mapping/output` | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
 
 Step 5 is **offline over saved PNGs** — prompts and models can be iterated freely without re-driving
 the sim. Prefer that over re-capturing.
@@ -46,17 +46,16 @@ hand_reset, chime), `agent_core/` (agent, sys_inst, memory, memory_gen), `toolse
 actions_str — everything that defines the agent's action/tool vocabulary),
 `vision/` (perception, md_tools, annotation_tools), `manip/` (manipulation), `nav/` (store_map,
 locate_task), `orchestrator/` (subtask_agents — the CURRENT entry — plus subtask_planning,
-subtask_completion), `evals/` (eval_pickup, env_simulation). The agent runs as
-`python orchestrator/subtask_agents.py "<task>"`. slamtest keeps FLAT imports
+subtask_completion). The agent runs as
+`python orchestrator/subtask_agents.py "<task>"`. mapping keeps FLAT imports
 (`from capture_walk import ...`) even though its files live in category subfolders — importing
-`slamtest/_bootstrap.py` puts the category dirs on `sys.path` (agent consumers get it via
-`nav.store_map`); slamtest scripts import `sim.env` / `nav.store_map` back. `plan6/` was dissolved
-2026-07-24 (its tests → `tests/`, probes → `probes/`, outputs → `slamtest/output/`;
-CHECKLIST.md deleted on user request, in git history). Leaf scripts nothing imports live in `tests/` (offline),
-`probes/` (🎮 calibration + fitters), `gates/` (🎮 gates/smokes), `tools/`, `deprecated/` — each
-carries a two-line `sys.path` shim pointing at the agent root. New code follows the same rules:
-runtime → the matching package, package-qualified imports; leaf scripts → the matching folder,
-with the shim. `episodic_memory.txt` / `semantic_memory.txt` stay at the root (written
+`mapping/_bootstrap.py` puts the category dirs on `sys.path` (agent consumers get it via
+`nav.store_map`); mapping scripts import `sim.env` / `nav.store_map` back. `plan6/` was dissolved
+2026-07-24. Maintained tests, probes, calibrations, evals, and acceptance checks now live under
+the repository-level `validation/` taxonomy; their generated artifacts do not belong in
+`mapping/output/`. New code follows the same rules: runtime → the matching package with
+package-qualified imports; validation work → the matching `validation/` category.
+`episodic_memory.txt` / `semantic_memory.txt` stay at the root (written
 CWD-relative by `agent_core.agent`; run everything from `agent/`).
 
 ## Standing constraints — ask before violating
@@ -106,11 +105,11 @@ worked:
 ## Read before touching
 
 - **Annotator prompts** → the `MEASURED - DO NOT RE-ATTEMPT` block at the top of
-  `slamtest/annotate/annotator_sys_inst.py`. It records what was tried, what it cost, and why the current
+  `mapping/annotate/annotator_sys_inst.py`. It records what was tried, what it cost, and why the current
   wording is what it is. Several intuitive "improvements" are documented there as *failures*.
-- **Node spacing / reading distance** → the constants in `slamtest/graph/shelf_coverage.py`; each carries
+- **Node spacing / reading distance** → the constants in `mapping/graph/shelf_coverage.py`; each carries
   its measured history and the trap that bites when tuning it.
-- **Phase design** → `slamtest/plans/phase*.md`.
+- **Phase design** → `mapping/plans/phase*.md`.
 
 ## Current state (2026-07)
 

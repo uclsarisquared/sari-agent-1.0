@@ -28,7 +28,7 @@ dependencies = [
     # pillow yields. The repo only uses stable Image open/save/crop/draw APIs.
     "pillow>=10.4.0,<11",
     "numpy>=1.26.4,<2",        # 1.26.4 is the measured pin; 2.x is untested here
-    "matplotlib>=3.10.3",      # slamtest grid/topology renders
+    "matplotlib>=3.10.3",      # mapping grid/topology renders
     # Grab-time pointing; top-level import in md_tools.py. >=1.2 is load-bearing: moondream
     # 0.1.x caps pillow<11, which conflicts with the pillow 11.2.1 the rest of the repo was
     # measured on. It was unpinned in both requirements.txt files, so no pin is being broken.
@@ -47,7 +47,7 @@ dependencies = [
     # --- Legacy root stack -------------------------------------------------------
     "litserve>=0.2.9",         # server.py
     "google-genai>=1.14.0",    # functions.py, comprehension.py
-    "pynput>=1.7",             # keyboard_control.py, slamtest/manual_map.py
+    "pynput>=1.7",             # keyboard_control.py, mapping/manual_map.py
 ]
 
 # NB: there is deliberately no `ocr` extra any more (removed 2026-07-28). paddleocr/paddlepaddle
@@ -57,6 +57,10 @@ dependencies = [
 # Not an installable package — a collection of scripts run in place. Without this, uv would
 # try to build and install the project itself and fail (no package layout).
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["validation/tests"]
+pythonpath = [".", "agent", "agent/mapping"]
 
 # The `dotenv` distribution on PyPI is NOT what `from dotenv import load_dotenv` resolves to;
 # that comes from `python-dotenv`. Both are listed in the old requirements.txt files, which is
@@ -69,6 +73,7 @@ dev = [
 ]
 
 [tool.poe.tasks]
+test = { cmd = "pytest", help = "Run the maintained offline test suite" }
 ocr-server = { cmd = "python -m sari_bench ocr-server", help = "Run the shared runner-local PaddleOCR service on 127.0.0.1:9100" }
 dbench-watch = { cmd = "python -m sari_bench watch --host 0.0.0.0", help = "Live dashboard for a running battery (run beside the runner)" }
 dbench-coordinator = { cmd = "python -m sari_bench coordinator --port 9000", help = "Run the sandbox registry" }

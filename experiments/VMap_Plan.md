@@ -17,7 +17,7 @@ The goal is to use this heightmap to close the loop on navigation — giving the
 ## Current Agent Architecture Summary
 
 ```
-env_simulation.py / subagent_run.py (loop)
+experiments/v1_agent_eval.py / subagent_run.py (loop)
   └── EmbodiedAgent.execute_lean()
         ├── SemanticEpisodicAssociativeLearner  → mode decision (perception/nav/manipulation)
         ├── VLMAgent.send_message()             → action sequence generation
@@ -50,7 +50,7 @@ Clear path: forward up to +2.25m center lane
 ```
 
 **Implementation touch points:**
-- `overhaul/env_simulation.py` — initialize `SariVoxeLLMap`, `queue_frame` after each screenshot, serialize map
+- `overhaul/experiments/v1_agent_eval.py` — initialize `SariVoxeLLMap`, `queue_frame` after each screenshot, serialize map
 - `overhaul/sys_inst.py` — add heightmap context block to prompts
 - `overhaul/agent.py` — pass heightmap string into `execute_lean()` request dict
 
@@ -78,7 +78,7 @@ actions = path_to_actions(path, current_rotation)
 - New file `overhaul/planner.py` — A*/BFS implementation on 2D numpy grid
 - `overhaul/actions.py` — `plan_path_to(target)` action
 - `overhaul/agent.py` — call planner when mode=navigation and target is known
-- `overhaul/env_simulation.py` — pass heightmap grid to planner each step
+- `overhaul/experiments/v1_agent_eval.py` — pass heightmap grid to planner each step
 
 **Research backing:**
 - **Elfes (1989)**, *"Using Occupancy Grids for Mobile Robot Perception and Navigation"*, IEEE Computer: The foundational reference showing 2D occupancy grids + grid search enable reliable autonomous navigation in unknown environments. Cited 4,000+ times.
@@ -102,7 +102,7 @@ navigate_to(nearest_frontier)  # via Method 2 planner
 **Implementation touch points:**
 - `overhaul/planner.py` — `get_frontiers(heightmap, explored_mask)` function
 - `overhaul/agent.py` — trigger frontier navigation when `mode=navigation` and no target visible
-- `overhaul/env_simulation.py` — maintain `explored_mask` as agent moves
+- `overhaul/experiments/v1_agent_eval.py` — maintain `explored_mask` as agent moves
 
 **Research backing:**
 - **Yamauchi (1997)**, *"A Frontier-Based Approach for Autonomous Exploration"*, IEEE CIRA: Original frontier exploration paper. Proves completeness — robot will eventually cover all reachable space.
@@ -153,7 +153,7 @@ def safe_move_forward(units):
 
 **Implementation touch points:**
 - `overhaul/actions.py` — wrap `move_forward` with `safe_move_forward`
-- `overhaul/env_simulation.py` — pass current heightmap to action wrappers
+- `overhaul/experiments/v1_agent_eval.py` — pass current heightmap to action wrappers
 - `overhaul/sys_inst.py` — note in prompt that collision pre-checks are active
 
 **Research backing:**
@@ -182,7 +182,7 @@ Methods 1 and 5 together form a **minimal viable integration** with high payoff 
 
 | File | Role in Integration |
 |------|---------------------|
-| `overhaul/env_simulation.py` | Initialize `SariVoxeLLMap`, call `queue_frame` each step |
+| `overhaul/experiments/v1_agent_eval.py` | Initialize `SariVoxeLLMap`, call `queue_frame` each step |
 | `overhaul/subagent_run.py` | Same loop integration for multi-subtask runs |
 | `overhaul/agent.py` | Pass heightmap context into `execute_lean()`, call planner |
 | `overhaul/actions.py` | Wrap `move_forward` with collision pre-check |

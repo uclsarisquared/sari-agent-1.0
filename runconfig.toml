@@ -1,4 +1,4 @@
-# Sari runtime configuration.
+# SARI RUNTIME CONFIGURATION.
 #
 # Both entrypoints accept this file:
 #   uv run python agent/orchestrator/subtask_agents.py --config runconfig.toml --task "..."
@@ -36,13 +36,13 @@ max_minutes = 40.0
 
 [environment]
 # Map artifacts used by graph navigation.
-map_dir = "agent/slamtest/output_runs/run_0724_164652"
+map_dir = "agent/mapping/output_runs/run_0724_164652"
 
 # Move only the agent back to its fixed spawn pose before the run.
-reset_start = false
+reset_start = true
 
 # Reset the entire store, including item and checkout state, before the run.
-restart_env = false
+restart_env = true
 
 # Optional service overrides. If omitted, environment variables and built-in defaults are used.
 # ws_uri = "ws://localhost:8080/commands"
@@ -67,13 +67,15 @@ coordinator = "ws://127.0.0.1:9000"
 sandbox_startup_timeout = 30.0
 
 # Optional battery destination. Without it, results use bench_runs/<timestamp>[_<name>].
+# Required when resuming a run (see `resume`)
 # output_dir = "bench_runs/my_ablation"
 name = ""
 
-# Resume requires output_dir to name an existing compatible battery.
+# Resume continues a run that was interrupted.
+# Requires output_dir to name an existing compatible battery.
 resume = false
 
-# Maximum parallel attempts. If omitted, concurrency tracks the registered sandbox fleet.
+# Maximum parallel attempts. If omitted, concurrency fills the registered sandbox fleet.
 # concurrency = 4
 
 # Supplementary screenshot interval in seconds. Zero disables supplementary capture.
@@ -87,7 +89,7 @@ capture_interval = 0.25
 max_steps = 150
 arm = "graph"
 context_policy = "baseline"
-map_dir = "agent/slamtest/output_runs/run_0724_164652"
+map_dir = "agent/mapping/output_runs/run_0724_164652"
 # ocr_url = "http://127.0.0.1:9100"
 leg_retries = 1
 completion_guard = "vlm"

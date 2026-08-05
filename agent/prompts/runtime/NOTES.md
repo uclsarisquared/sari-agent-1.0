@@ -33,7 +33,7 @@ crouch/hand-height item, not this handshake.
 
 CENTRING FEEDBACK edit (2026-07-21, UNMEASURED): added state field `last_center` (AGENT_STATE_DOC o)
 carrying center_object_on_screen's SUCCESS/FAILED/STALLED outcome, surfaced by both runner loops
-(eval_pickup, subtask_agents) and logged in the pickup JSONL. The tool already returned its result,
+(pickup_navigation, subtask_agents) and logged in the pickup JSONL. The tool already returned its result,
 but the loops dropped everything except 'blocked', so a silent success let the episodic learner
 wrongly conclude "avoid center_object_on_screen". The failure strings are actionable (bring the
 target into view) so the lesson can't become "stop centring". Perception also early-stops on a

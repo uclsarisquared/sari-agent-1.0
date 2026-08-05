@@ -42,7 +42,7 @@ All arguments are optional except the task itself.
 | `--leg-retries N` | `1` | How many times a failed leg is retried (with the failure reason fed into the retry's context) before the whole task aborts; `0` restores abort-on-first-failure |
 | `--resolver-backend {endpoint, claude-cli}` | `endpoint` | Backend for the plan-time map target resolver. `endpoint` is the configured OpenAI-compatible endpoint on `$SARI_MODEL` — the same model the rest of the run uses; `claude-cli` shells out to `claude -p` instead. `qwen` is a deprecated alias for `endpoint` — accepted, but it warns and will be removed |
 | `--completion-guard {deterministic,vlm}` | `deterministic` | Optional pickup, compare, and unknown completion backend. `inspect` completion is VLM-verified in both modes |
-| `--output-dir DIR` | `slamtest/output` | Which slamtest map (topology / annotations / grid) to load — defaults to the frozen baseline map |
+| `--output-dir DIR` | `mapping/output` | Which mapping map (topology / annotations / grid) to load — defaults to the frozen baseline map |
 | `--run-dir DIR` | auto | Directory for this run's logs and per-step screenshots |
 | `--out PATH` | `<run-dir>/summary.json` | Where the summary JSON is written |
 | `--reset-start` | off | Drive to the fixed spawn pose once before starting. Eval-reproducibility machinery only — a plain run starts from wherever the agent currently is |

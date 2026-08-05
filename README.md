@@ -28,7 +28,7 @@ Set `OPENAI_API_URL` (scheme, host, and port; for example `http://host:8000`) an
 unavailable.
 
 The checked-in [`runconfig.toml`](runconfig.toml) already points at the complete map in
-`agent/slamtest/output_runs/run_0724_164652`. This is specifically for Sandbox²'s `Store 2.json` Start these in separate terminals:
+`agent/mapping/output_runs/run_0724_164652`. This is specifically for Sandbox²'s `Store 2.json` Start these in separate terminals:
 
 ```bash
 # Terminal 1: required shared OCR service
@@ -67,11 +67,14 @@ guide.
 ## Repository map
 
 - `agent/` — live agent; entrypoint: `orchestrator/subtask_agents.py`
-- `agent/slamtest/` — map building and annotation; normal runs use the shipped map
+- `agent/mapping/` — map building and annotation; normal runs use the shipped map
+- `validation/` — offline tests, probes, calibrations, evals, and acceptance checks
 - `sari_bench/` — distributed runner, dashboard, reports, and replay tooling
-- `analysis/` — benchmark and ablation reports
+- `docs/analysis/` — benchmark and ablation reports
+- `experiments/` — dormant prototypes, including explicitly named V1 scripts
 - `legacy/` — deprecated first-generation agent, retained only for reference
 
 For internals, see [`agent/README.md`](agent/README.md). For rebuilding the map, follow
-[`agent/slamtest/README.md`](agent/slamtest/README.md); do not overwrite the working map
+[`agent/mapping/README.md`](agent/mapping/README.md); do not overwrite the working map
 casually because checkpoint IDs key its captures and annotations.
+See [`validation/README.md`](validation/README.md) for the check taxonomy and commands.

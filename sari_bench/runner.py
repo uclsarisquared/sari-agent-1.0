@@ -159,7 +159,7 @@ class AttemptResult:
 def load_prompts(path: Path) -> list[Prompt]:
     """Reads a prompt battery.
 
-    Accepts the shape already used by ``agent/tests/decompose_battery.json`` - either a bare
+    Accepts the shape used by ``validation/fixtures/decomposition/decompose_battery.json`` - either a bare
     list or an object with a ``prompts`` key - so existing batteries work unchanged.
     """
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -982,7 +982,7 @@ class BenchmarkRunner:
             # Belt to --output-dir's braces. The flag only reaches the call sites the orchestrator
             # explicitly threads it through; this reaches every StoreMap() in the attempt's process
             # (nav/store_map.default_output_dir reads it), so no helper can silently fall back to
-            # the frozen slamtest/output - which in this checkout has no topology_final_shelf.json
+            # the frozen mapping/output - which in this checkout has no topology_final_shelf.json
             # and used to take every attempt down in ~2s as a bare `agent_error`.
             # Absolute because the agent runs with cwd=agent/.
             env["SARI_MAP_DIR"] = str(Path(self.map_dir).resolve())
@@ -1622,7 +1622,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         help="named context-window policy passed to every agent attempt",
     )
     parser.add_argument("--map-dir", default=configured("map_dir"),
-                        help="slamtest output dir the agent loads its map from.")
+                        help="mapping output dir the agent loads its map from.")
     parser.add_argument(
         "--ocr-url",
         default=configured("ocr_url"),
