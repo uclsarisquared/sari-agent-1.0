@@ -20,7 +20,7 @@ ORCHESTRATOR_MODEL = agent_model()  # $SARI_MODEL in config.env (OpenRouter reti
 
 # Every reasoner runs on the OpenAI API compatible endpoint from config.env (OpenRouter fully
 # retired 2026-07-21). agent_vlm_config carries the load-bearing enable_thinking=False +
-# max_tokens cap - see agent.agent_vlm_config. Mirrors eval_pickup.py / env_simulation.py. The
+# max_tokens cap - see agent.agent_vlm_config. Mirrors the pickup navigation evaluation. The
 # orchestrator LLM below (_llm_client) already targets the same endpoint.
 VLM_CONFIG = agent_vlm_config(temperature=0.5)
 ASSOCIATIVE_CONFIG = agent_vlm_config(temperature=0.3)
@@ -31,6 +31,7 @@ ASSOCIATIVE_CONFIG = agent_vlm_config(temperature=0.3)
 # ---------------------------------------------------------------------------
 
 def _llm_client() -> OpenAI:
+    """Build the shared orchestrator client from configured endpoint credentials."""
     from agent_core.llm import endpoint_creds
     endpoint, key = endpoint_creds()
     return OpenAI(base_url=f"{endpoint}/v1", api_key=key, max_retries=0)
@@ -61,7 +62,7 @@ def decompose_task(client: OpenAI, task: str) -> list:
     its prose (the pre-6.3 keyword guards). The type vocabulary is closed (pickup|checkout|compare|
     goto); any untypeable element degrades to `{"type": "unknown"}` inside parse_decomposition, which
     run_leg then handles with the OLD keyword guards. The A/B that validated this prompt lives in
-    tests/ab_decompose.py (11/11 clean on the four-family battery, 2026-07-23)."""
+    validation/evals/decomposition.py (11/11 clean on the four-family battery, 2026-07-23)."""
     raw = _llm_call(client, TYPED_DECOMPOSER_SYSTEM, f"Task: {task}", token_meter.ROLE_DECOMPOSER)
     subtasks = parse_decomposition(raw, task)
     if any(s.get("type") == "unknown" for s in subtasks):

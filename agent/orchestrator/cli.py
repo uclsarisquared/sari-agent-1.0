@@ -9,6 +9,7 @@ from agent_core.context_policy import CONTEXT_POLICY_NAMES
 from orchestrator.orchestration import orchestrate
 
 def main(argv=None):
+    """Parse command-line options and run one orchestrated task."""
     argv = list(sys.argv[1:] if argv is None else argv)
     config_parser = argparse.ArgumentParser(add_help=False)
     config_parser.add_argument("--config")
@@ -21,6 +22,7 @@ def main(argv=None):
             config_parser.error(str(error))
 
     def configured(section, key, fallback=None):
+        """Read an optional run-configuration value with a fallback."""
         return config.get(section, key, fallback) if config else fallback
 
     ap = argparse.ArgumentParser(description="Long-horizon typed-subtask orchestrator.")
@@ -72,8 +74,8 @@ def main(argv=None):
                     help="optional pickup/compare/unknown completion backend "
                          "(default deterministic; inspect is always VLM-verified)")
     ap.add_argument("--output-dir", default=configured("environment", "map_dir"),
-                    help="slamtest output dir to load the map from (topology/annotations/grid). "
-                         "Default: $SARI_MAP_DIR, else slamtest/output (StoreMap's "
+                    help="mapping output dir to load the map from (topology/annotations/grid). "
+                         "Default: $SARI_MAP_DIR, else mapping/output (StoreMap's "
                          "DEFAULT_OUTPUT_DIR).")
     ap.add_argument("--leg-retries", type=int, default=configured("agent", "leg_retries", 1),
                     help="how many times to RETRY a failed leg with the failure reason in context "
@@ -116,5 +118,4 @@ def main(argv=None):
                 leg_retries=max(0, args.leg_retries), output_dir=args.output_dir,
                 completion_guard=args.completion_guard, ocr_url=args.ocr_url,
                 context_policy=args.context_policy)
-
 

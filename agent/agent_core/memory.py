@@ -7,9 +7,9 @@ position - and Phase 3.1 had already called their replacement: "this IS the chec
 Phases 1-2 generate a denser, observation-derived version of that hand-written table."
 
 Both navigation arms of the Phase 4.2 A/B consume this same document (fairness requirement -
-see slamtest/plans/phase4.2_dual_stack_integration.md). Rendering reads three JSONs, no sim, no
+see mapping/plans/phase4.2_dual_stack_integration.md). Rendering reads three JSONs, no sim, no
 model, <1s. `python memory_gen.py` writes an inspectable copy to
-slamtest/output/base_semantic_memory_rendered.txt.
+mapping/output/base_semantic_memory_rendered.txt.
 
 Rendering used to happen AT IMPORT, as a module constant. It doesn't any more, for two reasons:
 a missing/alternate map dir turned into an ImportError traceback from a file that was only being
@@ -26,7 +26,7 @@ _CACHE: dict[str, str] = {}
 
 def base_semantic_memory(output_dir=None):
     """The rendered store document for `output_dir` (None -> StoreMap's default, i.e. $SARI_MAP_DIR
-    else slamtest/output). Cached per dir."""
+    else mapping/output). Cached per dir."""
     key = output_dir or ""
     if key not in _CACHE:
         from nav.store_map import StoreMap

@@ -91,7 +91,7 @@ def grab_and_read_item(hand="left", max_attempts=30, text_read_fn=None):
 # Hands stay ACTIVE throughout a task now (no longer disabled for nav/perception), parked at a named
 # REST pose so a carried item is never dropped by a mode change - it rides at REST. The two poses are
 # the user's manual calibration (2026-07-22), LEFT-hand agent-local xyz, validated live by the step-0
-# probe (probes/step0_hand_pose_probe.py, user-confirmed working 2026-07-22).
+# calibration (validation/calibration/step0_hand_pose_probe.py, user-confirmed working 2026-07-22).
 # HAND FRAME DEFINITION (dual-hand, 2026-07-23). All poses here are AGENT-LOCAL xyz, the frame
 # TransformHands reports in: +x = the AGENT'S RIGHT, +y = up, +z = forward. "Left hand" = the hand
 # resting on the agent's LEFT side (negative x); "right hand" = its counterpart at positive x. The
@@ -552,7 +552,7 @@ def extend_arm_until_grabbed(times=1, hand="auto", max_extend=25, max_pitch_deg=
 # REACH_ENVELOPE - MEASURED 2026-07-22 from 24 reach_probe grabs. The hand extends along the CAMERA
 # GAZE, so a grab lands iff the SLANT distance to the centred target is within reach - it is NOT a
 # vertical band + horizontal standoff (that model, hand_drop/r_eff/standoff, was REFUTED by the data:
-# same-height items grabbed or missed purely on distance; see slamtest/plans/phaseD_reach_and_grab.md).
+# same-height items grabbed or missed purely on distance; see mapping/plans/phaseD_reach_and_grab.md).
 # Every grab was <=0.885 m, every miss >=0.900 m - a clean split, and `reachable iff distance<=0.89`
 # predicted all 24 rows. Re-fit from a fresh CSV with `python fit_envelope.py`.
 REACH_ENVELOPE = {
@@ -586,7 +586,7 @@ def plan_reach(sample, envelope=REACH_ENVELOPE):
     reachability is decided by ONE quantity - the SLANT distance to the centred target - not by a
     vertical band + horizontal standoff. Every grab had distance <= 0.885 m, every miss >= 0.900 m
     (clean split, 24/24), and same-HEIGHT items with opposite outcomes were separated only by distance.
-    The earlier hand_drop/r_eff/standoff model was refuted; see slamtest/plans/phaseD_reach_and_grab.md.
+    The earlier hand_drop/r_eff/standoff model was refuted; see mapping/plans/phaseD_reach_and_grab.md.
 
     Geometry (slant range d, gaze pitch theta [+ = down], camera world-Y cam_h):
         vertical_offset = d * sin(theta)     # + = target BELOW the camera; equals cam_h - target_height

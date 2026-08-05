@@ -34,6 +34,7 @@ from agent_core.sys_inst import SYS_INST_ASSOCIATIVE_EPISODIC, SYS_INST_ASSOCIAT
 
 @dataclass(frozen=True)
 class StepRequest:
+    """Normalized, decoded input for one embodied-agent timestep."""
     task: str
     nav_goal: str
     raw_state: object
@@ -46,6 +47,7 @@ class StepRequest:
 
     @classmethod
     def from_mapping(cls, request: dict, timestep: int) -> "StepRequest":
+        """Decode an external request mapping into the runtime's typed step input."""
         task = request["task"]
         image_bytes = base64.b64decode(str(request["image"]).encode("utf-8"))
         screenshot = Image.open(BytesIO(image_bytes)).convert("RGB")
@@ -64,10 +66,12 @@ class StepRequest:
 
     @property
     def first_step(self) -> bool:
+        """Whether this request starts a fresh leg conversation."""
         return self.timestep == 1
 
     @property
     def measured_move_steps(self) -> Optional[int]:
+        """Return a safe metric approach distance inferred from the prior reach state."""
         last_reach = (
             self.raw_state.get("last_reach") if isinstance(self.raw_state, dict) else None
         )
@@ -89,6 +93,7 @@ class EmbodiedAgent:
         run_dir: Optional[str] = None,
         context_policy: ContextPolicy = ContextPolicy(),
     ) -> None:
+        """Initialize the shared services and optional lean-mode learner."""
         self.context_policy = validate_context_policy(context_policy)
         self.vlm_agent = VLMAgent(vlm_config, context_policy=self.context_policy)
         self.mode = mode
@@ -124,6 +129,7 @@ class EmbodiedAgent:
     # ------------------------------------------------------------------ services
 
     def _hand_service(self) -> HandController:
+        """Return the hand controller, constructing it for compatibility-created agents."""
         service = self.__dict__.get("_hands")
         if service is None:
             service = HandController()
@@ -131,6 +137,7 @@ class EmbodiedAgent:
         return service
 
     def _navigation_service(self) -> GraphNavigator:
+        """Return the navigator and synchronize its public runtime configuration."""
         service = self.__dict__.get("_navigation")
         if service is None:
             service = GraphNavigator(
@@ -153,6 +160,7 @@ class EmbodiedAgent:
         return service
 
     def _memory_service(self) -> MemoryRuntime:
+        """Return the memory service and synchronize its current agent and leg context."""
         service = self.__dict__.get("_memory")
         if service is None:
             service = MemoryRuntime(
@@ -174,132 +182,167 @@ class EmbodiedAgent:
 
     @property
     def _hands_active(self):
+        """Expose the hand controller's activation state for legacy callers."""
         return self._hand_service().active
 
     @_hands_active.setter
     def _hands_active(self, value) -> None:
+        """Update the legacy activation-state view through the hand controller."""
         self._hand_service().active = value
 
     @property
     def _hand_pose(self):
+        """Expose the tracked canonical hand pose for legacy callers."""
         return self._hand_service().pose
 
     @_hand_pose.setter
     def _hand_pose(self, value) -> None:
+        """Update the legacy hand-pose view through the hand controller."""
         self._hand_service().pose = value
 
     @property
     def _graph_nav(self):
+        """Expose the lazily-created graph navigation session for legacy callers."""
         return self._navigation_service().graph_nav
 
     @_graph_nav.setter
     def _graph_nav(self, value) -> None:
+        """Replace the legacy graph navigation session."""
         self._navigation_service().graph_nav = value
 
     @property
     def _advised_llm_calls(self):
+        """Expose the graph advisor's LLM-call count for legacy reporting."""
         return self._navigation_service().advised_llm_calls
 
     @_advised_llm_calls.setter
     def _advised_llm_calls(self, value) -> None:
+        """Update the graph advisor's legacy LLM-call counter."""
         self._navigation_service().advised_llm_calls = value
 
     @property
     def _advised_stats(self):
+        """Expose graph advisor hop statistics for legacy reporting."""
         return self._navigation_service().advised_stats
 
     @_advised_stats.setter
     def _advised_stats(self, value) -> None:
+        """Replace the graph advisor's legacy hop statistics."""
         self._navigation_service().advised_stats = value
 
     @property
     def _advised_shot_idx(self):
+        """Expose the graph advisor screenshot sequence index."""
         return self._navigation_service().advised_shot_idx
 
     @_advised_shot_idx.setter
     def _advised_shot_idx(self, value) -> None:
+        """Update the graph advisor screenshot sequence index."""
         self._navigation_service().advised_shot_idx = value
 
     @property
     def _nav_candidates(self):
+        """Expose resolved navigation candidates for legacy callers."""
         return self._navigation_service().candidates
 
     @_nav_candidates.setter
     def _nav_candidates(self, value) -> None:
+        """Replace the navigator's resolved candidate list."""
         self._navigation_service().candidates = value
 
     @property
     def _nav_visited(self):
+        """Expose the candidates visited in the active navigation task."""
         return self._navigation_service().visited
 
     @_nav_visited.setter
     def _nav_visited(self, value) -> None:
+        """Replace the navigator's visited-candidate set."""
         self._navigation_service().visited = value
 
     @property
     def _nav_task(self):
+        """Expose the task whose navigation candidates are cached."""
         return self._navigation_service().task
 
     @_nav_task.setter
     def _nav_task(self, value) -> None:
+        """Update the task associated with cached navigation candidates."""
         self._navigation_service().task = value
 
     @property
     def _nav_seeded(self):
+        """Expose plan-provided navigation candidates awaiting use."""
         return self._navigation_service().seeded
 
     @_nav_seeded.setter
     def _nav_seeded(self, value) -> None:
+        """Update the plan-provided navigation candidate seed."""
         self._navigation_service().seeded = value
 
     @property
     def _nav_seeded_name(self):
+        """Expose the target name associated with seeded candidates."""
         return self._navigation_service().seeded_name
 
     @_nav_seeded_name.setter
     def _nav_seeded_name(self, value) -> None:
+        """Update the target name associated with seeded candidates."""
         self._navigation_service().seeded_name = value
 
     @property
     def _nav_resolution(self):
+        """Expose the latest target-resolution record for legacy callers."""
         return self._navigation_service().resolution
 
     @_nav_resolution.setter
     def _nav_resolution(self, value) -> None:
+        """Replace the latest target-resolution record."""
         self._navigation_service().resolution = value
 
     def set_semantic_memory(self) -> None:
+        """Reset semantic memory from the configured map's base knowledge."""
         self._memory_service().reset_semantic()
 
     def set_episodic_memory(self, episodic_memory: str) -> None:
+        """Replace the agent's current episodic reflection."""
         self._memory_service().set_episodic(episodic_memory)
 
     def _run_artifact(self, name: str) -> str:
+        """Return an artifact path scoped to this run when one is configured."""
         return self._memory_service().artifact_path(name)
 
     @staticmethod
     def _write_text_atomic(path: str, content: str) -> None:
+        """Atomically persist a UTF-8 text artifact."""
         MemoryRuntime.write_text_atomic(path, content)
 
     def _semantic_tag(self, timestep: int) -> str:
+        """Build the semantic-log tag for this timestep and optional leg."""
         return self._memory_service().semantic_tag(timestep)
 
     def _set_hands(self, active: bool) -> None:
+        """Set simulator hand activation through the transition-aware controller."""
         self._hand_service().set_active(active)
 
     def _set_hand_pose(self, pose: str) -> None:
+        """Move both hands to a canonical pose through the controller."""
         self._hand_service().set_pose(pose)
 
     def _invalidate_hand_pose(self) -> None:
+        """Mark the canonical pose unknown after manipulation."""
         self._hand_service().invalidate_pose()
 
     def _restore_hands_after_inspection(self) -> dict:
+        """Return hands to their canonical post-inspection state."""
         return self._hand_service().restore_after_inspection()
 
     def _graph_nav_session(self):
+        """Return the lazily-created graph navigation session."""
         return self._navigation_service().session()
 
     def seed_nav_candidates(self, candidates, target_name=None) -> None:
+        """Seed the navigator with plan-time candidates for the next leg."""
         self._navigation_service().seed_candidates(candidates, target_name)
 
     def begin_leg(self, candidates, target_name, leg_index: int) -> int:
@@ -311,23 +354,29 @@ class EmbodiedAgent:
         return self.vlm_agent.semantic_log.mark()
 
     def _graph_navigate(self, main_task: str, nav_goal: Optional[str] = None):
+        """Navigate toward the next graph candidate and return its note and screenshot."""
         result = self._navigation_service().navigate(main_task, nav_goal)
         return result.note, result.image_bytes
 
     def _advised_goto(self, store_map, nav, target, nav_goal):
+        """Delegate one graph route to the visual navigation advisor."""
         return self._navigation_service().advised_goto(store_map, nav, target, nav_goal)
 
     def _navigate_to_counter(self):
+        """Navigate to the checkout counter and return its note and screenshot."""
         result = self._navigation_service().navigate_to_counter()
         return result.note, result.image_bytes
 
     def _checkout_held_item(self, hand: str = "auto") -> dict:
+        """Compatibility wrapper for checking out an item held in the selected hand."""
         return self.checkout_held_item(hand)
 
     def checkout_held_item(self, hand: str = "auto") -> dict:
+        """Run the navigation-backed checkout macro for a held item."""
         return self._navigation_service().checkout_held_item(hand)
 
     def restore_hands_after_inspection(self) -> dict:
+        """Public wrapper that restores the canonical hand state after inspection."""
         return self._restore_hands_after_inspection()
 
     def close(self) -> None:
@@ -337,6 +386,7 @@ class EmbodiedAgent:
             navigation.graph_nav[1].close()
 
     def _metric_approach(self, move_steps: int):
+        """Advance a measured distance and return the resulting note and screenshot."""
         result = self._navigation_service().metric_approach(move_steps)
         return result.note, result.image_bytes
 
@@ -345,6 +395,7 @@ class EmbodiedAgent:
     def _call_associative(
         self, system_instruction: str, image: Optional[Image.Image], text: str
     ) -> str:
+        """Run one image-aware semantic learner pass with semantic token attribution."""
         content = build_content(image, "## CURRENT OBSERVATION\n", text)
         with token_meter.role(token_meter.ROLE_SEMANTIC):
             return self.associative_learner._api_call_with_retry(
@@ -356,6 +407,7 @@ class EmbodiedAgent:
             )
 
     def _call_episodic(self, history_text: str) -> str:
+        """Run one episodic-reflection pass over compact conversation history."""
         with token_meter.role(token_meter.ROLE_EPISODIC):
             return self.associative_learner._api_call_with_retry(
                 self.associative_learner.client,
@@ -366,6 +418,7 @@ class EmbodiedAgent:
             )
 
     def _semantic_prompt(self, step: StepRequest) -> str:
+        """Build the learner prompt, including episodic context after the first step."""
         if step.first_step:
             return (
                 f"## CURRENT TIMESTEP: {step.timestep}\n"
@@ -389,6 +442,7 @@ class EmbodiedAgent:
         actions: str,
         nav_note: str,
     ) -> str:
+        """Build the actor prompt from the decision, state, and navigation result."""
         next_action_line = (
             f"## THIS STEP'S INTENDED ACTION: {decision.next_action}\n"
             if decision.next_action and not nav_note
@@ -423,6 +477,7 @@ class EmbodiedAgent:
 
     @staticmethod
     def _format_episodic(timestep: int, reflection: EpisodicReflection) -> str:
+        """Render a structured episodic reflection for the current timestep."""
         return (
             f"@ timestep {timestep}:\n"
             f"## DENSE SUMMARY: {reflection.dense_summary}\n"
@@ -431,6 +486,7 @@ class EmbodiedAgent:
         )
 
     def _stop_and_persist(self, decision: SemanticDecision, semantic_text: str) -> dict:
+        """Persist runtime memory when applicable and return the final stop response."""
         # STOP is a real final observation. Persisting it avoids the old timestep-dependent
         # behavior where later steps mutated memory in-process but no STOP path wrote artifacts.
         # object.__new__-constructed unit-test doubles have no artifact context. A real
@@ -443,6 +499,7 @@ class EmbodiedAgent:
     # ----------------------------------------------------------- single pipeline
 
     def execute_lean(self, request: dict, timestep: int) -> dict:
+        """Execute semantic routing, actor response, and memory updates for one step."""
         step = StepRequest.from_mapping(request, timestep)
         semantic_text = self._call_associative(
             SYS_INST_ASSOCIATIVE_SEMANTIC, step.screenshot, self._semantic_prompt(step)

@@ -17,6 +17,7 @@ from agent_core.sys_inst import SYS_INST_VLM_LEAN
 
 
 class AssociativeLearner(BaseAgent):
+    """LLM client used to produce semantic decisions and episodic reflections."""
     def __init__(self, config: Optional[LLMConfig] = None) -> None:
         super().__init__(config)
         self.client = OpenAI(base_url=self.config.base_url, api_key=self.config.api_key, max_retries=0)
@@ -41,6 +42,7 @@ SemanticEpisodicAssociativeLearner = AssociativeLearner
 
 
 class VLMAgent(BaseAgent):
+    """Conversational visual actor that retains the active leg's message history."""
     def __init__(
         self,
         config: Optional[LLMConfig] = None,

@@ -16,7 +16,7 @@ endpoint should be asked for is configuration, not a code constant, so it lives 
 model id hardcoded in the tree. Point the endpoint somewhere else by setting the env var; no code
 change is needed.
 
-Deliberately dependency-light (dotenv + stdlib) so leaf scripts and the slamtest tools can import
+Deliberately dependency-light (dotenv + stdlib) so leaf scripts and the mapping tools can import
 it without pulling in the whole agent runtime.
 """
 

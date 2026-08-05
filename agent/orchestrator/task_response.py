@@ -44,6 +44,7 @@ def new_response_memory(prompt: str) -> dict[str, Any]:
 
 
 def _compact_subtask(subtask: Any) -> dict[str, Any]:
+    """Keep only stable, response-relevant planning fields from a subtask."""
     if not isinstance(subtask, dict):
         return {"type": "unknown", "text": str(subtask)}
     # Resolver candidates are useful final-response evidence; arbitrary planner/debug additions are
@@ -55,6 +56,7 @@ def _compact_subtask(subtask: Any) -> dict[str, Any]:
 
 
 def set_planned_subtasks(memory: dict[str, Any], subtasks: list[Any]) -> None:
+    """Store a compact snapshot of the task plan in the response journal."""
     memory["planned_subtasks"] = [_compact_subtask(subtask) for subtask in subtasks]
 
 
@@ -105,6 +107,7 @@ def concise_final_state(state: Any) -> dict[str, Any]:
 
 
 def _failure_reason(metrics: dict[str, Any]) -> str:
+    """Choose the most actionable recorded reason for an incomplete attempt."""
     if metrics.get("success"):
         return ""
     state = metrics.get("final_state")
@@ -231,6 +234,7 @@ def save_response_memory(run_dir: str | os.PathLike[str], memory: dict[str, Any]
 
 
 def write_response_artifact(run_dir: str | os.PathLike[str], response: str) -> Path:
+    """Atomically publish the final user-facing response text for a run."""
     path = Path(run_dir) / RESPONSE_FILE
     temp = path.with_name(f".{path.name}.tmp")
     temp.write_text(str(response).strip() + "\n", encoding="utf-8")
@@ -239,6 +243,7 @@ def write_response_artifact(run_dir: str | os.PathLike[str], response: str) -> P
 
 
 def _serialized(view: dict[str, Any]) -> str:
+    """Serialize a response-memory view compactly for its size-budget check."""
     return json.dumps(view, ensure_ascii=False, default=str, separators=(",", ":"))
 
 

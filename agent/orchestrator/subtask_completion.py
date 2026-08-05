@@ -153,7 +153,7 @@ def _tokens(text: str) -> list:
 #      target token match (e.g. 'green Piattos' vs a 'green bag' appearance), never block one, so the
 #      78% of SKUs with no record never cause a false refusal.
 _RECONCILED_JSON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "slamtest", "output", "products_final_shelf_reconciled.json")
+                                "mapping", "output", "products_final_shelf_reconciled.json")
 _CATEGORY_LEXICON = None    # {singularized category word: [sku_lower, ...]}
 _GENERIC_NAMES = None       # {category-name tokens} - matching on these alone is not product identity
 _RECONCILED_INDEX = None    # {sku_lower: "clean name variant appearance ..."} (category EXCLUDED)
@@ -221,6 +221,7 @@ def _singular(word: str) -> str:
 
 
 def _category_lexicon() -> dict:
+    """Load normalized catalog categories and fallback aliases for target matching."""
     global _CATEGORY_LEXICON, _GENERIC_NAMES, _CATALOG_LOADED
     if _CATEGORY_LEXICON is None:
         lex, generic = {}, set()
@@ -267,6 +268,7 @@ def _category_lexicon() -> dict:
 
 
 def _generic_names() -> set:
+    """Return catalog terms that identify a category rather than a specific SKU."""
     _category_lexicon()   # populates _GENERIC_NAMES as a side effect
     return _GENERIC_NAMES or set()
 
@@ -367,14 +369,14 @@ def blob_matches_target(blob, target) -> bool:
 
 def name_matches(state: dict, keywords) -> bool:
     """True iff any keyword appears in the agent's hovered/gripped object blob. Re-homed here from
-    eval_pickup (its single caller now imports it) so the pickup predicate and the 6.4 eval share ONE
+    pickup_navigation (its single caller now imports it) so the pickup predicate and the 6.4 eval share ONE
     implementation. Same substring-containment semantics as before - deliberately loose; the phase6.3
     plan flags tightening as a 6.4-audit follow-up, not a guess to make now.
 
     The blob includes `gripped_name` - the name the grab tool reported AT THE GRIP - because the live
     `<side>HoveredObject` fields clear to 'null' once the hand retracts from the shelf (a measured
     false-negative: the item is still held, but hovered no longer names it). `gripped_name` is the
-    durable record run_leg keeps while a hand is gripping; it is '' for callers (eval_pickup) that
+    durable record run_leg keeps while a hand is gripping; it is '' for callers (pickup_navigation) that
     don't set it, so this stays backward-safe. Dual-hand: run_leg space-joins BOTH hands' recorded
     names into it (per-hand detail in `gripped_names`), so a match on EITHER held item counts."""
     fields = [state.get("leftHoveredObject") or "", state.get("rightHoveredObject") or "",
@@ -399,6 +401,7 @@ def pickup_has_target(sub: dict) -> bool:
 
 
 def _validate_guard_backend(guard_backend):
+    """Reject completion-guard backends outside the supported deterministic/VLM set."""
     if guard_backend not in ("deterministic", "vlm"):
         raise ValueError(f"unknown completion guard backend: {guard_backend!r}")
 
@@ -452,6 +455,7 @@ def mismatched_hands(sub: dict, state: dict, start_grips=(),
 # ---------------------------------------------------------------------------
 
 def _gripping(state: dict) -> bool:
+    """Return whether either simulator hand is currently gripping an item."""
     return bool(state.get("leftGrippedState") or state.get("rightGrippedState"))
 
 
@@ -470,7 +474,7 @@ def predicate_pickup(sub: dict, state: dict, guard_backend="deterministic",
     `count` (default 1, from the decomposer contract): how many of the target must be held AT ONCE -
     'pick up 2 X' is one leg with count=2, not two legs (a second same-SKU pickup leg would grant
     instantly on the first leg's carry). Counting needs run_leg's per-hand `gripped_names`; a runner
-    without it (eval_pickup's flat loop) degrades to the single-item check, flagged [unverified
+    without it (pickup_navigation's flat loop) degrades to the single-item check, flagged [unverified
     count] - honest, never a silent block the wiring can't feed.
 
     `guard_backend="vlm"` replaces targeted name matching with injected per-hand verdicts. Missing,
@@ -536,7 +540,7 @@ def predicate_pickup(sub: dict, state: dict, guard_backend="deterministic",
         return True, "pickup complete: gripping the target item"
     # Dual-hand (2026-07-23), UNTARGETED pickups only: a grip carried IN from a previous leg must not
     # satisfy THIS leg's pickup. run_leg sets `new_grip_this_leg` when a hand that was empty at leg
-    # start grips; when the runner provides it (eval_pickup's flat loop does not - key absent skips
+    # start grips; when the runner provides it (pickup_navigation's flat loop does not - key absent skips
     # the check, old behaviour), an untargeted pickup needs a NEW grip, not just any grip. A TARGETED
     # pickup grants on the name match above regardless - the right item in hand is the right item,
     # whichever leg grabbed it.
@@ -688,7 +692,7 @@ def predicate_unknown(sub: dict, state: dict, final_text: str = "",
     if is_drop and grip:
         # Dual-hand (2026-07-23): a drop leg that RELEASED a leg-start grip is done even if the other
         # hand still carries its own item. run_leg sets `released_grip_this_leg`; runners that don't
-        # (eval_pickup's flat loop - key absent, falsy) keep the old any-grip block.
+        # (pickup_navigation's flat loop - key absent, falsy) keep the old any-grip block.
         if state.get("released_grip_this_leg"):
             deterministic_reason = (
                 "halt granted (untyped): drop task released its item "

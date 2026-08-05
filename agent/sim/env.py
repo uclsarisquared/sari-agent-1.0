@@ -435,7 +435,7 @@ def RequestJson(uri: str = None):
 def RequestLidarCenter(uri: str = None) -> Dict[str, Any]:
     """Depth (metres) along the agent's *actual pitched gaze* at the CENTRE pixel, plus the pose to
     decompose it. Phase D - the metric distance the manipulation router plans a reach from, replacing
-    the removed monocular depth hint (see slamtest/plans/phaseD_reach_and_grab.md).
+    the removed monocular depth hint (see mapping/plans/phaseD_reach_and_grab.md).
 
     Returns the sim's JSON reply parsed to a dict:
         {distance, hit, pitch_deg, camera_height, min_range, max_range}

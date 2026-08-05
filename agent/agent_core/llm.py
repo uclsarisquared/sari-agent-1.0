@@ -27,6 +27,7 @@ load_dotenv(Path(__file__).resolve().parent.parent.parent / "config.env")
 
 @dataclass
 class LLMConfig:
+    """Transport and generation settings for an OpenAI-compatible LLM client."""
     model_id: str = "google/gemini-2.5-flash-preview-05-20"
     temperature: float = 0.5
     mode: Literal["base", "lean"] = "base"
@@ -161,6 +162,7 @@ def call_with_api_retries(operation):
 
 
 class BaseAgent(ABC):
+    """Shared configuration, reply parsing, and retry support for LLM-backed agents."""
     @abstractmethod
     def __init__(self, config: Optional[LLMConfig] = None) -> None:
         self.config = config or LLMConfig()

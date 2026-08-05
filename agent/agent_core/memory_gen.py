@@ -1,4 +1,4 @@
-"""Renders BASE_SEMANTIC_MEMORY from the slamtest artifacts - the Phase 4.2 shared substrate.
+"""Renders BASE_SEMANTIC_MEMORY from the mapping artifacts - the Phase 4.2 shared substrate.
 
 Replaces the hand-written store layouts that lived in memory.py (deleted 2026-07-19; git
 history is the archive). Those described a store that no longer exists; this renders the SAME
@@ -24,13 +24,12 @@ import os
 import sys
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)  # agent/ — packages + slamtest live under here
-_SLAM_DIR = os.path.join(_OVERHAUL_DIR, "slamtest")
-for _p in (_OVERHAUL_DIR, _SLAM_DIR):
+_AGENT_DIR = os.path.dirname(_THIS_DIR)  # agent/ — packages + mapping live under here
+_MAPPING_DIR = os.path.join(_AGENT_DIR, "mapping")
+for _p in (_AGENT_DIR, _MAPPING_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-import _bootstrap  # noqa: F401,E402  (slamtest category dirs -> flat imports keep working)
-import _bootstrap  # noqa: F401,E402 - slamtest category dirs onto sys.path (flat-import contract)
+import _bootstrap  # noqa: F401,E402 - mapping category dirs onto sys.path (flat-import contract)
 
 CAMERA_Y = 1.36  # the camera height the old Fast Tracking tables carried
 
@@ -84,7 +83,7 @@ def render_base_semantic_memory(store_map=None):
 
 if __name__ == "__main__":
     text = render_base_semantic_memory()
-    out = os.path.join(_SLAM_DIR, "output", "base_semantic_memory_rendered.txt")
+    out = os.path.join(_MAPPING_DIR, "output", "base_semantic_memory_rendered.txt")
     with open(out, "w", encoding="utf-8") as f:
         f.write(text)
     print(f"{len(text)} chars -> {out}")

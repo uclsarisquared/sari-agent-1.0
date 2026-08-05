@@ -249,6 +249,7 @@ def _run_held_item_inspection_macro(
 
     def check_visible(check_index, pass_index, phase, turn_index, rotation_delta=None,
                       image_bytes=None, ocr_text=None):
+        """Capture and verify that the held item is visibly presented for inspection."""
         nonlocal vlm_calls
         if image_bytes is None:
             image_bytes = _REQUEST_SCREENSHOT_()["image"]
@@ -320,6 +321,7 @@ def _run_held_item_inspection_macro(
         return result
 
     def check_label_presence(image_b64, check_index, pass_index, phase, turn_index):
+        """Verify that a visible inspection frame contains a readable product label."""
         nonlocal vlm_calls
         verdict = classify_inspection_label_presence(
             agent.vlm_agent.client,

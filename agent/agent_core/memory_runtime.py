@@ -14,6 +14,7 @@ from agent_core.memory import base_semantic_memory
 
 
 class MemoryRuntime:
+    """Manage one run's semantic and episodic memory state and artifacts."""
     def __init__(
         self,
         vlm_agent=None,

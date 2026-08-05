@@ -195,7 +195,7 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
         mode (hands stay ACTIVE at REST elsewhere, so firing a hand action off-mode perturbs a carried
         item). A wrong-mode emit blocks and the router flips to manipulation next step.
 
-    `leg_type=None` disables the leg gate (eval_pickup, which has no legs, calls it that way)."""
+    `leg_type=None` disables the leg gate (pickup_navigation, which has no legs, calls it that way)."""
     inspect_move_steps = 0   # >0 only when THIS call spends part of an inspect leg's approach budget
     if leg_type == "inspect":
         inspect_state = state

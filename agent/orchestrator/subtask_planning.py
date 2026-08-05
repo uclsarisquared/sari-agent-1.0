@@ -17,7 +17,7 @@ names), never checkpoint ids; the resolver owns name->checkpoint. One source of 
 
 import re
 
-# The frozen-map spawn corner (mirrors eval_pickup.return_to_start's start point) - the node the
+# The frozen-map spawn corner (mirrors start_pose.return_to_start's start point) - the node the
 # leg-ordering greedy measures the first pair's hops from.
 SPAWN_XZ = (-3.0, -5.0)
 
@@ -142,6 +142,7 @@ def order_legs(sm, legs, start_cp):
     counter = sm.counter_checkpoint()
 
     def pair_dist(pair, frm):
+        """Measure the closest pickup candidate in a pickup/checkout pair from a checkpoint."""
         ds = [sm.hops(frm, c) for c in (pair[0].get("candidates") or []) if c in sm.by_id]
         ds = [d for d in ds if d is not None]
         return min(ds) if ds else 10 ** 6

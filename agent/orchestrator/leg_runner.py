@@ -50,6 +50,7 @@ from orchestrator.subtask_completion import (
 )
 
 def _fresh_agent_state() -> dict:
+    """Read simulator state and initialize the per-leg execution state record."""
     agent_pos = TransformAgent((0, 0, 0), (0, 0, 0))
     hands_pos = TransformHands((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))
     state = {
@@ -190,7 +191,7 @@ def _off_target(sm, leg, near_cp) -> bool:
 
 def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
                   visited=None, leg_idx=0, completion_guard="deterministic", carried_names=None):
-    """Run ONE typed subtask leg as a self-contained embodied-agent loop - eval_pickup.run_one
+    """Run ONE typed subtask leg as a self-contained embodied-agent loop - pickup_navigation.run_one
     generalised for a leg of a long-horizon task (see the module docstring for the three differences).
 
     `leg` is a TYPED dict ({"type", "text", ...(+plan-resolved candidates)}); a bare string degrades to
@@ -259,6 +260,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
     t0 = time.time()
 
     def log(rec):
+        """Append one crash-safe, timestamped event to this leg's JSONL log."""
         if log_fh:
             rec["wall"] = round(time.time() - t0, 1)
             log_fh.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
@@ -379,6 +381,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
             ]
 
             def _log_inspect_verdict(query, auxiliary_context, verdict, reused):
+                """Record one held-item inspection guard decision and its VLM cost."""
                 if not reused:
                     m["llm_calls"] += 1
                 row = verdict if isinstance(verdict, dict) else {}
@@ -399,6 +402,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
             )
         if targeted_vlm_unknown:
             def _log_unknown_verdict(task, auxiliary_context, verdict, reused):
+                """Record one unknown-task completion guard decision and its VLM cost."""
                 if not reused:
                     m["llm_calls"] += 1
                 row = verdict if isinstance(verdict, dict) else {}
@@ -426,6 +430,7 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
                     ordered_frames = [compare_frames[index] for index in range(len(targets))]
 
                     def _log_compare_verdict(criterion, auxiliary_context, verdict, reused):
+                        """Record one comparison guard decision and the frames it evaluated."""
                         if not reused:
                             m["llm_calls"] += 1
                         row = verdict if isinstance(verdict, dict) else {}

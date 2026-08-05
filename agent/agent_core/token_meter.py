@@ -4,7 +4,7 @@ WHY A PATCH AND NOT PER-CALL-SITE COUNTERS: the token cost of one benchmark atte
 call sites in agent_core.agent (actor + semantic/episodic learner + advisor), vision.perception
 (bbox/centering/OCR reasoning), vision.md_tools' qwen fallback, orchestrator.subtask_agents
 (decomposer + findings summary + final responder), orchestrator.pickup_vlm_guard's completion guards,
-slamtest.drivers.vlm_planner and the map resolver. Most go through the OpenAI SDK's
+mapping.drivers.vlm_planner and the map resolver. Most go through the OpenAI SDK's
 ``chat.completions.create`` against the same OpenAI-compatible endpoint, so patching that single
 method counts them - including the retries inside ``BaseAgent._api_call_with_retry``, which a
 per-call-site counter would silently miss even though the endpoint was really billed for them.

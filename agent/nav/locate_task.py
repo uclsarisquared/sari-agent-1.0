@@ -41,13 +41,12 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent.parent / "config.env")
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)  # agent/ — packages + slamtest live under here
-_SLAM_DIR = os.path.join(_OVERHAUL_DIR, "slamtest")
-for _p in (_OVERHAUL_DIR, _SLAM_DIR):
+_AGENT_DIR = os.path.dirname(_THIS_DIR)  # agent/ — packages + mapping live under here
+_MAPPING_DIR = os.path.join(_AGENT_DIR, "mapping")
+for _p in (_AGENT_DIR, _MAPPING_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-import _bootstrap  # noqa: F401,E402  (slamtest category dirs -> flat imports keep working)
-import _bootstrap  # noqa: F401,E402 - slamtest category dirs onto sys.path (flat-import contract)
+import _bootstrap  # noqa: F401,E402 - mapping category dirs onto sys.path (flat-import contract)
 
 from nav.store_map import StoreMap, NavSession  # noqa: E402
 from agent_core.models import agent_model  # noqa: E402
@@ -85,8 +84,8 @@ VERIFY_SCHEMA = {
     "required": ["target_visible", "confidence", "where", "evidence", "seen_instead"],
 }
 
-# MEASURED 2026-07-23 (A/B, 12 eval tasks, qwen, resolve-only - slamtest/plans/ResolverResolved.md
-# + slamtest/output/resolver_ab/): the previous two-tier prompt STARVED 4/12 tasks (empty or
+# MEASURED 2026-07-23 (A/B, 12 eval tasks, qwen, resolve-only - mapping/plans/ResolverResolved.md
+# + mapping/output/resolver_ab/): the previous two-tier prompt STARVED 4/12 tasks (empty or
 # singleton candidates) because most eval tasks are attribute-shaped ("with stevia", "imported",
 # "< 30 pesos") and neither the name nor category tier fires for a property. Starvation is what
 # strands the graph arm: with 0-1 candidates, navigation mode has nowhere new to go and the VLM
@@ -124,7 +123,7 @@ def _meter(model, body):
 
     This backend posts with ``requests``, so agent_core.token_meter's OpenAI-SDK patch never sees
     it - which means the advisor's and the resolver's tokens were missing from every run's totals
-    until this call existed, not merely unattributed. The import is lazy and swallowed: slamtest
+    until this call existed, not merely unattributed. The import is lazy and swallowed: mapping
     tools import this module on sys.paths where agent_core is not present, and accounting is never
     a reason to fail a call that already succeeded.
     """
@@ -347,13 +346,13 @@ def main():
     p.add_argument("--max-visits", type=int, default=4)
     p.add_argument("--uri", default=None, help="sim websocket (default from executor args)")
     p.add_argument("--run-dir", default=None,
-                   help="default: slamtest/output/locate_runs/<timestamp>")
+                   help="default: mapping/output/locate_runs/<timestamp>")
     p.add_argument("--dry-run", action="store_true",
                    help="resolve only - no sim, no driving, no verification")
     args = p.parse_args()
 
     run_dir = args.run_dir or os.path.join(
-        _SLAM_DIR, "output", "locate_runs", datetime.now().strftime("%m%d_%H%M%S"))
+        _MAPPING_DIR, "output", "locate_runs", datetime.now().strftime("%m%d_%H%M%S"))
     os.makedirs(run_dir, exist_ok=True)
     call = make_backend(args)
     sm = StoreMap()

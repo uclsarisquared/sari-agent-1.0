@@ -1,4 +1,4 @@
-"""Phase 4 library API over the frozen slamtest artifacts.
+"""Phase 4 library API over the frozen mapping artifacts.
 
 This is the read side of `phase4_agent_integration.md`: everything an agent needs to answer
 "where is product X and how do I stand in front of it" WITHOUT a VLM doing spatial reasoning.
@@ -29,13 +29,12 @@ import os
 import sys
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_OVERHAUL_DIR = os.path.dirname(_THIS_DIR)  # agent/ — packages + slamtest live under here
-_SLAM_DIR = os.path.join(_OVERHAUL_DIR, "slamtest")
-for _p in (_OVERHAUL_DIR, _SLAM_DIR):
+_AGENT_DIR = os.path.dirname(_THIS_DIR)  # agent/ — packages + mapping live under here
+_MAPPING_DIR = os.path.join(_AGENT_DIR, "mapping")
+for _p in (_AGENT_DIR, _MAPPING_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-import _bootstrap  # noqa: F401,E402  (slamtest category dirs -> flat imports keep working)
-import _bootstrap  # noqa: F401,E402 - slamtest category dirs onto sys.path (flat-import contract)
+import _bootstrap  # noqa: F401,E402 - mapping category dirs onto sys.path (flat-import contract)
 
 import capture_walk  # noqa: E402
 from capture_walk import (  # noqa: E402
@@ -51,11 +50,11 @@ from sim.env import (  # noqa: E402
 )
 from mapping import normalize_deg  # noqa: E402
 
-DEFAULT_OUTPUT_DIR = os.path.join(_SLAM_DIR, "output")
+DEFAULT_OUTPUT_DIR = os.path.join(_MAPPING_DIR, "output")
 
 
 def default_output_dir():
-    """The map dir a caller who names none gets: $SARI_MAP_DIR, else the frozen slamtest/output.
+    """The map dir a caller who names none gets: $SARI_MAP_DIR, else the frozen mapping/output.
 
     The env var is how a HARNESS points a whole process tree at a captured map dir without every
     call site having to thread `--output-dir`: Sari Bench sets it per attempt (sari_bench/runner
@@ -616,7 +615,8 @@ def checkout_held_items(nav, drive=True, bag_if_unscanned=False, debug_dir=None)
     drives/aligns/scans/bags a single hand); REFUSES with nothing held. Composes only the four measured
     Phase 6.2 primitives (align/scan/place + the screen reads), so it adds NO new geometry or
     calibration over the single macro - UNMEASURED live only in that two sweeps + two drops now run off
-    one stance; gate it with a two-item run before trusting it (extend gate_checkout / smoke_checkout).
+    one stance; validate it with a two-item run before trusting it
+    (validation/acceptance/checkout.py and checkout_smoke.py).
 
     PRECONDITION: holding item(s) (refused otherwise). NavSession must be stow_hands=False (carry-safe);
     each primitive owns its own GRAB/REST around its hand, and this RESTs every held hand before driving.

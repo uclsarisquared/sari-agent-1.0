@@ -22,6 +22,7 @@ JSON_BLOCK_PATTERN = re.compile(r"```\s*json\s*([\s\S]*?)\s*```", re.DOTALL)
 
 
 class AgentMode(str, Enum):
+    """The high-level execution routes a semantic decision may select."""
     PERCEPTION = "perception"
     NAVIGATION = "navigation"
     MANIPULATION = "manipulation"
@@ -30,6 +31,7 @@ class AgentMode(str, Enum):
 
 @dataclass(frozen=True)
 class SemanticDecision:
+    """Validated semantic learner output used to route and guide one timestep."""
     new_semantic_memory: str = ""
     recall: str = ""
     mode: AgentMode = AgentMode.NAVIGATION
@@ -64,6 +66,7 @@ class SemanticDecision:
 
 @dataclass(frozen=True)
 class EpisodicReflection:
+    """Compact hindsight record generated from recent actor interaction."""
     dense_summary: str = ""
     what_worked: str = ""
     what_to_avoid: str = ""
@@ -79,6 +82,7 @@ class EpisodicReflection:
 
 @dataclass(frozen=True)
 class NavigationResult:
+    """Navigation feedback passed to the actor as text and an optional fresh frame."""
     note: str = ""
     image_bytes: Optional[bytes] = None
 
@@ -187,4 +191,3 @@ def reach_move_steps(last_reach: Any) -> Optional[int]:
         return None
     match = re.search(r"move_forward\s+(\d+)", last_reach)
     return int(match.group(1)) if match else None
-

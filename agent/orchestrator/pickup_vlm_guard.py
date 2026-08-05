@@ -59,6 +59,7 @@ _SCHEMA = {
 
 
 def _refusal(reason, latency_ms, sku):
+    """Build a normalized inconclusive guard verdict without accepting a claim."""
     return {"match": False, "reason": reason, "conclusive": False,
             "latency_ms": round(latency_ms, 1), "sku": sku}
 
@@ -423,6 +424,7 @@ def make_inspect_guard(client, model, config, image_b64, on_verdict=None, eviden
     cache = {}
 
     def guard(query, answer, auxiliary_context):
+        """Evaluate inspection completion once per distinct claim for this frame."""
         try:
             aux_key = json.dumps(auxiliary_context, sort_keys=True, ensure_ascii=False, default=str)
         except Exception:  # defensive; classify_inspection still receives the original context
@@ -456,6 +458,7 @@ def make_compare_guard(client, model, config, candidate_frames, on_verdict=None)
     cache = {}
 
     def guard(criterion, answer, auxiliary_context):
+        """Evaluate comparison completion once per distinct claim across cached frames."""
         try:
             aux_key = json.dumps(auxiliary_context, sort_keys=True, ensure_ascii=False, default=str)
         except Exception:
@@ -482,6 +485,7 @@ def make_unknown_guard(client, model, config, image_b64, on_verdict=None):
     cache = {}
 
     def guard(task, claim, auxiliary_context):
+        """Evaluate an unknown-task completion claim once for the current frame."""
         try:
             aux_key = json.dumps(auxiliary_context, sort_keys=True, ensure_ascii=False, default=str)
         except Exception:

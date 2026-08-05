@@ -706,7 +706,7 @@ def read_text_in_box(box, pad_frac=0.04, image_path=None, source_image=None):
     FAILURE CONTRACT — CHANGED, deliberately. This used to catch Exception, print
     ``[OCR] read_text_in_box failed (...)`` and return [], on the rule "OCR must never take down the
     caller". That rule was wrong here, because [] is not a neutral value for the callers: the
-    checkout path (_fuzzy_new_lines, store_map's scan confirmation, gates/smoke_checkout) diffs
+    checkout path (_fuzzy_new_lines, store_map's scan confirmation, validation acceptance smoke) diffs
     receipt lines against a baseline, and an empty read is indistinguishable from "nothing new was
     scanned". Unavailable OCR therefore must fail the run rather than silently converting the
     MEASURED scan signal into a permanent "no scan detected", i.e. exactly the fake negative the
