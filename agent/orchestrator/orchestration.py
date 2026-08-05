@@ -80,7 +80,7 @@ def _resolve_run_dir(run_dir, arm, runs_dir=None):
 
 
 def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
-                resolver_backend="qwen", reset_start=False, restart_env=False, leg_retries=1,
+                resolver_backend="endpoint", reset_start=False, restart_env=False, leg_retries=1,
                 output_dir=None, completion_guard="deterministic", ocr_url=None, runs_dir=None,
                 context_policy="baseline"):
     """Decompose `task` -> typed legs, resolve each leg on the map (plan time), order the legs, then

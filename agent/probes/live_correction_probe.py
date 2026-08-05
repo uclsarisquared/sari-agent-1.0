@@ -39,7 +39,7 @@ def main():
     Reset()
     time.sleep(1.5)
     agent = EmbodiedAgent(vlm_config=VLM_CONFIG, associative_config=ASSOCIATIVE_CONFIG,
-                          mode='lean', nav_mode='graph', resolver_backend="qwen")
+                          mode='lean', nav_mode='graph', resolver_backend="endpoint")
     sm = _load_store_map()
     leg = {"type": "pickup", "target": "Jack Daniels",
            "text": "Pick up the snack item directly in front of you on the shelf.",

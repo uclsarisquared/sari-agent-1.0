@@ -443,8 +443,8 @@ class EmbodiedAgent:
                  associative_config: Optional[OpenRouterConfig] = None,
                  mode: Literal['base', 'lean'] = 'base',
                  nav_mode: Literal['vlm', 'graph', 'graph-advised'] = 'vlm',
-                 resolver_backend: Literal['qwen', 'claude-cli'] = 'qwen',
-                 advisor_backend: Literal['qwen', 'claude-cli'] = 'qwen',
+                 resolver_backend: Literal['endpoint', 'claude-cli'] = 'endpoint',
+                 advisor_backend: Literal['endpoint', 'claude-cli'] = 'endpoint',
                  map_output_dir: Optional[str] = None,
                  run_dir: Optional[str] = None,
                  context_policy: ContextPolicy = ContextPolicy()) -> None:
@@ -462,13 +462,20 @@ class EmbodiedAgent:
         # as advice (_advised_goto) - the vlm-advised authority arm, at checkpoint granularity.
         self.nav_mode = nav_mode
         # Which backend resolves the target -> candidate checkpoints in the graph arm.
-        # DEFAULT 'qwen' since 2026-07-20 (user directive): a variance eval found qwen at
-        # parity-to-better vs claude (overall 0.848 vs 0.815), and running it on qwen makes the
-        # whole runtime self-hosted AND removes the graph arm's Claude-shaped planner advantage,
-        # so the phase-4.2 A/B isolates navigation rather than planner model. 'claude-cli' stays
-        # available for comparison.
+        # 'endpoint' = the configured OpenAI-compatible endpoint on $SARI_MODEL (agent_core.models),
+        # so the resolver runs on the SAME model as every other reasoner in the run rather than a
+        # second, separately-chosen one. It is the DEFAULT since 2026-07-20 (user directive): a
+        # variance eval found it at parity-to-better vs claude (overall 0.848 vs 0.815), and running
+        # it on the endpoint makes the whole runtime self-hosted AND removes the graph arm's
+        # Claude-shaped planner advantage, so the phase-4.2 A/B isolates navigation rather than
+        # planner model. 'claude-cli' (a `claude -p` subprocess, not the endpoint, not $SARI_MODEL)
+        # stays available for comparison. Renamed from 'qwen' 2026-08-05 - the model behind the
+        # endpoint is config.env's business, so the value names the transport, not a vendor. The
+        # old 'qwen' spelling still WORKS (both dispatches below single out 'claude-cli' and treat
+        # everything else as the endpoint) but is deprecated; the run-config loader and the CLI
+        # rewrite it to 'endpoint' with a warning (sari_runconfig.normalize_value).
         self.resolver_backend = resolver_backend
-        # Which backend the graph-advised arm's PER-HOP navigator uses. Default qwen for the
+        # Which backend the graph-advised arm's PER-HOP navigator uses. Default 'endpoint' for the
         # same reasons as the resolver (self-hosted, no Claude-shaped advantage in an A/B);
         # independent of resolver_backend so the two roles can be mixed deliberately.
         self.advisor_backend = advisor_backend
@@ -710,7 +717,7 @@ class EmbodiedAgent:
                 logger.info(f"[graph-nav] using {len(self._nav_candidates)} PLAN-SEEDED candidate(s): "
                             f"{self._nav_candidates}")
             else:
-                # Resolver backend is selectable; default qwen (see __init__). Both return
+                # Resolver backend is selectable; default 'endpoint' (see __init__). Both return
                 # (result_dict, envelope) with the same (system, prompt, schema, images) call shape.
                 if self.resolver_backend == "claude-cli":
                     _resolve_call = lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im)

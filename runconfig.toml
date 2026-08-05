@@ -15,8 +15,12 @@
 arm = "graph"
 context_policy = "baseline"
 
-# Backend VLM used to resolve a target to map checkpoints: "qwen" or "claude-cli".
-resolver_backend = "qwen"
+# Backend VLM used to resolve a target to map checkpoints.
+#   "endpoint"   - the OpenAI-compatible endpoint from config.env, asked for $SARI_MODEL: the same
+#                  model every other reasoner in the run uses (decomposer, actor, memory, ...).
+#   "claude-cli" - a `claude -p` subprocess, independent of the endpoint and of $SARI_MODEL.
+# "qwen" is the old name for "endpoint": still accepted, warns on load, and will be removed.
+resolver_backend = "endpoint"
 
 # Pickup/compare/unknown completion verification: "deterministic" or "vlm".
 # Inspect tasks are VLM-verified in either mode.

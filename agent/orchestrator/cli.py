@@ -4,7 +4,7 @@ import argparse
 import os
 import sys
 
-from sari_runconfig import RunConfigError, load_run_config
+from sari_runconfig import RunConfigError, load_run_config, normalize_value
 from agent_core.context_policy import CONTEXT_POLICY_NAMES
 from orchestrator.orchestration import orchestrate
 
@@ -56,8 +56,17 @@ def main(argv=None):
                     help="base directory the auto-named per-run folder is created under "
                          "(default: agent/subtask_run_outputs/). Ignored when --run-dir pins an "
                          "exact directory.")
-    ap.add_argument("--resolver-backend", choices=["qwen", "claude-cli"],
-                    default=configured("agent", "resolver_backend", "qwen"))
+    # `type` runs before `choices`, so the deprecated 'qwen' spelling is rewritten to 'endpoint'
+    # (with a stderr warning) instead of being rejected. It stays out of `choices` deliberately:
+    # accepted, not advertised.
+    ap.add_argument("--resolver-backend", choices=["endpoint", "claude-cli"],
+                    type=lambda v: normalize_value("agent", "resolver_backend", v,
+                                                   source="--resolver-backend"),
+                    default=configured("agent", "resolver_backend", "endpoint"),
+                    help="plan-time map target resolver. 'endpoint' (default) uses the configured "
+                         "OpenAI-compatible endpoint on $SARI_MODEL - the same model as the rest of "
+                         "the run; 'claude-cli' shells out to `claude -p` instead. ('qwen' is a "
+                         "DEPRECATED alias for 'endpoint'.)")
     ap.add_argument("--completion-guard", choices=["deterministic", "vlm"],
                     default=configured("agent", "completion_guard", "deterministic"),
                     help="optional pickup/compare/unknown completion backend "

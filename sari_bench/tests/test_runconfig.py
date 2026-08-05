@@ -39,10 +39,24 @@ tries = 2
         load_run_config(config_path)
 
 
+def test_deprecated_resolver_backend_alias_loads_and_warns(tmp_path: Path, capsys) -> None:
+    """The pre-2026-08-05 spelling still runs: it is rewritten to the current value, so nothing
+    downstream ever sees 'qwen', and the deprecation is announced rather than silent."""
+    config_path = tmp_path / "run.toml"
+    config_path.write_text('[agent]\nresolver_backend = "qwen"\n', encoding="utf-8")
+
+    config = load_run_config(config_path)
+
+    assert config.get("agent", "resolver_backend") == "endpoint"
+    warning = capsys.readouterr().err
+    assert "DEPRECATED" in warning and "'endpoint'" in warning
+
+
 @pytest.mark.parametrize(
     "body, message",
     [
         ('[agent]\narm = "magic"\n', "agent.arm must be one of"),
+        ('[agent]\nresolver_backend = "gpt"\n', "agent.resolver_backend must be one of"),
         ("[limits]\nmax_steps = true\n", "limits.max_steps must be an integer"),
         ("[bench]\ntries = 0\n", "bench.tries must be at least 1"),
         ("[mystery]\nvalue = 1\n", r"unknown section\(s\)"),

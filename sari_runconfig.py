@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,11 @@ _SCHEMA: dict[str, dict[str, object]] = {
         "task": str,
         "arm": {"vlm", "graph", "graph-advised"},
         "context_policy": set(CONTEXT_POLICY_NAMES),
-        "resolver_backend": {"qwen", "claude-cli"},
+        # "endpoint" = the configured OpenAI-compatible endpoint on $SARI_MODEL (renamed from
+        # "qwen" 2026-08-05: the model is config, not a vendor, so the value now names the
+        # transport like its sibling does). The old spelling still loads - see
+        # _DEPRECATED_VALUES.
+        "resolver_backend": {"endpoint", "claude-cli"},
         "completion_guard": {"deterministic", "vlm"},
         "leg_retries": int,
     },
@@ -61,6 +66,16 @@ _SCHEMA: dict[str, dict[str, object]] = {
     },
 }
 
+# DEPRECATED option values, still accepted so configs and scripts written before a rename keep
+# running. Each is mapped to its current spelling BEFORE validation, so nothing downstream ever
+# sees the old value - the deprecation lives here and nowhere else. Loading one warns on stderr
+# rather than failing: an old battery config should still run, just noisily.
+_DEPRECATED_VALUES: dict[tuple[str, str], dict[str, str]] = {
+    # 2026-08-05: the resolver's endpoint backend was named after the model that happened to be
+    # behind the endpoint. The model is $SARI_MODEL's business, so the value names the transport.
+    ("agent", "resolver_backend"): {"qwen": "endpoint"},
+}
+
 _PATH_OPTIONS = {
     ("environment", "map_dir"),
     ("output", "run_dir"),
@@ -69,6 +84,23 @@ _PATH_OPTIONS = {
     ("bench", "output_dir"),
     ("bench", "map_dir"),
 }
+
+
+def normalize_value(section: str, key: str, value: Any, source: str = "run config") -> Any:
+    """Map a deprecated option value to its current spelling, warning once per call on stderr.
+
+    Idempotent and a no-op for every value that is not deprecated, so callers can pipe anything
+    through it. Shared with the CLIs (`--resolver-backend qwen`) so a flag and a config file
+    honour the same aliases and print the same warning.
+    """
+    if not isinstance(value, str):
+        return value
+    replacement = _DEPRECATED_VALUES.get((section, key), {}).get(value)
+    if replacement is None:
+        return value
+    print(f"[{source}] {section}.{key} = {value!r} is DEPRECATED and will stop working; "
+          f"use {replacement!r}. Continuing with {replacement!r}.", file=sys.stderr)
+    return replacement
 
 
 def _is_instance(value: object, expected: object) -> bool:
@@ -160,6 +192,7 @@ def load_run_config(path: str | Path) -> RunConfig:
 
         values[section] = {}
         for key, value in section_values.items():
+            value = normalize_value(section, key, value, source=str(config_path))
             _validate_value(config_path, section, key, value, _SCHEMA[section][key])
             if (section, key) in _PATH_OPTIONS:
                 if not value.strip():
