@@ -6,6 +6,7 @@ import base64
 from dataclasses import FrozenInstanceError
 from io import BytesIO
 import os
+import re
 import sys
 
 import pytest
@@ -149,8 +150,8 @@ class _ActorCapture:
 
 
 class _AssociativeShape:
-    extractable_json_structured_output = agent_module.re.compile(
-        r'```\s*json\s*([\s\S]*?)\s*```', agent_module.re.DOTALL
+    extractable_json_structured_output = re.compile(
+        r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL
     )
 
 
@@ -197,6 +198,44 @@ def _execute_step_two(tmp_path, policy_name: str):
         if part.get("type") == "text"
     )
     return embodied, semantic_prompts, episodic_prompts, actor_text, state
+
+
+@pytest.mark.parametrize("timestep", [1, 2])
+def test_stop_records_and_persists_final_semantic_observation_consistently(
+    tmp_path, timestep
+) -> None:
+    run_dir = tmp_path / f"step-{timestep}"
+    run_dir.mkdir()
+    policy = resolve_context_policy("baseline")
+    embodied = object.__new__(agent_module.EmbodiedAgent)
+    embodied.context_policy = policy
+    embodied.nav_mode = "vlm"
+    embodied._run_dir = str(run_dir)
+    embodied._mem_leg = None
+    embodied.vlm_agent = _ActorCapture(policy)
+    embodied.associative_learner = _AssociativeShape()
+    embodied._call_associative = lambda *_args: (
+        "{'new_semantic_memory': 'final fact', 'recall': 'done', "
+        "'next_action': 'stop', 'reported_answer': 'finished', 'mode': 'STOP'}"
+    )
+    pose_calls = []
+    embodied._set_hand_pose = pose_calls.append
+    embodied._invalidate_hand_pose = lambda: pose_calls.append("invalidated")
+
+    response = embodied.execute_lean(
+        {
+            "task": "Finish",
+            "state": {"leftGrippedState": False, "rightGrippedState": False},
+            "image": _one_pixel_png(),
+        },
+        timestep,
+    )
+
+    assert response["halt"] is True
+    assert response["reported_answer"] == "finished"
+    assert pose_calls == ["rest"]
+    assert "final fact" in (run_dir / "semantic_memory.txt").read_text(encoding="utf-8")
+    assert (run_dir / "episodic_memory.txt").read_text(encoding="utf-8") == "prior reflection"
 
 
 def test_baseline_semantic_prompt_actor_message_and_artifact_are_byte_stable(tmp_path) -> None:

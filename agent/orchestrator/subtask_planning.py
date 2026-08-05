@@ -30,9 +30,7 @@ def make_resolve_call(backend: str = "endpoint"):
     $SARI_MODEL, i.e. the same model the rest of the run uses; 'claude-cli' is the annotator path,
     not the agent's, so only pass it deliberately."""
     from nav import locate_task
-    if backend == "claude-cli":
-        return lambda s, p, sc, im=(): locate_task.claude_json(s, p, sc, im)
-    return lambda s, p, sc, im=(): locate_task.qwen_json(s, p, sc, im)
+    return locate_task.backend_callable(backend)
 
 
 def _resolve_target(sm, resolve_call, target):

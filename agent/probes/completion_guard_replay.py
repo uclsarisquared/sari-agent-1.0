@@ -20,7 +20,6 @@ from pathlib import Path
 import sys
 import time
 from types import SimpleNamespace
-from urllib.parse import urlsplit
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -32,6 +31,7 @@ from openai import OpenAI
 from orchestrator.pickup_vlm_guard import classify_pickup
 from orchestrator.subtask_completion import completion_predicate
 from agent_core.models import agent_model
+from agent_core.llm import normalize_endpoint_root
 
 load_dotenv(_ROOT.parent / "config.env")
 
@@ -67,11 +67,7 @@ def _runtime_client(base_url=None, api_key=None):
     key = api_key or os.getenv("OPENAI_API_KEY")
     if not (url and key):
         raise RuntimeError("set OPENAI_API_URL and OPENAI_API_KEY (or pass --base-url/--api-key)")
-    if "://" not in url:
-        url = f"http://{url}"
-    parsed = urlsplit(url)
-    netloc = parsed.netloc if parsed.port else f"{parsed.hostname}:8000"
-    url = f"{parsed.scheme}://{netloc}/v1"
+    url = f"{normalize_endpoint_root(url)}/v1"
     return OpenAI(base_url=url, api_key=key, max_retries=0), url
 
 

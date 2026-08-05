@@ -247,13 +247,9 @@ def _run_leg_impl(agent, leg, sm, caps, log_path=None, context="", future_legs=N
     # the orchestrator's shared-memory contract), and seed the graph navigator with THIS leg's
     # plan-time candidates so it does not re-resolve at runtime (6.3 #1). NOTE: no return_to_start here
     # - that is the orchestrator's per-TASK job; calling it mid-task stows the hands and drops a carry.
-    agent.vlm_agent.reset_history()
-    agent.seed_nav_candidates(leg.get("candidates"), leg.get("target_name"))
-    # Tag this leg's semantic-memory entries with the leg number so the accumulated blob keeps clean
-    # provenance across legs: each leg restarts `timestep` at 1, so without this the entries collide
-    # under duplicate `@ timestep N` keys describing different places (see EmbodiedAgent._semantic_tag).
-    agent._mem_leg = leg_idx
-    semantic_before = agent.vlm_agent.semantic_log.mark()
+    semantic_before = agent.begin_leg(
+        leg.get("candidates"), leg.get("target_name"), leg_idx
+    )
 
     # Logging + per-step screenshots: ONE dir per leg (replaces the old SIM_RUNS2/SIM_RUNS3 split).
     shots_dir = os.path.splitext(log_path)[0] if log_path else None
@@ -939,7 +935,9 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
         if typed_leg.get("type") == "inspect":
             cleanup = None
             try:
-                cleanup = agent._restore_hands_after_inspection()
+                restore = getattr(agent, "restore_hands_after_inspection", None)
+                restore = restore or getattr(agent, "_restore_hands_after_inspection")
+                cleanup = restore()
                 if not cleanup.get("restored"):
                     agent._hand_pose = None
                 if result is not None and cleanup.get("restored"):
@@ -970,4 +968,3 @@ def run_leg(agent, leg, sm, caps, log_path=None, context="", future_legs=None,
                 except Exception as log_error:  # noqa: BLE001 - logging cannot mask the leg outcome
                     print(f"[WARN] could not log inspect cleanup: "
                           f"{type(log_error).__name__}: {log_error}")
-

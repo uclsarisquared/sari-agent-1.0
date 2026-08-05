@@ -17,7 +17,7 @@ The division of labour is the whole architecture (`phase4_agent_integration.md`)
 Backends (--backend):
   claude-cli  (default) `claude -p` - same billing path as annotate_pass: the claude.ai
               subscription, NOT API credits. Do not switch silently (CLAUDE.md).
-  qwen        the OpenAI API compatible endpoint (Chat Completions at $OPENAI_API_URL:8000/v1);
+  qwen        the OpenAI API compatible endpoint (Chat Completions at $OPENAI_API_URL/v1);
               model id from $SARI_MODEL. Credentials come from the repo-root config.env.
 
 Outputs land in --run-dir: every screenshot, every verifier verdict, locate_report.json.
@@ -186,17 +186,15 @@ def qwen_json(system, prompt, schema, image_paths=(), model=None, timeout=180.0,
     (verified 2026-07-19: /v1/models returns 401 without it) - $OPENAI_API_KEY, alongside
     $OPENAI_API_URL in the repo-root config.env."""
     import requests
+    from agent_core.llm import normalize_endpoint_root
     model = model or agent_model()
-    host = base_url or os.environ.get("OPENAI_API_URL")
+    endpoint = base_url or os.environ.get("OPENAI_API_URL")
     key = api_key or os.environ.get("OPENAI_API_KEY")
-    if not host:
+    if not endpoint:
         raise RuntimeError("qwen backend needs --base-url or $OPENAI_API_URL "
                            "(set it in the repo-root config.env)")
-    if not host.startswith("http"):
-        host = f"http://{host}"
-    if ":8000" not in host:
-        host = f"{host}:8000"
-    url = f"{host}/v1/chat/completions"
+    endpoint = normalize_endpoint_root(endpoint)
+    url = f"{endpoint}/v1/chat/completions"
 
     content = [{"type": "text", "text": prompt + "\n\nReply with ONLY a JSON object matching:\n"
                 + json.dumps(schema)}]
@@ -221,6 +219,17 @@ def qwen_json(system, prompt, schema, image_paths=(), model=None, timeout=180.0,
     if start < 0 or end < 0:
         raise RuntimeError(f"qwen reply had no JSON object: {text[:200]!r}")
     return json.loads(text[start:end + 1]), body
+
+
+def backend_callable(backend: str):
+    """Return the shared resolver/advisor call shape for a configured backend."""
+    if backend == "claude-cli":
+        return lambda system, prompt, schema, images=(): claude_json(
+            system, prompt, schema, images
+        )
+    return lambda system, prompt, schema, images=(): qwen_json(
+        system, prompt, schema, images
+    )
 
 
 def make_backend(args):

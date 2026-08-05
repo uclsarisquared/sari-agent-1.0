@@ -18,7 +18,7 @@ and the two most informative inputs are already on disk from the capture walk:
         -> a bare wall the topology mislabelled "shelf". Expect "non_shelf". This is the case
            Stage 1 exists for; ~40% of shelf checkpoints look like this.
 
-Endpoint: an OpenAI API compatible server over Chat Completions at <OPENAI_API_URL>:8000/v1.
+Endpoint: an OpenAI API compatible server over Chat Completions at <OPENAI_API_URL>/v1.
 Model id comes from $SARI_ANNOTATOR_MODEL (falling back to $SARI_MODEL) in the repo-root config.env.
 """
 import argparse
@@ -51,9 +51,9 @@ from annotator_sys_inst import (  # noqa: E402
     build_annotation_instructions, schema_for, effective_kind,
 )
 from agent_core.models import annotator_model  # noqa: E402
+from agent_core.llm import normalize_endpoint_root  # noqa: E402
 
 DEFAULT_MODEL = annotator_model()  # $SARI_ANNOTATOR_MODEL / $SARI_MODEL in config.env
-DEFAULT_PORT = 8000
 
 
 def image_content_block(model, mime_type, base64_data):
@@ -92,7 +92,7 @@ def resolve_api_key(explicit=None):
 
 
 def resolve_base_url(explicit):
-    """OPENAI_API_URL is a bare host (e.g. "202.92.159.240"); the qwen server is :8000/v1.
+    """OPENAI_API_URL owns scheme, host, and port; this resolver appends /v1.
     Same env-then-conda-state resolution as resolve_api_key, for the same reason: invoking
     sari_env_old's python.exe directly skips the activation hooks that set the vars."""
     raw = explicit or os.environ.get("OPENAI_API_URL")
@@ -106,14 +106,7 @@ def resolve_base_url(explicit):
             pass
     if not raw:
         sys.exit("no --base-url, no $OPENAI_API_URL, and no sari_env_old conda state to read")
-    raw = raw.strip().rstrip("/")
-    if not raw.startswith(("http://", "https://")):
-        raw = f"http://{raw}"
-    if ":" not in raw.split("//", 1)[1]:
-        raw = f"{raw}:{DEFAULT_PORT}"
-    if not raw.endswith("/v1"):
-        raw = f"{raw}/v1"
-    return raw
+    return f"{normalize_endpoint_root(raw)}/v1"
 
 
 def post_chat(base, payload, api_key, timeout):
@@ -134,7 +127,7 @@ def post_chat(base, payload, api_key, timeout):
 def main():
     p = argparse.ArgumentParser(description="Probe the Qwen server with one captured image.")
     p.add_argument("image", help="PNG from the capture walk")
-    p.add_argument("--base-url", default=None, help="Default: $OPENAI_API_URL, +:8000/v1")
+    p.add_argument("--base-url", default=None, help="Default: $OPENAI_API_URL, +/v1")
     p.add_argument("--api-key", default=None,
                    help="Bearer for the qwen server (default: $OPENAI_API_KEY, then sari_env_old's "
                         "conda state). The server 401s without it - measured 2026-07-19.")

@@ -72,7 +72,8 @@ print(CURRENT_AGENT_STATE)
 print("=" * 100)
 
 # ====== Initialize Embodied Agent ======
-from agent_core.agent import EmbodiedAgent, agent_vlm_config
+from agent_core.llm import agent_vlm_config
+from agent_core.runtime import EmbodiedAgent
 
 # Agent runtime = the OpenAI API compatible endpoint from config.env
 # (user directive 2026-07-19; OpenRouter retired on 402).

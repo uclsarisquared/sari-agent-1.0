@@ -11,6 +11,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from agent_core.agent import BaseAgent, OpenRouterConfig
+from agent_core.llm import agent_vlm_config, endpoint_creds
 
 
 class _Completions:
@@ -38,9 +39,35 @@ class _Agent(BaseAgent):
         self.config = OpenRouterConfig(model_id="test", api_key="test")
 
 
+def test_endpoint_url_owns_port_and_clients_append_only_v1(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_URL", "endpoint.example:9123")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    endpoint, key = endpoint_creds()
+
+    assert endpoint == "http://endpoint.example:9123"
+    assert key == "test-key"
+    assert agent_vlm_config().base_url == "http://endpoint.example:9123/v1"
+
+
+@pytest.mark.parametrize(
+    "endpoint, message",
+    [
+        ("http://endpoint.example", "must include the endpoint port"),
+        ("http://endpoint.example:9123/v1", "code appends /v1"),
+    ],
+)
+def test_endpoint_url_rejects_missing_port_or_api_path(monkeypatch, endpoint, message):
+    monkeypatch.setenv("OPENAI_API_URL", endpoint)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    with pytest.raises(RuntimeError, match=message):
+        endpoint_creds()
+
+
 def test_api_call_recovers_quietly(monkeypatch, caplog):
     sleeps = []
-    monkeypatch.setattr("agent_core.agent.time.sleep", sleeps.append)
+    monkeypatch.setattr("agent_core.llm.time.sleep", sleeps.append)
     client = _Client([TimeoutError("down"), TimeoutError("still down"), "recovered"])
 
     assert _Agent()._api_call_with_retry(client, []) == "recovered"
@@ -50,7 +77,7 @@ def test_api_call_recovers_quietly(monkeypatch, caplog):
 
 
 def test_api_call_raises_original_error_after_ten_attempts(monkeypatch, caplog):
-    monkeypatch.setattr("agent_core.agent.time.sleep", lambda _delay: None)
+    monkeypatch.setattr("agent_core.llm.time.sleep", lambda _delay: None)
     final_error = TimeoutError("server stayed down")
     failures = [TimeoutError(f"timeout {n}") for n in range(9)] + [final_error]
     client = _Client(failures)
@@ -65,7 +92,7 @@ def test_api_call_raises_original_error_after_ten_attempts(monkeypatch, caplog):
 
 def test_non_transient_programming_error_fails_immediately(monkeypatch):
     sleeps = []
-    monkeypatch.setattr("agent_core.agent.time.sleep", sleeps.append)
+    monkeypatch.setattr("agent_core.llm.time.sleep", sleeps.append)
     error = ValueError("bad response handling")
     client = _Client([error])
 

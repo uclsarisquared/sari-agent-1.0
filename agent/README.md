@@ -10,7 +10,7 @@ points carry a `sys.path` shim so `python orchestrator/subtask_agents.py "task"`
 | Package | Files | Role |
 |---|---|---|
 | `sim/` | `env.py`, `hand_reset.py`, `chime.py` | Unity WebSocket bridge: commands, screenshots, hand reset, run beep |
-| `agent_core/` | `agent.py`, `prompt_loader.py`, `sys_inst.py`, `memory.py`, `memory_gen.py` | EmbodiedAgent + VLM configs, prompt loading/compatibility exports, semantic-memory generation |
+| `agent_core/` | `runtime.py`, `navigation.py`, `hands.py`, `memory_runtime.py`, `actors.py`, `llm.py`, `contracts.py`, `agent.py` | Composed embodied runtime; navigation/hand/memory services; LLM clients and typed response contracts. `agent.py` is the legacy import façade |
 | `prompts/` | Markdown prompt assets grouped by runtime role | Canonical reusable production LLM instructions and templates |
 | `toolset/` | `actions.py`, `actions_str.py` | The agent's toolset: the atomic-action vocabulary the VLM sees (`actions_str`) and the wrappers that bind each action to sim/vision/manip code (`actions`) |
 | `vision/` | `perception.py`, `md_tools.py`, `annotation_tools.py` | Detection/centring/OCR/scan, moondream pointing, bbox annotation |
@@ -31,7 +31,7 @@ files in category subfolders — `slamtest/_bootstrap.py` puts those dirs on `sy
 agent consumers (`nav.store_map`, `nav.locate_task`, `agent_core.memory_gen`) import it;
 slamtest scripts import `sim.env` / `nav.store_map` back.
 Root-level runtime state stays at the root because the code writes it CWD-relative:
-`episodic_memory.txt`, `semantic_memory.txt` (written by `agent_core.agent`).
+`episodic_memory.txt`, `semantic_memory.txt` (written by `agent_core.memory_runtime`).
 
 ## Leaf folders (nothing imports these)
 

@@ -104,7 +104,7 @@ from frontier_planner import (  # noqa: E402
 from mapping import normalize_deg  # noqa: E402
 
 # image_content_block/resolve_base_url are imported rather than re-vendored: they encode measured
-# server facts (the qwen data-URI block shape; OPENAI_API_URL being a bare host that needs :8000/v1)
+# server facts (the qwen data-URI block shape; OPENAI_API_URL owning its port and needing /v1)
 # and a second copy in this directory would drift from the probe's. post_chat is deliberately NOT
 # imported - it sys.exit()s on any HTTPError, which is right for a one-shot probe and catastrophic
 # for a 300-step live run, where one transient blip would kill the run and lose the map. Hence the

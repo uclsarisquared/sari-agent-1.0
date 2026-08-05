@@ -131,7 +131,8 @@ def _run_held_item_inspection_macro(
     def finish_failure(result):
         """Restore REST immediately when no evidence frame needs to remain presented."""
         try:
-            restore = getattr(agent, "_restore_hands_after_inspection", None)
+            restore = getattr(agent, "restore_hands_after_inspection", None)
+            restore = restore or getattr(agent, "_restore_hands_after_inspection", None)
             if callable(restore):
                 cleanup = restore()
             else:
@@ -183,7 +184,8 @@ def _run_held_item_inspection_macro(
     # Reset BOTH hands before presenting the selected item; this prevents translation/rotation left
     # behind by a prior manipulation from becoming the inspection sweep's starting orientation.
     try:
-        restore = getattr(agent, "_restore_hands_after_inspection", None)
+        restore = getattr(agent, "restore_hands_after_inspection", None)
+        restore = restore or getattr(agent, "_restore_hands_after_inspection", None)
         if callable(restore):
             pre_reset = restore()
         else:

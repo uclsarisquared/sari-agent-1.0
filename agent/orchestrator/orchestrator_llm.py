@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from agent_core import token_meter
-from agent_core.agent import call_with_api_retries, agent_vlm_config
+from agent_core.llm import call_with_api_retries, agent_vlm_config
 from agent_core.context_policy import ContextPolicy
 from agent_core.models import agent_model
 from agent_core.prompt_loader import load_prompt
@@ -31,9 +31,9 @@ ASSOCIATIVE_CONFIG = agent_vlm_config(temperature=0.3)
 # ---------------------------------------------------------------------------
 
 def _llm_client() -> OpenAI:
-    from agent_core.agent import _endpoint_creds
-    host, key = _endpoint_creds()
-    return OpenAI(base_url=f"http://{host}:8000/v1", api_key=key, max_retries=0)
+    from agent_core.llm import endpoint_creds
+    endpoint, key = endpoint_creds()
+    return OpenAI(base_url=f"{endpoint}/v1", api_key=key, max_retries=0)
 
 
 def _llm_call(client: OpenAI, system: str, user: str, role: str) -> str:

@@ -24,17 +24,17 @@ GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to gr
 # OpenRouter retired on 402). This is the bounding-box/centering client - the endpoint's VL model
 # replaces Gemini here, identically in BOTH A/B arms; bbox quality vs Gemini is unmeasured and
 # shared, so it cannot skew the arms.
-from agent_core.agent import _endpoint_creds, call_with_api_retries
+from agent_core.llm import call_with_api_retries, endpoint_creds
 from agent_core.models import agent_model
 from agent_core.prompt_loader import load_prompt, render_prompt
 # Every LLM call in this module is perception's cost - bbox, centering and OCR-bbox reasoning alike.
 # The role blocks wrap call_with_api_retries, not the lambda inside it, so a flaky call's retries are
 # billed to perception as well; the endpoint charged for them.
 from agent_core import token_meter
-_ENDPOINT_HOST, _ENDPOINT_KEY = _endpoint_creds()
+_ENDPOINT_ROOT, _ENDPOINT_KEY = endpoint_creds()
 MODEL_NAME = agent_model()
 CLIENT = OpenAI(
-    base_url=f"http://{_ENDPOINT_HOST}:8000/v1",
+    base_url=f"{_ENDPOINT_ROOT}/v1",
     api_key=_ENDPOINT_KEY,
     max_retries=0,
 )

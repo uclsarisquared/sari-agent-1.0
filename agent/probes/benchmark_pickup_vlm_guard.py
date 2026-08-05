@@ -9,7 +9,6 @@ from pathlib import Path
 import statistics
 import sys
 from types import SimpleNamespace
-from urllib.parse import urlsplit
 
 _OVERHAUL = Path(__file__).resolve().parent.parent
 _REPO = _OVERHAUL.parent
@@ -21,6 +20,7 @@ from openai import OpenAI
 
 from orchestrator.pickup_vlm_guard import classify_pickup
 from agent_core.models import agent_model
+from agent_core.llm import normalize_endpoint_root
 
 DEFAULT_FRAME = (
     _REPO / "bench_runs" / "20260727_020820" / "easy_02" / "try04" / "capture"
@@ -38,11 +38,7 @@ def _client(base_url=None, api_key=None):
     if not (url and key):
         raise RuntimeError(
             "Set OPENAI_API_URL and OPENAI_API_KEY (or pass --base-url and --api-key).")
-    if "://" not in url:
-        url = f"http://{url}"
-    parsed = urlsplit(url)
-    netloc = parsed.netloc if parsed.port else f"{parsed.hostname}:8000"
-    resolved = f"{parsed.scheme}://{netloc}/v1"
+    resolved = f"{normalize_endpoint_root(url)}/v1"
     return OpenAI(base_url=resolved, api_key=key, max_retries=0), resolved
 
 

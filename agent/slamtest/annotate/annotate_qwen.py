@@ -39,7 +39,7 @@ if _SLAM_DIR not in sys.path:
 import _bootstrap  # noqa: F401,E402  (agent root + all slamtest category dirs)
 
 # Reused verbatim so the batch path and the probe path share ONE set of measured server facts
-# (data-URI block shape, OPENAI_API_URL -> :8000/v1, OPENAI_API_KEY bearer resolution). These
+# (data-URI block shape, OPENAI_API_URL -> /v1, OPENAI_API_KEY bearer resolution). These
 # also trigger annotate_probe's module-level load_dotenv(repo-root config.env), so creds are present.
 from annotate_probe import (  # noqa: E402
     image_content_block, resolve_api_key, resolve_base_url,
@@ -205,7 +205,7 @@ def main():
     p.add_argument("--classify", action="store_true", help="Run Stage 1 (shelf/non_shelf) instead of Stage 2")
     p.add_argument("--kind", default="shelf", help="Stage-2 effective kind: shelf | junction | end | doorway | non_shelf")
     p.add_argument("--model", default=DEFAULT_MODEL)
-    p.add_argument("--base-url", default=None, help="Default: $OPENAI_API_URL, +:8000/v1")
+    p.add_argument("--base-url", default=None, help="Default: $OPENAI_API_URL, +/v1")
     p.add_argument("--api-key", default=None, help="Bearer (default: $OPENAI_API_KEY)")
     p.add_argument("--think", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_S)

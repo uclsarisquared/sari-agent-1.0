@@ -250,7 +250,11 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
             print(f"[WARN] {action} dispatched without an agent - cannot reach the nav "
                   f"session; skipped.")
             return {"blocked": True, "reason": f"{action} needs the agent (no nav session)"}
-        return agent._checkout_held_item(hand=_MACRO_ACTIONS[action]) or {}
+        checkout = getattr(agent, "checkout_held_item", None)
+        checkout = checkout or getattr(agent, "_checkout_held_item", None)
+        if not callable(checkout):
+            return {"blocked": True, "reason": "agent has no checkout service"}
+        return checkout(hand=_MACRO_ACTIONS[action]) or {}
     if action in _INSPECT_MACRO_ACTIONS:
         return _run_held_item_inspection_macro(
             agent,
@@ -330,4 +334,3 @@ def dispatch_action(action: str, time_units: int, notes: dict, inline_arg: str =
             # was actually spent, so non-inspect legs' results are byte-identical to before.
             result["inspect_move_steps"] = inspect_move_steps
         return result
-

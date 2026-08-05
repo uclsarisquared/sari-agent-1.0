@@ -77,7 +77,7 @@ CWD-relative by `agent_core.agent`; run everything from `agent/`).
   fully self-hosted run or to A/B annotation quality on identical captures. If you switch the
   annotator to qwen for a real pass, A/B qwen-vs-sonnet on the reviewed captures (cp015/cp017/cp067)
   first — quality was only ever measured on sonnet. The AGENT RUNTIME (per-step VLM/learner calls)
-  runs against an **OpenAI API compatible endpoint** (`$OPENAI_API_URL:8000/v1`, bearer
+  runs against an **OpenAI API compatible endpoint** (`$OPENAI_API_URL/v1`, bearer
   `$OPENAI_API_KEY`) — OpenRouter was retired for agent calls when its credits ran out.
 - **Model ids are config, not code.** `$SARI_MODEL` (and `$SARI_ANNOTATOR_MODEL` for the qwen
   annotator backend) in the repo-root `config.env` select what the endpoint is asked for; code

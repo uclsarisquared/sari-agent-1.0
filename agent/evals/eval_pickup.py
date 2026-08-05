@@ -37,7 +37,8 @@ _OVERHAUL_DIR = os.path.dirname(_THIS_DIR)  # agent/ — packages + slamtest liv
 if _OVERHAUL_DIR not in sys.path:
     sys.path.insert(0, _OVERHAUL_DIR)
 
-from agent_core.agent import EmbodiedAgent, agent_vlm_config
+from agent_core.llm import agent_vlm_config
+from agent_core.runtime import EmbodiedAgent
 from sim.env import _REQUEST_SCREENSHOT_, downscale_for_storage
 from orchestrator.action_dispatch import dispatch_action, parse_actor_response
 from orchestrator.leg_runner import _fresh_agent_state, write_step_output
@@ -308,8 +309,7 @@ def main():
               f"t_grip={m['t_grip']} steps={m['timesteps']} llm={m['llm_calls']} "
               f"wall={m['wall_s']}s")
 
-    if agent._graph_nav:
-        agent._graph_nav[1].close()
+    agent.close()
 
     out = args.out or os.path.join(run_dir, "summary.json")
     with open(out, "w", encoding="utf-8") as f:

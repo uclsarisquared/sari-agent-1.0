@@ -22,7 +22,8 @@ uv sync
 cp config.env.example config.env
 ```
 
-Set `OPENAI_API_URL` (a bare host with no scheme or port) and `OPENAI_API_KEY` in `config.env`.
+Set `OPENAI_API_URL` (scheme, host, and port; for example `http://host:8000`) and
+`OPENAI_API_KEY` in `config.env`. Runtime clients append `/v1`.
 `MDREAM_API_KEY` enables the primary grab-pointing service; the runtime falls back to Qwen if it is
 unavailable.
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from sim import chime
 from sim.env import TransformAgent, init_logger
 from agent_core import token_meter
-from agent_core.agent import EmbodiedAgent
+from agent_core.runtime import EmbodiedAgent
 from agent_core.context_policy import resolve_context_policy
 from orchestrator.leg_runner import run_leg
 from orchestrator.orchestrator_llm import (
@@ -396,10 +396,8 @@ def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
         print("-" * 40)
         print(f"[RESPONSE]\n{response}")
         try:
-            if agent._graph_nav:
-                agent._graph_nav[1].close()
+            agent.close()
         except Exception:  # noqa: BLE001
             pass
         chime.beep()
     return summary
-

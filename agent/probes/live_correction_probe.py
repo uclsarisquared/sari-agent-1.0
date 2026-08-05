@@ -23,7 +23,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from sim.env import Reset, init_logger
-from agent_core.agent import EmbodiedAgent
+from agent_core.runtime import EmbodiedAgent
 from orchestrator.leg_runner import run_leg
 from orchestrator.orchestration import _load_store_map
 from orchestrator.orchestrator_llm import ASSOCIATIVE_CONFIG, VLM_CONFIG
@@ -47,8 +47,7 @@ def main():
     m = run_leg(agent, leg, sm, (14, 12.0),
                 log_path=os.path.join(OUT_DIR, "leg00.jsonl"), leg_idx=1)
     try:
-        if agent._graph_nav:
-            agent._graph_nav[1].close()
+        agent.close()
     except Exception:  # noqa: BLE001
         pass
 

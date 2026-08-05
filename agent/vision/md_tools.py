@@ -30,7 +30,7 @@ _URI = "ws://localhost:8080/commands"
 
 def _point_via_qwen(image: Image.Image, name: str):
     """Fallback pointer: qwen bbox -> center, normalized 0-1 like moondream's points."""
-    from agent_core.agent import call_with_api_retries
+    from agent_core.llm import call_with_api_retries
     from agent_core import token_meter
     from vision.perception import CLIENT, MODEL_NAME, _encode_image
     prompt = render_prompt("vision/qwen_point", TARGET_NAME=name)
