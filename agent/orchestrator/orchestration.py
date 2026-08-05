@@ -81,30 +81,30 @@ def _resolve_run_dir(run_dir, arm, runs_dir=None):
 
 
 @dataclass(frozen=True)
-class _OrchestrationConfig:
+class OrchestrationConfig:
     """Stable inputs for one orchestration run."""
 
     task: str
-    arm: str
-    caps: tuple
-    out: str | None
-    requested_run_dir: str | None
-    resolver_backend: str
-    reset_start: bool
-    restart_env: bool
-    leg_retries: int
-    output_dir: str | None
-    completion_guard: str
-    ocr_url: str | None
-    runs_dir: str | None
-    context_policy: str
+    arm: str = "graph"
+    caps: tuple = (0, 0.0)
+    out: str | None = None
+    run_dir: str | None = None
+    resolver_backend: str = "endpoint"
+    reset_start: bool = False
+    restart_env: bool = False
+    leg_retries: int = 1
+    output_dir: str | None = None
+    completion_guard: str = "deterministic"
+    ocr_url: str | None = None
+    runs_dir: str | None = None
+    context_policy: str = "baseline"
 
 
 @dataclass
 class _RunState:
     """Mutable data shared by the orchestration phases."""
 
-    config: _OrchestrationConfig
+    config: OrchestrationConfig
     policy: object
     run_dir: str
     response_memory: dict
@@ -129,7 +129,7 @@ def _new_run_state(config):
     """Create the run directory and persist the request before external setup."""
     policy = resolve_context_policy(config.context_policy)
     run_dir = _resolve_run_dir(
-        config.requested_run_dir, config.arm, runs_dir=config.runs_dir
+        config.run_dir, config.arm, runs_dir=config.runs_dir
     )
     os.environ["SARI_RUN_DIR"] = run_dir
     if config.ocr_url:
@@ -513,27 +513,8 @@ def _close_run(state):
             pass
 
 
-def orchestrate(task, arm="graph", caps=(0, 0.0), out=None, run_dir=None,
-                resolver_backend="endpoint", reset_start=False, restart_env=False, leg_retries=1,
-                output_dir=None, completion_guard="deterministic", ocr_url=None, runs_dir=None,
-                context_policy="baseline"):
+def orchestrate(config: OrchestrationConfig):
     """Plan and execute a task, then persist its response and metrics."""
-    config = _OrchestrationConfig(
-        task=task,
-        arm=arm,
-        caps=caps,
-        out=out,
-        requested_run_dir=run_dir,
-        resolver_backend=resolver_backend,
-        reset_start=reset_start,
-        restart_env=restart_env,
-        leg_retries=leg_retries,
-        output_dir=output_dir,
-        completion_guard=completion_guard,
-        ocr_url=ocr_url,
-        runs_dir=runs_dir,
-        context_policy=context_policy,
-    )
     state = _new_run_state(config)
     summary = None
     active_error = None

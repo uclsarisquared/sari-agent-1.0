@@ -52,6 +52,7 @@ from orchestrator.leg_runner import (  # noqa: E402,F401
     write_step_output,
 )
 from orchestrator.orchestration import (  # noqa: E402,F401
+    OrchestrationConfig,
     _current_nearest_cp,
     _load_store_map,
     _resolve_run_dir,

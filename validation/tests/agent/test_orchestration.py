@@ -7,12 +7,12 @@ from orchestrator.task_response import new_response_memory
 
 
 def _config(tmp_path, *, retries=1):
-    return orchestration._OrchestrationConfig(
+    return orchestration.OrchestrationConfig(
         task="Pick up the chips",
         arm="graph",
         caps=(10, 1.0),
         out=None,
-        requested_run_dir=str(tmp_path),
+        run_dir=str(tmp_path),
         resolver_backend="endpoint",
         reset_start=False,
         restart_env=False,
@@ -135,7 +135,10 @@ def test_orchestrate_preserves_run_error_and_always_closes(monkeypatch, tmp_path
     monkeypatch.setattr(orchestration.chime, "beep", lambda: None)
 
     with pytest.raises(RuntimeError, match="planning failed"):
-        orchestration.orchestrate("Pick up the chips", run_dir=tmp_path)
+        orchestration.orchestrate(orchestration.OrchestrationConfig(
+            task="Pick up the chips",
+            run_dir=str(tmp_path),
+        ))
 
     assert closed == [True]
     assert isinstance(state.error, RuntimeError)

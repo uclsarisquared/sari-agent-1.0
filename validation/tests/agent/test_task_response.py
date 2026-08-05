@@ -339,11 +339,11 @@ def test_orchestrate_returns_and_persists_the_same_final_response(tmp_path, monk
         },
     )
 
-    summary = orchestrator.orchestrate(
-        "Pick up the green chips",
+    summary = orchestrator.orchestrate(orchestrator.OrchestrationConfig(
+        task="Pick up the green chips",
         run_dir=tmp_path,
         caps=(1, 1.0),
-    )
+    ))
 
     expected = "Done — I picked up the green chips."
     persisted_summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))

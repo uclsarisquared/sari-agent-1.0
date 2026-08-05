@@ -6,7 +6,7 @@ import sys
 
 from sari_runconfig import RunConfigError, load_run_config, normalize_value
 from agent_core.context_policy import CONTEXT_POLICY_NAMES
-from orchestrator.orchestration import orchestrate
+from orchestrator.orchestration import OrchestrationConfig, orchestrate
 
 def main(argv=None):
     """Parse command-line options and run one orchestrated task."""
@@ -111,11 +111,19 @@ def main(argv=None):
         os.environ["SARI_WS_URI"] = args.ws_uri
 
     task = args.task_opt or args.task or configured("agent", "task") or input("Task: ")
-    orchestrate(task, arm=args.arm, caps=(max(0, args.max_steps), max(0.0, args.max_minutes)),
-                out=args.out, run_dir=args.run_dir, runs_dir=args.runs_dir,
-                resolver_backend=args.resolver_backend,
-                reset_start=args.reset_start, restart_env=args.restart_env,
-                leg_retries=max(0, args.leg_retries), output_dir=args.output_dir,
-                completion_guard=args.completion_guard, ocr_url=args.ocr_url,
-                context_policy=args.context_policy)
-
+    orchestrate(OrchestrationConfig(
+        task=task,
+        arm=args.arm,
+        caps=(max(0, args.max_steps), max(0.0, args.max_minutes)),
+        out=args.out,
+        run_dir=args.run_dir,
+        runs_dir=args.runs_dir,
+        resolver_backend=args.resolver_backend,
+        reset_start=args.reset_start,
+        restart_env=args.restart_env,
+        leg_retries=max(0, args.leg_retries),
+        output_dir=args.output_dir,
+        completion_guard=args.completion_guard,
+        ocr_url=args.ocr_url,
+        context_policy=args.context_policy,
+    ))
