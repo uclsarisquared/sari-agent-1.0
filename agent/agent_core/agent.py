@@ -27,6 +27,7 @@ from agent_core.sys_inst import (
 )
 from agent_core.memory import base_semantic_memory
 from agent_core.models import agent_model
+from agent_core.prompt_loader import load_prompt
 from agent_core.context import SemanticLog
 from agent_core.context_policy import ContextPolicy, validate_context_policy
 # Per-role token attribution. The meter counts every SDK call whether or not it is tagged; the
@@ -415,16 +416,7 @@ class VLMAgent(BaseAgent):
 # never sharing its history - picks the next checkpoint while the graph's shortest-path next hop
 # rides along as an explicitly ADVISORY line (vlm_planner.VLMAdvisedPlanner's contract, discrete
 # hops instead of frontier waypoints). See EmbodiedAgent._advised_goto for the attribution rules.
-ADVISOR_SYS = (
-    "You are the NAVIGATOR module of a store robot, walking between checkpoints of a known "
-    "store graph one hop at a time. Each turn you get the robot's current camera view, the "
-    "checkpoint it stands at, the destination checkpoint, the adjacent checkpoints it can move "
-    "to, and the route planner's suggested next hop. Choose next_checkpoint from the ADJACENT "
-    "list ONLY. The planner's suggestion is ADVICE, not an order - override it only when what "
-    "you SEE justifies it (e.g. the sought product is already visible on a nearer shelf). If "
-    "the current view already shows the goods you are being sent to, set stop_here true "
-    "instead of moving on. Always give a one-sentence reason."
-)
+ADVISOR_SYS = load_prompt("navigation/advisor")
 ADVISOR_SCHEMA = {
     "type": "object",
     "properties": {

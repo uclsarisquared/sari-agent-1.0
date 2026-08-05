@@ -9,6 +9,7 @@ import json
 import time
 
 from agent_core import token_meter
+from agent_core.prompt_loader import load_prompt
 
 
 def _guard_call(client, kwargs):
@@ -26,13 +27,7 @@ def _guard_call(client, kwargs):
         return request_client.chat.completions.create(**kwargs)
 
 
-GUARD_SYSTEM = (
-    "You are a strict pickup-completion classifier for a grocery-store robot. Decide whether the "
-    "HELD SKU is a valid instance of the requested TARGET. Use ordinary product knowledge and the "
-    "current image only as supporting visual context. Attribute/category descriptions may match a "
-    "specific product (for example, a canned breakfast food), but a shared broad category word does "
-    "not make two specifically named products equivalent. Return only the required JSON object."
-)
+GUARD_SYSTEM = load_prompt("orchestrator/pickup_guard")
 
 # The definite-absence exception below is a CODIFICATION, not a behaviour change (MEASURED
 # 2026-07-31, A/B on three saved run frames, temperature 0): the pre-2026-07-31 wording ALREADY
@@ -45,95 +40,15 @@ GUARD_SYSTEM = (
 # emergent rather than specified, and pinning it costs nothing. Do NOT loosen the inability clause on
 # the theory that it blocks completion: it is what forces the rotate-until-front-facing behaviour,
 # and an inspect leg that may answer "I could not see it" is trivially completable.
-INSPECT_GUARD_SYSTEM = (
-    "You are a visual inspection verifier for a grocery-store robot. You receive one or more images "
-    "the robot actually used, in the order it observed them, an observation QUERY, and the robot's "
-    "REPORTED ANSWER. Decide whether those images, CONSIDERED TOGETHER, plausibly support that "
-    "answer. A robot holds one item per hand and can only turn ONE item's printed label toward the "
-    "camera at a time, so when the query spans several items each item's supporting evidence will "
-    "normally come from a DIFFERENT image: judge each claimed reading against whichever supplied "
-    "image shows that item, and never reject an answer merely because no single image shows every "
-    "item at once. Every item, value, or reading the answer asserts must still be supported by some "
-    "supplied image; if any item the query needs has no image showing its relevant label, return "
-    "match=false. This is read-only reporting: do not infer manipulation or "
-    "physical-state completion. If the query concerns nutritional facts, ingredients, an expiration "
-    "date, or other printed item text, require the relevant printed surface to directly face the "
-    "camera and be visible in the supplied image that supports it; the sandbox's rendered textures "
-    "are frequently low-"
-    "resolution, so exact character-by-character legibility is NOT required — a label that is "
-    "visibly present and facing the camera, even if small, slightly blurred, or only partly sharp, "
-    "is sufficient support as long as the reported answer is plausible given what can be made out. "
-    "An edge-on, oblique, upside-down, largely hidden, or merely glimpsed label must still return "
-    "match=false. If the relevant objects, count, label, or date are not sufficiently visible at "
-    "all, return match=false. The reported answer must directly and concretely answer the query "
-    "with the requested facts, values, count, date, or identification. A statement about visibility "
-    "or a needed next action—such as saying the label is unreadable, needs rotation, or needs a "
-    "better view—is not an answer to the query and must return match=false even when the image "
-    "supports that statement. ONE exception, and only one: a DEFINITE ABSENCE is a real answer. When "
-    "the reported answer states that the queried item is simply NOT PRESENT here—not on this shelf, "
-    "not in this aisle—return match=true if the supplied images show that area clearly enough for "
-    "that claim to hold: the shelves are visible and the item is not among them. Absence is not the "
-    "same as inability, and the distinction is the whole point: 'no Choco Mallows are on this shelf' "
-    "is an answer, while 'I cannot see it yet', 'I need to get closer', or 'it needs rotation' stay "
-    "match=false. If the images are too dark, too distant, or too narrow to tell presence from "
-    "absence, return match=false. Return only the required JSON object."
-)
+INSPECT_GUARD_SYSTEM = load_prompt("orchestrator/inspect_guard")
 
-INSPECTION_VISIBILITY_SYSTEM = (
-    "You are a fresh-frame visibility gate inside a deterministic held-item inspection tool. "
-    "Use only the supplied image and INSPECTION REQUEST. Return match=true only when the specific "
-    "printed information requested—such as a Nutrition Facts panel or an expiration date—is directly "
-    "facing the camera AND LEGIBLE enough for the main agent to read and report its actual values. "
-    "LEGIBILITY IS MANDATORY, not optional: the individual words, numbers, and date characters needed "
-    "to answer the request must be clearly readable and unambiguous at the image's current resolution. "
-    "A label that is merely visible, recognizable, or known to be present must return match=false when "
-    "its requested text is too small, blurred, pixelated, obscured by glare, cropped, angled, or partly "
-    "hidden. For Nutrition Facts, seeing the panel outline or the words 'Nutrition Facts' is not enough; "
-    "the relevant value rows must be readable. For an expiration date, every character of the complete "
-    "date must be readable without guessing. If uncertain whether the requested text can actually be "
-    "read, return match=false. Seeing only the package, another side panel, or a barcode is also "
-    "insufficient. Do not extract or report the values yourself and do not reason about actions or "
-    "rotation; only decide whether the requested text is both visible and legible. PaddleOCR text "
-    "may be supplied as UNTRUSTED AUXILIARY EVIDENCE. Use it to help resolve tiny characters only "
-    "when it is consistent with the requested label visibly facing the camera; unrelated package or "
-    "background OCR must not cause match=true, and OCR never relaxes the front-facing requirement. "
-    "Return only the required JSON object."
-)
+INSPECTION_VISIBILITY_SYSTEM = load_prompt("orchestrator/inspection_visibility")
 
-INSPECTION_LABEL_PRESENCE_SYSTEM = (
-    "You are a fresh-frame label-location gate inside a deterministic held-item inspection tool. "
-    "Use only the supplied image and INSPECTION REQUEST. This check is deliberately less strict than "
-    "the separate legibility gate. Return match=true when the specific requested label surface—such "
-    "as the Nutrition Facts panel or the printed expiration-date area—is recognizably present AND "
-    "DIRECTLY FACING THE CAMERA, even when its words or numbers are still too small or blurry to "
-    "read. This is a side-locking decision: match=true tells the robot to STOP ROTATING permanently, "
-    "so front-facing orientation is mandatory. The label plane should look substantially flat-on, "
-    "with little perspective foreshortening; readable lines seen obliquely, as a narrow trapezoid, or "
-    "around a package edge must return match=false so rotation continues until the panel faces the "
-    "camera squarely. Do not match merely because the package, a barcode, ingredients panel, unrelated "
-    "text, or a thin edge of an unknown label is visible. If uncertain whether this is the requested "
-    "label or whether it is directly front-facing, return match=false. Do not extract values. Return "
-    "only the required JSON object."
-)
+INSPECTION_LABEL_PRESENCE_SYSTEM = load_prompt("orchestrator/inspection_label_presence")
 
-COMPARE_GUARD_SYSTEM = (
-    "You are a strict visual comparison verifier for a grocery-store robot. You receive labeled "
-    "candidate images, a comparison CRITERION, and the robot's REPORTED CHOICE. Decide whether the "
-    "images, considered together, conclusively support that choice. Compare only evidence directly "
-    "visible in the supplied images; do not use a product catalog, hidden store data, or unsupported "
-    "product knowledge. If any candidate, relevant label, value, or distinguishing feature needed "
-    "for the comparison is not sufficiently visible, return match=false. Return only the required "
-    "JSON object."
-)
+COMPARE_GUARD_SYSTEM = load_prompt("orchestrator/compare_guard")
 
-UNKNOWN_GUARD_SYSTEM = (
-    "You are a strict visual task-completion verifier for a grocery-store robot. Given the robot's "
-    "current image, an unstructured TASK, and its COMPLETION CLAIM, decide whether the image "
-    "conclusively supports that the task is complete. You may verify observation or manipulation "
-    "state only when the relevant object and state are directly visible. Do not use a product "
-    "catalog, hidden store data, or infer off-camera actions or outcomes. If the visible evidence is "
-    "insufficient, return match=false. Return only the required JSON object."
-)
+UNKNOWN_GUARD_SYSTEM = load_prompt("orchestrator/unknown_guard")
 
 _SCHEMA = {
     "type": "object",

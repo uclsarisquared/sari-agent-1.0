@@ -10,6 +10,7 @@ from agent_core import token_meter
 from agent_core.agent import call_with_api_retries, agent_vlm_config
 from agent_core.context_policy import ContextPolicy
 from agent_core.models import agent_model
+from agent_core.prompt_loader import load_prompt
 from orchestrator.subtask_completion import TYPED_DECOMPOSER_SYSTEM, parse_decomposition
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / "config.env")
@@ -81,27 +82,9 @@ def generate_findings_summary(
     Passed to the orchestrator so all future subtask agents receive accumulated context.
     """
     if context_policy.findings_max_chars is None:
-        system = (
-            "You are a findings reporter for an Embodied AI Agent in a 3D convenience "
-            "store simulation. After a subtask completes, produce a comprehensive findings "
-            "summary for future agent instances. Include ALL of the following:\n"
-            "  1. POSITION: Current agent position in plain English (near which shelf/counter).\n"
-            "  2. HANDS: What each hand is holding (gripped items, or empty).\n"
-            "  3. OBJECTS LOCATED: Every object/item seen and its approximate shelf or position.\n"
-            "  4. NAVIGATION INSIGHTS: Which paths/routes worked; where the agent got stuck or lost.\n"
-            "  5. SEMANTIC LEARNINGS: Key facts about the store environment learned this subtask.\n"
-            "  6. WHAT TO AVOID: Any approaches that failed or cost unnecessary time.\n"
-            "  7. UPCOMING TASK PREP: Specific observations that will help with future subtasks.\n"
-            "Be comprehensive and factual. Future agents cannot re-explore what you already found, "
-            "so document every useful detail."
-        )
+        system = load_prompt("orchestrator/findings_full")
     else:
-        system = (
-            "Write a concise factual handoff for the next store-agent subtask. State only the "
-            "current position, what each hand holds, useful object locations/routes, failed "
-            "approaches to avoid, and facts that directly prepare the remaining task. Use compact "
-            "sentences and no preamble."
-        )
+        system = load_prompt("orchestrator/findings_compact")
     user = (
         f"Completed subtask: {completed_subtask}\n\n"
         f"Final agent state:\n{json.dumps(final_state, indent=2, default=str)}\n\n"

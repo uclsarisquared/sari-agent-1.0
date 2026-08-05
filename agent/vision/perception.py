@@ -26,6 +26,7 @@ GRAB_DISTANCE_THRESHOLD = 2.0  # units; beyond this, retrieve_item refuses to gr
 # shared, so it cannot skew the arms.
 from agent_core.agent import _endpoint_creds, call_with_api_retries
 from agent_core.models import agent_model
+from agent_core.prompt_loader import load_prompt, render_prompt
 # Every LLM call in this module is perception's cost - bbox, centering and OCR-bbox reasoning alike.
 # The role blocks wrap call_with_api_retries, not the lambda inside it, so a flaky call's retries are
 # billed to perception as well; the endpoint charged for them.
@@ -72,31 +73,9 @@ PPD_PITCH = 16.4
 # [0,292,249,406], which is the real bottom-left product ONLY read as [xmin,ymin,xmax,ymax]; read
 # ymin-first it lands on the ceiling. The parser (_detect_bbox_px/_detect_boxes_px) reads xmin-first
 # to match, so keep the prompt and parser in agreement.
-PERCEPTION_PROMPT = ("Detect the <target_object> from the provided info about it. The box_2d should be [xmin, ymin, xmax, ymax] in the image normalized to 0-1000. "
-                     "The top-left corner of the image is the origin. The x- and y-axes go horizontally and vertically, respectively. "
-                     "Return one JSON object with a label. If the target is genuinely not visible, return the empty JSON array []. "
-                     "Never return masks or code fencing. Limit to one object only. "
-                     "Example output:\n\n"
-                     "```json\n"
-                     "{'box_2d': box_2d, 'label': target_object}\n"
-                     "```\n\n")
-PERCEPTION_PROMPT_MULTI = ("Detect up to 12 instances of the <target_object> from the provided info about it - the ones CLOSEST to the centre of the image. "
-                           "Each box_2d is [xmin, ymin, xmax, ymax] normalized to 0-1000, origin at the top-left, x horizontal and y vertical. "
-                           "Return a JSON array with one entry per instance and nothing else; return [] only when no matching target is genuinely visible. "
-                           "Never return masks or extra code fencing. "
-                           "Example output:\n\n"
-                           "```json\n"
-                           "[{'box_2d': box_2d, 'label': target_object}, {'box_2d': box_2d, 'label': target_object}]\n"
-                           "```\n\n")
-FIND_MOST_SIMILAR_OCR_BBOX_PROMPT = ("An OCR tool was used to extract texts from the image. "
-                                     "Find the most semantically similar bounding box to the <target_object>. "
-                                     "An Embodied AI Agent will be using this bounding box to center the agent's perspective on the target. "
-                                     "You will receive a list of bounding boxes and their labels along with the <target_object>. "
-                                     "Return the bounding box that best matches the <target_object>. "
-                                     "Example output:\n\n"
-                                     "```json\n"
-                                     "{'box_2d': box_2d, 'label': target_object}\n"
-                                     "```\n\n")
+PERCEPTION_PROMPT = load_prompt("vision/detect_one")
+PERCEPTION_PROMPT_MULTI = load_prompt("vision/detect_many")
+FIND_MOST_SIMILAR_OCR_BBOX_PROMPT = load_prompt("vision/match_ocr_box")
 
 EXTRACTABLE_JSON_PATTERN = re.compile(r'```\s*json\s*([\s\S]*?)\s*```', re.DOTALL)
 
@@ -1063,13 +1042,7 @@ def detect_object_via_gemini(target_name):
     screenshot = RequestScreenshot(save_image=True)
     im = Image.open(BytesIO(screenshot["image"]))
     im.load()
-    prompt = (f"Detect the {target_name} in the image. The box_2d should be [xmin, ymin, xmax, ymax] in the image normalized to 0-1000. "
-              "The top left corner of the image is the origin. The x and y axis go horizontally and vertically, respectively. "
-              "Return bounding boxes as a JSON array with labels. Never return masks or code fencing. Limit to 1 object only. "
-              "Here is an example output:\n\n"
-              "```json\n"
-              "{'box_2d': box_2d, 'label': label_name}\n"
-              "```\n\n")
+    prompt = render_prompt("vision/detect_legacy", TARGET_NAME=target_name)
 
     with token_meter.role(token_meter.ROLE_PERCEPTION):
         resp = call_with_api_retries(

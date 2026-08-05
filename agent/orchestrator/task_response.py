@@ -13,16 +13,13 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from agent_core.prompt_loader import load_prompt
+
 RESPONSE_MEMORY_FILE = "response_memory.json"
 RESPONSE_FILE = "response.txt"
 RESPONDER_MAX_CHARS = 24_000
 
-RESPONDER_SYSTEM = """You write the final response from an embodied store agent to its user.
-Use only facts in the supplied task journal. Lead with the answer or outcome and write 1-3 concise,
-natural sentences. If the journal contains a verified reported answer, reproduce it faithfully.
-State incomplete work honestly and never imply that failed or unattempted work succeeded.
-Do not mention internal implementation terms such as legs, guards, token counts, logs, journals,
-models, prompts, or retries. Output only the response text."""
+RESPONDER_SYSTEM = load_prompt("orchestrator/responder")
 
 
 def new_response_memory(prompt: str) -> dict[str, Any]:

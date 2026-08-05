@@ -1,8 +1,7 @@
-"""System instructions for the Phase 3 checkpoint annotator.
+"""Prompt composition and JSON schemas for the Phase 3 checkpoint annotator.
 
-Follows the `agent/sys_inst.py` convention (module-level SYS_INST_* constants stating the
-JSON output contract inline), but uses triple-quoted strings - these are multi-paragraph prompts
-that get iterated on, and escaped-newline concatenation makes that painful.
+The instruction text lives under ``agent/prompts/annotator``; this module retains the public
+``SYS_INST_*`` exports, executable schemas, and composition rules used by all annotator backends.
 
 There are FOUR instruction sets, not two, because the cheap classifier is a genuinely different
 job from annotating:
@@ -116,6 +115,9 @@ OPEN DECISIONS (deliberately not baked in yet):
   * Classifier model: written to be model-agnostic; it's narrow enough for a small VLM.
 """
 
+from agent_core.prompt_loader import load_prompt
+
+
 # ---------------------------------------------------------------------------------------------
 # Category enum
 # ---------------------------------------------------------------------------------------------
@@ -162,109 +164,31 @@ def _category_lines():
 # to count a NEAR shelf anywhere in the frame flipped all four to shelf 12/12 while the genuine
 # walls cp22/28/36/40 stayed non_shelf 8/8 (negative control) - a recall fix with no wall
 # regression. The anti-leakage intent survives as "ignore only a SMALL, DISTANT edge shelf".
-SYS_INST_CLASSIFY = """You are a shelf classifier for a store-mapping system. You are shown ONE image: the STANDING view from a fixed checkpoint, looking directly at the surface that checkpoint was placed to observe.
-
-Decide ONLY this: is that surface a shelf holding retail product, or not?
-    - "shelf": any fixture holding retail product - a shelving unit, a rack, or a refrigerated case (product behind glass still counts as a shelf).
-    - "non_shelf": a bare wall, a structural surface, or anything with no retail product on it.
-
-Rules:
-    1. Answer "shelf" if a fixture holding retail product (a shelving unit, rack, or refrigerated case) takes up a substantial part of the frame - roughly a third or more - EVEN IF it sits to one side rather than the centre. A checkpoint at the END of an aisle or in a GAP between units sees its shelf fill one side of the frame while open floor or a plain wall fills the rest; that is still "shelf", and rejecting it discards every product on it. Ignore ONLY a small, DISTANT shelf peeking in at the far edge, too far away to read - that one belongs to a neighbouring checkpoint, not this one.
-    2. Do not describe the scene. Do not list products. Do not explain your reasoning. Classify only.
-    3. If you genuinely cannot tell, answer "shelf". A wall wrongly sent on for annotation is cheap to discard later, but a shelf wrongly rejected loses all of its products permanently.
-
-Output strict JSON only, no prose and no markdown fences, using exactly one of the two labels:
-
-{"label": "<shelf|non_shelf>"}
-"""
+SYS_INST_CLASSIFY = load_prompt("annotator/classify")
 
 
 # ---------------------------------------------------------------------------------------------
 # Stage 2 - shared base
 # ---------------------------------------------------------------------------------------------
 
-SYS_INST_ANNOTATE_BASE = """You are a store-map annotator. You are annotating ONE fixed checkpoint in a store's navigation map. Another system already chose where this checkpoint is and drove the agent to it - you never decide where to go, and you are never asked to navigate.
-
-What you are given:
-    - One or more images taken from this ONE checkpoint, each labelled with its view: STANDING (camera at standing height, level) or CROUCHED (camera lowered, same spot and same direction).
-    - Every view looks at the SAME thing from the SAME spot - only the camera height differs. They OVERLAP: the lower rows of the STANDING view are the upper rows of the CROUCHED view, so the same object can appear in two images.
-
-Rules that apply to everything you write:
-    1. Report only what you can actually see, and never guess. Where a field below tells you to use null or an empty list when you cannot tell, use it - a "don't know" recorded honestly is a correct and useful answer here; an invented one is not.
-    2. Never invent detail you cannot see. Reading "corn flakes" off a box is an observation; calling it "Kellogg's Corn Flakes 500g" without reading the brand and weight is a guess. Report what you can read, not what you assume. (For product names the "items" rules below are stricter still.)
-    3. Describe only what is visible FROM THIS SPOT. Do not speculate about what lies beyond view.
-    4. Do NOT describe how shelves or aisles relate to one another - what is "behind", "opposite", or "next to" what. The map already knows the layout exactly; your spatial guesses would corrupt it. Stick to what is in front of you.
-    5. Output strict JSON matching the shape shown at the end of these instructions. No prose outside the JSON, no markdown fences.
-"""
+SYS_INST_ANNOTATE_BASE = load_prompt("annotator/base")
 
 
 # ---------------------------------------------------------------------------------------------
 # Stage 2 - shelf overlay
 # ---------------------------------------------------------------------------------------------
 
-SYS_INST_ANNOTATE_SHELF = """This checkpoint faces a SHELF - a fixture holding retail product, including refrigerated cases.
-
-Produce these fields:
-
-"semantic_summary"
-    One to three sentences, in natural language, describing this spot as a store guide would: what this shelf holds, plus anything navigationally useful you can SEE from here (an aisle opening, a checkout, a corner). Follow rule 4 - do not describe how this shelf relates to other shelves.
-
-"shelf_type"
-    What this shelf holds overall: ONE value from this list, or TWO if it genuinely holds two kinds - a shelf split between chips and instant noodles, say. Put the dominant one first. Never more than two; if it holds more than two, give the two largest.
-{categories}
-    Judge this from the products themselves. Do not use signs.
-
-"sign_text"
-    If a category or aisle sign is legible anywhere in ANY view - including at the edges of a frame - copy its text verbatim. Otherwise null. This is a plain observation, nothing more: do NOT let it influence "shelf_type", and do NOT assume the sign refers to the shelf you are facing. In this store a visible sign usually belongs to a different aisle.
-
-"items"
-    The products on this shelf, taken from ALL the views you were given. They are one shelf at different camera heights, and each reaches rows the others cut off - the CROUCHED view in particular shows face-on the bottom rows that the STANDING view clips or renders oblique. Enumerate across every view; a product is no less real for appearing in only one of them.
-
-    The views OVERLAP, so list each distinct product EXACTLY ONCE however many views show it. The same box seen in two views is one entry, not two.
-
-    Only THIS shelf counts. If a neighbouring shelf or aisle intrudes at the edge of a frame, its products belong to a different checkpoint - leave them out.
-
-    For each distinct product:
-        - "name": REQUIRED, and it must be the text PRINTED ON THE ITEM'S LABEL - the brand and product name as actually written on the packaging ("Lucky Me! Pancit Canton", "Coca-Cola", "Tostitos"). Read it off the label. Do NOT name an item from its shape, its colour, or your sense of what it probably is - this is the only field anyone searches on later, so it has to be the real printed name.
-          ONLY include an item whose label you can read. If a label is turned away, too small, or too blurred to make out, LEAVE THAT ITEM OUT. Do not add it under a description like "green chip bag", "canned goods", or "bottled water" - an item you can only describe, not read, is not a usable entry, and omitting it is the correct choice, not a failure.
-          ONE entry is ONE product. Never merge several items into a single row and never generalise: "assorted soda bottles", "various cans", "bottled water (assorted brands)", "mixed chips" are all forbidden. If five distinct bottles are legible, that is five entries; the bottles you cannot read are simply left out.
-        - "variant": size, flavour, or variant, ONLY if legible. Otherwise null.
-        - "price": the number printed on THIS product's shelf price tag, copied exactly as shown ("29.95"). The tags sit in a row along the shelf edge, each under the product it belongs to. Use null if you cannot read the digits, and ALSO use null if you cannot tell which tag is this product's - a price paired with the wrong product is worse than no price.
-        - "appearance": a short visual description so someone can spot it again on the shelf ("red box, rooster logo, white lettering"). Describe what it LOOKS like, not what you infer it is - this is used to confirm the right item on arrival.
-        - "category": REQUIRED. The ONE value from the list above that this item belongs to. Judge the ITEM ITSELF, not the shelf around it - on a shelf holding two kinds of product, the item beside this one may well belong to the other category.
-
-    A short list of products you could genuinely read beats a long list padded with descriptions. If you cannot read any label, or the shelf is empty, return an empty list - that is a valid, correct answer, not a failure.
-
-Output strict JSON only:
-
-{{"semantic_summary": "...", "shelf_type": ["..."], "sign_text": null, "items": [{{"name": "...", "variant": null, "price": null, "appearance": "...", "category": "..."}}]}}
-"""
+SYS_INST_ANNOTATE_SHELF = load_prompt("annotator/shelf")
 
 
 # ---------------------------------------------------------------------------------------------
 # Stage 2 - non-shelf overlay
 #
-# NOTE the single braces in the JSON example below, where the shelf overlay doubles them: this
-# constant has no {placeholders}, so build_annotation_instructions() uses it verbatim instead of
-# .format()ing it. Add a placeholder here and you must double every literal brace at the same time.
+# NOTE the non-shelf asset has no ``{placeholders}``, so build_annotation_instructions() uses it
+# verbatim. The shelf asset is formatted with ``categories`` and must double its literal JSON braces.
 # ---------------------------------------------------------------------------------------------
 
-SYS_INST_ANNOTATE_NON_SHELF = """This checkpoint is NOT a product shelf. It is a pathway, junction, doorway, or a plain surface with no retail product on it.
-
-Produce these fields:
-
-"semantic_summary"
-    One to three sentences, in natural language, describing this spot: what kind of place it is, and anything navigationally useful you can SEE from here (an aisle opening, a doorway, a checkout, signage). Follow rule 4 - do not describe how shelves relate to one another.
-
-"sign_text"
-    If a sign is legible anywhere in ANY view, copy its text verbatim. Otherwise null.
-
-Do NOT list products. There are none here to identify, and inventing them would corrupt the product index. "Nothing to identify here" is the expected, correct outcome for this kind of checkpoint - not a failure.
-
-Output strict JSON only:
-
-{"semantic_summary": "...", "sign_text": null}
-"""
+SYS_INST_ANNOTATE_NON_SHELF = load_prompt("annotator/non_shelf")
 
 
 # ---------------------------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import re as _re
 import moondream as md
 from PIL import Image
 
+from agent_core.prompt_loader import render_prompt
 from sim.env import SendCommand, RequestScreenshot, _GRIP_LEFT_, _GRIP_RIGHT_
 from sim.hand_reset import reset_hands_in_front2
 
@@ -32,9 +33,7 @@ def _point_via_qwen(image: Image.Image, name: str):
     from agent_core.agent import call_with_api_retries
     from agent_core import token_meter
     from vision.perception import CLIENT, MODEL_NAME, _encode_image
-    prompt = (f"Detect the {name} in the image. Reply with ONLY a JSON object "
-              '{"box_2d": [ymin, xmin, ymax, xmax]} normalized to 0-1000. '
-              "If the item is not visible, reply {\"box_2d\": null}.")
+    prompt = render_prompt("vision/qwen_point", TARGET_NAME=name)
     # Billed to perception, not to a role of its own: this is the same pointing job moondream was
     # doing, just on the fallback path, and an ablation of pointing wants both halves in one number.
     with token_meter.role(token_meter.ROLE_PERCEPTION):

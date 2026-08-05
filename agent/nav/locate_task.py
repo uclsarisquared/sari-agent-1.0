@@ -51,6 +51,7 @@ import _bootstrap  # noqa: F401,E402 - slamtest category dirs onto sys.path (fla
 
 from nav.store_map import StoreMap, NavSession  # noqa: E402
 from agent_core.models import agent_model  # noqa: E402
+from agent_core.prompt_loader import load_prompt  # noqa: E402
 from annotate_claude_cli import _strip_unsupported, ClaudeCliError  # noqa: E402
 
 RESOLVE_SCHEMA = {
@@ -93,36 +94,7 @@ VERIFY_SCHEMA = {
 # This ATTRIBUTE-tier version measured 1/12 starved - and that one (Bingo Corned Beef -> [50]) is
 # a correct singleton - with no regression on any name/category task. Generosity is the point:
 # a wrong candidate costs one wasted visit, and the on-site verifier is the ground truth.
-RESOLVER_SYS = (
-    "You are the task resolver for a store agent. You receive a task and the store's product "
-    "index - every product a mapping pass observed, with the checkpoint id where it was seen. "
-    "Checkpoints are standing positions in front of shelves; the agent will drive to your "
-    "candidates and visually verify, so a wrong candidate costs one wasted visit, not a wrong "
-    "outcome.\n\n"
-    "Rules:\n"
-    "1. NAME TIER first: find index rows that plausibly ARE the target. Use world knowledge for "
-    "brand/nickname matching (e.g. 'Coke' is Coca-Cola). The index was written by a vision model "
-    "that often records only the brand - a row naming the brand without the exact variant is "
-    "still a candidate, and telling variants apart is the on-site verifier's job, not yours.\n"
-    "2. ATTRIBUTE TIER when the task names a PROPERTY rather than a product - an ingredient "
-    "('with stevia'), weight, price, origin ('imported'), packaging ('in a wrapper'), size, or "
-    "location ('near the checkout'). Use world knowledge to mark EVERY index row that plausibly "
-    "satisfies the property and return all their checkpoints. Prefer breadth: 4-8 candidates, "
-    "most-plausible first. Being unsure which items satisfy the property is NORMAL here - the "
-    "on-site verifier is the ground truth, your job is only to pick which shelves are worth a "
-    "look. Do not return fewer than 3 candidates on this tier unless the index genuinely offers "
-    "fewer plausible rows.\n"
-    "3. CATEGORY TIER only if neither of the above applies: pick checkpoints whose category "
-    "should hold the target. The category->checkpoint map is provided.\n"
-    "4. UNRESOLVABLE only if the task is nonsensical for a grocery store (e.g. 'find the "
-    "forklift'). Uncertainty about an attribute or a name is NOT unresolvable - guess broadly "
-    "instead; empty candidates strand the agent.\n"
-    "5. candidates: every checkpoint id whose rows (or category) support the target, "
-    "most-plausible first. Do NOT order by store position - you do not know the store's "
-    "geometry, and routing is not your job.\n"
-    "6. target_appearance: describe what distinguishes the target from its nearest lookalikes "
-    "on a shelf (for Coke Zero vs regular Coca-Cola: black label/cap vs red)."
-)
+RESOLVER_SYS = load_prompt("navigation/resolver")
 
 VERIFY_CATEGORY_SCHEMA = {
     "type": "object",
@@ -140,40 +112,9 @@ VERIFY_CATEGORY_SCHEMA = {
     "required": ["category_present", "confidence", "where", "evidence", "examples_seen"],
 }
 
-VERIFIER_CATEGORY_SYS = (
-    "You verify whether a store shelf holds a certain KIND of product (a category - 'chips', "
-    "'canned goods', 'soda'), from up to two views taken at the same spot: STANDING, and "
-    "CROUCHED (same shelf, lower rows seen face-on). Answer STRICTLY from the images.\n\n"
-    "Rules:\n"
-    "1. category_present=true only if you can actually see products of that kind - this is a "
-    "judgment about the SHELF, not about any single product, so a shelf half-full of the "
-    "category counts. A single ambiguous item does not.\n"
-    "2. Never guess through glare or unreadable packaging; unreadable means not confirmed.\n"
-    "3. examples_seen: name the identifiable products that establish the category. An empty "
-    "list with category_present=true is a contradiction - do not produce it.\n"
-    "4. This store's 3-D assets do not always match real-world packaging colors - trust "
-    "legible label TEXT and product shape over expected color schemes."
-)
+VERIFIER_CATEGORY_SYS = load_prompt("navigation/category_verifier")
 
-VERIFIER_SYS = (
-    "You verify whether a specific product is visible on the store shelf in front of you. You "
-    "get up to two views from the SAME spot: STANDING, and CROUCHED (same shelf, lower rows "
-    "seen face-on - bottom rows are dim and oblique in the standing view, so check the crouched "
-    "view for them). Answer STRICTLY from the images; the target counts as visible if it is "
-    "identifiable in EITHER view.\n\n"
-    "Rules:\n"
-    "1. target_visible=true only if you can actually see it - legible label, or unambiguous "
-    "trade-dress (shape + colors). If the packaging colors match but you cannot confirm the "
-    "variant, that is target_visible=false with the lookalike listed in seen_instead.\n"
-    "2. Never guess. Glass doors, glare and distance make labels unreadable; unreadable means "
-    "not confirmed.\n"
-    "3. seen_instead: list close relatives of the target that ARE identifiable (same brand, "
-    "other variant; same category, other brand). This is used to decide whether looking harder "
-    "here is worthwhile, so it matters as much as the verdict.\n"
-    "4. where: precise enough that someone could walk up and point at it.\n"
-    "5. This store's 3-D assets do not always match real-world packaging colors - trust legible "
-    "label TEXT over an expected color scheme when they disagree."
-)
+VERIFIER_SYS = load_prompt("navigation/verifier")
 
 
 # ---------------------------------------------------------------------------- backends
