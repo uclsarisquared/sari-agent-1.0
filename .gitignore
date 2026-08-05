@@ -13,10 +13,10 @@ v3/
 annotations/
 v0.4
 V1
-overhaul/slamtest/output/
-overhaul/slamtest/plans/
-overhaul/subtask_run_outputs
+agent/slamtest/output/
+agent/slamtest/plans/
+agent/subtask_run_outputs
 .DS_Store
-overhaul/depth_image.png
+agent/depth_image.png
 # Distributed Sari Bench results (one dir per battery, screenshots + JSONL inside)
 bench_runs/

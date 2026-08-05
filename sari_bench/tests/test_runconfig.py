@@ -118,7 +118,7 @@ name = "from-config"
 
 
 def test_standalone_agent_uses_config_and_explicit_cli_flags_win(tmp_path: Path) -> None:
-    from overhaul.orchestrator import subtask_agents
+    from agent.orchestrator import subtask_agents
 
     config_path = tmp_path / "run.toml"
     config_path.write_text(

@@ -7,7 +7,7 @@ from typing import Any
 
 import tomli
 
-from overhaul.agent_core.context_policy import CONTEXT_POLICY_NAMES
+from agent.agent_core.context_policy import CONTEXT_POLICY_NAMES
 
 
 class RunConfigError(ValueError):
@@ -131,7 +131,7 @@ def load_run_config(path: str | Path) -> RunConfig:
     """Load and validate a run config.
 
     Relative filesystem values are resolved from the TOML file, making the same file safe to use
-    from both the repository root and ``overhaul/``.
+    from both the repository root and ``agent/``.
     """
 
     config_path = Path(path).expanduser().resolve()

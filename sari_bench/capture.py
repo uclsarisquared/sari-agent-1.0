@@ -115,7 +115,7 @@ def latest_observation(run_dir: Path) -> Path | None:
 
 
 async def request_screenshot(commands_uri: str) -> bytes:
-    """Fetch one native PNG without importing the agent-side ``overhaul/sim`` package."""
+    """Fetch one native PNG without importing the agent-side ``agent/sim`` package."""
     import websockets
 
     async with websockets.connect(commands_uri, max_size=None) as websocket:

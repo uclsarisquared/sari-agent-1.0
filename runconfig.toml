@@ -1,7 +1,7 @@
 # Sari runtime configuration.
 #
 # Both entrypoints accept this file:
-#   uv run python overhaul/orchestrator/subtask_agents.py --config runconfig.toml --task "..."
+#   uv run python agent/orchestrator/subtask_agents.py --config runconfig.toml --task "..."
 #   uv run python -m sari_bench run --config runconfig.toml
 #
 # Explicit command-line flags override this file. Relative paths are resolved from this file,
@@ -32,7 +32,7 @@ max_minutes = 40.0
 
 [environment]
 # Map artifacts used by graph navigation.
-map_dir = "overhaul/slamtest/output_runs/run_0724_164652"
+map_dir = "agent/slamtest/output_runs/run_0724_164652"
 
 # Move only the agent back to its fixed spawn pose before the run.
 reset_start = false
@@ -46,8 +46,8 @@ restart_env = false
 
 [output]
 # Optional standalone output locations. If omitted, the agent creates its normal timestamped run.
-# run_dir = "overhaul/runs/debug"
-# summary = "overhaul/runs/debug/summary.json"
+# run_dir = "agent/runs/debug"
+# summary = "agent/runs/debug/summary.json"
 
 [bench]
 # Prompt battery and attempts per prompt.
@@ -83,7 +83,7 @@ capture_interval = 0.25
 max_steps = 150
 arm = "graph"
 context_policy = "baseline"
-map_dir = "overhaul/slamtest/output_runs/run_0724_164652"
+map_dir = "agent/slamtest/output_runs/run_0724_164652"
 # ocr_url = "http://127.0.0.1:9100"
 leg_retries = 1
 completion_guard = "vlm"

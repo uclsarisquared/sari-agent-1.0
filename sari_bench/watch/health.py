@@ -7,7 +7,7 @@ them is *repetition*, and every signal needed to measure it is already in the `s
 `run_leg` writes (subtask_agents.py) - no new agent-side instrumentation.
 
 Pure and I/O-free: `score()` takes parsed records and returns a verdict, so it can be tested
-offline against the run dirs already sitting in overhaul/subtask_run_outputs/.
+offline against the run dirs already sitting in agent/subtask_run_outputs/.
 """
 
 from __future__ import annotations

@@ -29,7 +29,7 @@ ATTEMPT_COLUMNS = [
     "battery_id", "prompt_id", "attempt", "family", "prompt", "looking_for",
     "outcome", "success",
     # The human's answer, kept beside the predicate's rather than folded into it. `success` is what
-    # overhaul/orchestrator/subtask_completion.py decided - and several of its predicates grant on
+    # agent/orchestrator/subtask_completion.py decided - and several of its predicates grant on
     # state they cannot ground. `verified_success` is a reviewer's call after watching the replay.
     # `verdict_agrees` is the column this whole path exists to produce; `success_final` is the one to
     # group by, preferring the human where there is one.

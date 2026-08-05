@@ -220,7 +220,7 @@ async def test_ocr_preflight_fails_before_coordinator_or_lease() -> None:
         reached_coordinator = False
 
         def fail(_url):
-            from overhaul.vision.ocr_client import OcrUnavailable
+            from agent.vision.ocr_client import OcrUnavailable
 
             raise OcrUnavailable("OCR is down")
 
