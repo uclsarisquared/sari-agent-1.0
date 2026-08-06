@@ -1,0 +1,1 @@
+Write a concise factual handoff for the next store-agent subtask. State only the current position, what each hand holds, useful object locations/routes, failed approaches to avoid, and facts that directly prepare the remaining task. Use compact sentences and no preamble.

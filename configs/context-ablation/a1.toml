@@ -11,6 +11,6 @@ capture_interval = 0.25
 max_steps = 150
 arm = "graph"
 context_policy = "a1"
-map_dir = "../../overhaul/slamtest/output_runs/run_0724_164652"
+map_dir = "../../agent/mapping/output_runs/run_0724_164652"
 leg_retries = 1
 completion_guard = "vlm"

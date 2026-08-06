@@ -1,17 +1,42 @@
-Pillow==10.4.0
-google-genai==1.14.0
-google-auth==2.40.1
-litserve==0.2.9
-python-multipart
-loguru==0.7.3
-requests==2.32.3
-dotenv==0.9.9
-websockets==15.0
-mcp
-paddleocr==2.10.0
-paddlepaddle==3.0.0rc1
-openai==1.79.0
-opencv-python
-replicate
-pynput
-moondream==0.1.0
+# DERIVED FILE — pyproject.toml is the source of truth, uv.lock is the resolved truth.
+#
+# This is the direct-dependency list only, mirroring [project].dependencies in pyproject.toml
+# (constraints verbatim). It exists for consumers that cannot run uv. The supported install is:
+#
+#     uv sync
+#
+# It is deliberately NOT a `pip freeze` / `uv export` dump. The two files this replaced (root +
+# agent/) were whole-environment freezes; they drifted into pinning things nothing here imports
+# (torch==2.2.1+cu121, transformers, scipy, scikit-image) and things that were outright wrong
+# (paddleocr 2.x, the `dotenv` package). See git history: 114cc16~.
+#
+# Regenerate after editing pyproject.toml:
+#     python -c "import tomli;[print(d) for d in tomli.load(open('pyproject.toml','rb'))['project']['dependencies']]"
+#
+# Rationale for the non-obvious constraints lives in pyproject.toml — read it before touching a
+# bound here. Notably: pillow<11 (moondream caps it), numpy<2 and Python 3.10 (measured baseline),
+# paddleocr/paddlepaddle >=3 (the floor is load-bearing; not optional — the checkout path raises
+# without OCR).
+
+# --- Agent runtime -----------------------------------------------------------
+openai>=1.79.0
+python-dotenv>=1.1.0
+tomli>=2.0.0
+loguru>=0.7.3
+
+# --- Unity sim bridge --------------------------------------------------------
+websockets>=15.0
+requests>=2.32.3
+
+# --- Perception / mapping ----------------------------------------------------
+pillow>=10.4.0,<11
+numpy>=1.26.4,<2
+matplotlib>=3.10.3
+moondream>=1.2
+paddleocr>=3.0.0
+paddlepaddle>=3.0.0
+
+# --- Legacy root stack -------------------------------------------------------
+litserve>=0.2.9
+google-genai>=1.14.0
+pynput>=1.7

@@ -7,13 +7,13 @@ readme = "README.md"
 # on 3.10; do not widen without re-measuring.
 requires-python = ">=3.10,<3.11"
 
-# Derived from actual imports, NOT from overhaul/requirements.txt — that file is a whole-
+# Derived from actual imports, NOT from agent/requirements.txt — that file is a whole-
 # environment `pip freeze` (100+ entries incl. torch==2.2.1+cu121, transformers, opencv,
 # scipy, scikit-image). None of those are imported anywhere in this repo, and the +cu121
 # torch pin cannot resolve off Windows/CUDA at all.
 dependencies = [
     # --- Agent runtime -----------------------------------------------------------
-    "openai>=1.79.0",          # UCL vLLM server client (OpenAI-compatible)
+    "openai>=1.79.0",          # client for the OpenAI API compatible endpoint
     "python-dotenv>=1.1.0",    # config.env. NB: not the `dotenv` package — see [tool.uv] note
     "tomli>=2.0.0",            # Python 3.10 TOML reader for runconfig.toml
     "loguru>=0.7.3",
@@ -28,7 +28,7 @@ dependencies = [
     # pillow yields. The repo only uses stable Image open/save/crop/draw APIs.
     "pillow>=10.4.0,<11",
     "numpy>=1.26.4,<2",        # 1.26.4 is the measured pin; 2.x is untested here
-    "matplotlib>=3.10.3",      # slamtest grid/topology renders
+    "matplotlib>=3.10.3",      # mapping grid/topology renders
     # Grab-time pointing; top-level import in md_tools.py. >=1.2 is load-bearing: moondream
     # 0.1.x caps pillow<11, which conflicts with the pillow 11.2.1 the rest of the repo was
     # measured on. It was unpinned in both requirements.txt files, so no pin is being broken.
@@ -47,7 +47,7 @@ dependencies = [
     # --- Legacy root stack -------------------------------------------------------
     "litserve>=0.2.9",         # server.py
     "google-genai>=1.14.0",    # functions.py, comprehension.py
-    "pynput>=1.7",             # keyboard_control.py, slamtest/manual_map.py
+    "pynput>=1.7",             # keyboard_control.py, mapping/manual_map.py
 ]
 
 # NB: there is deliberately no `ocr` extra any more (removed 2026-07-28). paddleocr/paddlepaddle
@@ -57,6 +57,10 @@ dependencies = [
 # Not an installable package — a collection of scripts run in place. Without this, uv would
 # try to build and install the project itself and fail (no package layout).
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["validation/tests"]
+pythonpath = [".", "agent", "agent/mapping"]
 
 # The `dotenv` distribution on PyPI is NOT what `from dotenv import load_dotenv` resolves to;
 # that comes from `python-dotenv`. Both are listed in the old requirements.txt files, which is
@@ -69,16 +73,17 @@ dev = [
 ]
 
 [tool.poe.tasks]
+test = { cmd = "pytest", help = "Run the maintained offline test suite" }
 ocr-server = { cmd = "python -m sari_bench ocr-server", help = "Run the shared runner-local PaddleOCR service on 127.0.0.1:9100" }
 dbench-watch = { cmd = "python -m sari_bench watch --host 0.0.0.0", help = "Live dashboard for a running battery (run beside the runner)" }
 dbench-coordinator = { cmd = "python -m sari_bench coordinator --port 9000", help = "Run the sandbox registry" }
 dbench-status = { cmd = "python -m sari_bench status --coordinator ws://127.0.0.1:9000", help = "Print the current sandbox pool" }
-context-budget = { cmd = "python tools/context_budget_report.py", cwd = "overhaul", help = "Where the context window goes, measured off bench_runs (add --deep for the full retention sweep)" }
+context-budget = { cmd = "python tools/context_budget_report.py", cwd = "agent", help = "Where the context window goes, measured off bench_runs (add --deep for the full retention sweep)" }
 dbench-run = { cmd = "python -m sari_bench run --config runconfig.toml", help = "Run the configured prompt battery across the fleet (needs a coordinator running)" }
 debug-run = { cmd = """
-    python orchestrator/subtask_agents.py
+    python run_agent.py
     --config ../runconfig.toml
     --task "${prompt}"
-""", cwd = "overhaul", help = "Repro a single subtask standalone (default prompt: Get this item)", args = [
+""", cwd = "agent", help = "Repro a single subtask standalone (default prompt: Get this item)", args = [
     { name = "prompt", positional = true, default = "Get this item", help = "Task prompt to run, e.g. 'Pick up Ritz Crackers'" },
 ] }

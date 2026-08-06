@@ -1,5 +1,11 @@
 # SariVoxeLLMap
 
+> **Archived prototype.** This directory is a partial snapshot of the original experiment and is
+> not part of the live agent. The 2026-07-24 repository refactor did not retain its `locator/`,
+> `LoGeR/`, or `test/` directories, so `server.py` does not run as checked in. The design and usage
+> notes below are preserved as historical context; see [`../README.md`](../README.md) for the
+> current status and replacement.
+
 Real-time 3D heightmap server for robotic/agent navigation. Receives RGB camera frames from a Unity client, estimates depth using [Depth-Anything-3](https://github.com/DepthAnything/Depth-Anything-V3), builds a live point cloud, and voxelizes it into a 2D heightmap that is streamed back to Unity over WebSocket.
 
 ---

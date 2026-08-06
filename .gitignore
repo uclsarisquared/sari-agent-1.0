@@ -13,10 +13,16 @@ v3/
 annotations/
 v0.4
 V1
-overhaul/slamtest/output/
-overhaul/slamtest/plans/
-overhaul/subtask_run_outputs
+agent/mapping/output/*
+!agent/mapping/output/grid_final.npy
+!agent/mapping/output/grid_final.png
+agent/mapping/plans/*
+!agent/mapping/plans/phase6/
+agent/mapping/plans/phase6/*
+!agent/mapping/plans/phase6/plan6_working_folder.md
+validation/artifacts/
+agent/subtask_run_outputs
 .DS_Store
-overhaul/depth_image.png
+agent/depth_image.png
 # Distributed Sari Bench results (one dir per battery, screenshots + JSONL inside)
 bench_runs/

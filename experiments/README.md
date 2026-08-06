@@ -1,18 +1,19 @@
 # experiments/ — dormant explorations (May 2026)
 
-Untracked experiment cluster moved here from the repo root 2026-07-24. Nothing in the live
-`overhaul/` stack imports any of this.
+Dormant experiment cluster moved here from the repo root 2026-07-24. Nothing in the live
+agent stack imports any of this.
 
 ## SariVoxeLLMap / VMap (monocular-depth heightmap)
 
 - `VMap_Plan.md` — the integration plan: build a live 2D heightmap from RGB frames +
   Depth-Anything-3 and feed it to the agent for path planning.
 - `SariVoxeLLMap/` — the heightmap package (voxelization, pointcloud, server).
-- `Tests/` — v1-era test scripts and module copies from the same exploration.
+- `v1_tests/` — explicitly V1-era test scripts and module copies from the same exploration.
+- `v1_agent_eval.py` — the legacy V1-style single-task evaluation loop.
 - `tool_test.py` — DA3-BASE multi-frame depth test against the live sim.
 
 Status: never wired into the agent. The problem it targeted (persistent metric spatial memory,
-obstacle map, path planning) was solved in `overhaul/slamtest/` with **real LiDAR** instead of
+obstacle map, path planning) was solved in `agent/mapping/` with **real LiDAR** instead of
 monocular depth — the frozen occupancy grid + checkpoint graph the current agent navigates on.
 If resumed, note VMap_Plan.md's file references predate the 2026-07-24 reorg.
 

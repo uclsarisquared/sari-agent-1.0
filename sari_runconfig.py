@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
 import tomli
 
-from overhaul.agent_core.context_policy import CONTEXT_POLICY_NAMES
+from agent.agent_core.context_policy import CONTEXT_POLICY_NAMES
 
 
 class RunConfigError(ValueError):
@@ -17,10 +18,14 @@ class RunConfigError(ValueError):
 _SCHEMA: dict[str, dict[str, object]] = {
     "agent": {
         "task": str,
-        "arm": {"vlm", "graph", "graph-advised"},
+        "navigation_strategy": {"vlm", "graph", "graph-advised"},
         "context_policy": set(CONTEXT_POLICY_NAMES),
-        "resolver_backend": {"qwen", "claude-cli"},
-        "completion_guard": {"deterministic", "vlm"},
+        # "endpoint" = the configured OpenAI-compatible endpoint on $SARI_MODEL (renamed from
+        # "qwen" 2026-08-05: the model is config, not a vendor, so the value now names the
+        # transport like its sibling does). The old spelling still loads - see
+        # _DEPRECATED_VALUES.
+        "resolver_backend": {"endpoint", "claude-cli"},
+        "completion_guard": {"deterministic", "vlm", "none"},
         "leg_retries": int,
     },
     "limits": {
@@ -57,8 +62,24 @@ _SCHEMA: dict[str, dict[str, object]] = {
         "map_dir": str,
         "ocr_url": str,
         "leg_retries": int,
-        "completion_guard": {"deterministic", "vlm"},
+        "completion_guard": {"deterministic", "vlm", "none"},
     },
+}
+
+# DEPRECATED option values, still accepted so configs and scripts written before a rename keep
+# running. Each is mapped to its current spelling BEFORE validation, so nothing downstream ever
+# sees the old value - the deprecation lives here and nowhere else. Loading one warns on stderr
+# rather than failing: an old battery config should still run, just noisily.
+_DEPRECATED_VALUES: dict[tuple[str, str], dict[str, str]] = {
+    # 2026-08-05: the resolver's endpoint backend was named after the model that happened to be
+    # behind the endpoint. The model is $SARI_MODEL's business, so the value names the transport.
+    ("agent", "resolver_backend"): {"qwen": "endpoint"},
+}
+
+# Deprecated option names are rewritten before strict unknown-key validation. This keeps existing
+# local configs usable while ensuring every consumer sees only the current, descriptive spelling.
+_DEPRECATED_KEYS: dict[tuple[str, str], str] = {
+    ("agent", "arm"): "navigation_strategy",
 }
 
 _PATH_OPTIONS = {
@@ -69,6 +90,23 @@ _PATH_OPTIONS = {
     ("bench", "output_dir"),
     ("bench", "map_dir"),
 }
+
+
+def normalize_value(section: str, key: str, value: Any, source: str = "run config") -> Any:
+    """Map a deprecated option value to its current spelling, warning once per call on stderr.
+
+    Idempotent and a no-op for every value that is not deprecated, so callers can pipe anything
+    through it. Shared with the CLIs (`--resolver-backend qwen`) so a flag and a config file
+    honour the same aliases and print the same warning.
+    """
+    if not isinstance(value, str):
+        return value
+    replacement = _DEPRECATED_VALUES.get((section, key), {}).get(value)
+    if replacement is None:
+        return value
+    print(f"[{source}] {section}.{key} = {value!r} is DEPRECATED and will stop working; "
+          f"use {replacement!r}. Continuing with {replacement!r}.", file=sys.stderr)
+    return replacement
 
 
 def _is_instance(value: object, expected: object) -> bool:
@@ -131,7 +169,7 @@ def load_run_config(path: str | Path) -> RunConfig:
     """Load and validate a run config.
 
     Relative filesystem values are resolved from the TOML file, making the same file safe to use
-    from both the repository root and ``overhaul/``.
+    from both the repository root and ``agent/``.
     """
 
     config_path = Path(path).expanduser().resolve()
@@ -153,6 +191,20 @@ def load_run_config(path: str | Path) -> RunConfig:
     for section, section_values in raw.items():
         if not isinstance(section_values, dict):
             raise RunConfigError(f"{config_path}: [{section}] must be a TOML table")
+        for (deprecated_section, deprecated_key), replacement in _DEPRECATED_KEYS.items():
+            if section != deprecated_section or deprecated_key not in section_values:
+                continue
+            if replacement in section_values:
+                raise RunConfigError(
+                    f"{config_path}: {section}.{deprecated_key} and {section}.{replacement} "
+                    "cannot both be set"
+                )
+            print(
+                f"[{config_path}] {section}.{deprecated_key} is DEPRECATED and will stop "
+                f"working; use {section}.{replacement}. Continuing with the new name.",
+                file=sys.stderr,
+            )
+            section_values[replacement] = section_values.pop(deprecated_key)
         unknown_keys = sorted(set(section_values) - set(_SCHEMA[section]))
         if unknown_keys:
             names = ", ".join(f"{section}.{key}" for key in unknown_keys)
@@ -160,6 +212,7 @@ def load_run_config(path: str | Path) -> RunConfig:
 
         values[section] = {}
         for key, value in section_values.items():
+            value = normalize_value(section, key, value, source=str(config_path))
             _validate_value(config_path, section, key, value, _SCHEMA[section][key])
             if (section, key) in _PATH_OPTIONS:
                 if not value.strip():

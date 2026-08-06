@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return video_main(rest)
     if command == "ocr-server":
-        from overhaul.vision.ocr_server import main as ocr_server_main
+        from agent.vision.ocr_server import main as ocr_server_main
 
         return ocr_server_main(rest)
 

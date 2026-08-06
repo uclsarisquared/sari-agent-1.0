@@ -42,13 +42,13 @@ from sari_bench.storage import (
     upsert_attempt_row,
     write_json_atomic,
 )
-from overhaul.vision.ocr_client import OcrUnavailable, check_ocr_health, resolve_ocr_url
+from agent.vision.ocr_client import OcrUnavailable, check_ocr_health, resolve_ocr_url
 from sari_runconfig import RunConfigError, load_run_config
-from overhaul.agent_core.context_policy import CONTEXT_POLICY_NAMES, resolve_context_policy
+from agent.agent_core.context_policy import CONTEXT_POLICY_NAMES, resolve_context_policy
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-OVERHAUL_DIR = REPO_ROOT / "overhaul"
-ORCHESTRATOR_ENTRY = "orchestrator/subtask_agents.py"
+OVERHAUL_DIR = REPO_ROOT / "agent"
+ORCHESTRATOR_ENTRY = "run_agent.py"
 
 # Grace on top of the agent's own --max-minutes before the harness kills it. The agent's cap is
 # per leg, so a multi-leg task legitimately runs longer than one cap; this is the outer bound.
@@ -159,7 +159,7 @@ class AttemptResult:
 def load_prompts(path: Path) -> list[Prompt]:
     """Reads a prompt battery.
 
-    Accepts the shape already used by ``overhaul/tests/decompose_battery.json`` - either a bare
+    Accepts the shape used by ``validation/fixtures/decomposition/decompose_battery.json`` - either a bare
     list or an object with a ``prompts`` key - so existing batteries work unchanged.
     """
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -225,7 +225,7 @@ class BenchmarkRunner:
     ) -> None:
         self.prompts = {prompt.id: prompt for prompt in prompts}
         self.coordinator_url = coordinator_url
-        # The agent subprocess runs with cwd=overhaul/, not the runner's cwd. Keep the attempt path
+        # The agent subprocess runs with cwd=agent/, not the runner's cwd. Keep the attempt path
         # absolute so --run-dir and the harness manifests always name the same directory.
         self.output_dir = output_dir.resolve()
         self.tries = tries
@@ -243,7 +243,7 @@ class BenchmarkRunner:
         self.context_policy = context_policy
         self.map_dir = map_dir
         self.leg_retries = leg_retries
-        if completion_guard not in {"deterministic", "vlm"}:
+        if completion_guard not in {"deterministic", "vlm", "none"}:
             raise ValueError(f"unsupported completion guard: {completion_guard!r}")
         self.completion_guard = completion_guard
         self.timeout_grace = timeout_grace
@@ -982,9 +982,9 @@ class BenchmarkRunner:
             # Belt to --output-dir's braces. The flag only reaches the call sites the orchestrator
             # explicitly threads it through; this reaches every StoreMap() in the attempt's process
             # (nav/store_map.default_output_dir reads it), so no helper can silently fall back to
-            # the frozen slamtest/output - which in this checkout has no topology_final_shelf.json
+            # the frozen mapping/output - which in this checkout has no topology_final_shelf.json
             # and used to take every attempt down in ~2s as a bare `agent_error`.
-            # Absolute because the agent runs with cwd=overhaul/.
+            # Absolute because the agent runs with cwd=agent/.
             env["SARI_MAP_DIR"] = str(Path(self.map_dir).resolve())
 
         timeout = self.time_limit_minutes * 60.0 + self.timeout_grace
@@ -1303,8 +1303,8 @@ class BenchmarkRunner:
         ]
         if self.map_dir:
             # Resolved, for the same reason SARI_MAP_DIR is (see _spawn_agent): --map-dir is given
-            # relative to the repo root, but the agent runs with cwd=overhaul/, so handing the flag
-            # over verbatim points it at overhaul/<map-dir> and StoreMap dies on its first load.
+            # relative to the repo root, but the agent runs with cwd=agent/, so handing the flag
+            # over verbatim points it at agent/<map-dir> and StoreMap dies on its first load.
             command += ["--output-dir", str(Path(self.map_dir).resolve())]
         return command
 
@@ -1622,7 +1622,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         help="named context-window policy passed to every agent attempt",
     )
     parser.add_argument("--map-dir", default=configured("map_dir"),
-                        help="slamtest output dir the agent loads its map from.")
+                        help="mapping output dir the agent loads its map from.")
     parser.add_argument(
         "--ocr-url",
         default=configured("ocr_url"),
@@ -1632,9 +1632,10 @@ async def async_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--leg-retries", type=int, default=configured("leg_retries", 1))
     parser.add_argument(
         "--completion-guard",
-        choices=["deterministic", "vlm"],
+        choices=["deterministic", "vlm", "none"],
         default=configured("completion_guard", "deterministic"),
-        help="Pickup completion guard passed to the agent (default deterministic).",
+        help="Completion verification passed to the agent; none accepts STOP without "
+             "verification (default deterministic).",
     )
     args = parser.parse_args(argv)
 

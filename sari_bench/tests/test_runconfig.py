@@ -17,7 +17,8 @@ def test_loader_resolves_paths_from_the_config_and_rejects_typos(tmp_path: Path)
     config_path.write_text(
         """
 [agent]
-arm = "graph-advised"
+navigation_strategy = "graph-advised"
+completion_guard = "none"
 
 [environment]
 map_dir = "../maps/frozen"
@@ -30,7 +31,8 @@ tries = 2
     )
 
     config = load_run_config(config_path)
-    assert config.get("agent", "arm") == "graph-advised"
+    assert config.get("agent", "navigation_strategy") == "graph-advised"
+    assert config.get("agent", "completion_guard") == "none"
     assert config.get("environment", "map_dir") == str(tmp_path / "maps" / "frozen")
     assert config.get("bench", "prompts") == str(tmp_path / "prompts" / "battery.json")
 
@@ -39,10 +41,37 @@ tries = 2
         load_run_config(config_path)
 
 
+def test_deprecated_resolver_backend_alias_loads_and_warns(tmp_path: Path, capsys) -> None:
+    """The pre-2026-08-05 spelling still runs: it is rewritten to the current value, so nothing
+    downstream ever sees 'qwen', and the deprecation is announced rather than silent."""
+    config_path = tmp_path / "run.toml"
+    config_path.write_text('[agent]\nresolver_backend = "qwen"\n', encoding="utf-8")
+
+    config = load_run_config(config_path)
+
+    assert config.get("agent", "resolver_backend") == "endpoint"
+    warning = capsys.readouterr().err
+    assert "DEPRECATED" in warning and "'endpoint'" in warning
+
+
+def test_deprecated_agent_arm_key_loads_and_warns(tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "run.toml"
+    config_path.write_text('[agent]\narm = "graph-advised"\n', encoding="utf-8")
+
+    config = load_run_config(config_path)
+
+    assert config.get("agent", "navigation_strategy") == "graph-advised"
+    assert config.get("agent", "arm") is None
+    warning = capsys.readouterr().err
+    assert "DEPRECATED" in warning and "agent.navigation_strategy" in warning
+
+
 @pytest.mark.parametrize(
     "body, message",
     [
-        ('[agent]\narm = "magic"\n', "agent.arm must be one of"),
+        ('[agent]\nnavigation_strategy = "magic"\n',
+         "agent.navigation_strategy must be one of"),
+        ('[agent]\nresolver_backend = "gpt"\n', "agent.resolver_backend must be one of"),
         ("[limits]\nmax_steps = true\n", "limits.max_steps must be an integer"),
         ("[bench]\ntries = 0\n", "bench.tries must be at least 1"),
         ("[mystery]\nvalue = 1\n", r"unknown section\(s\)"),
@@ -118,16 +147,17 @@ name = "from-config"
 
 
 def test_standalone_agent_uses_config_and_explicit_cli_flags_win(tmp_path: Path) -> None:
-    from overhaul.orchestrator import subtask_agents
+    from agent.orchestrator import subtask_agents
+    from orchestrator import cli as orchestrator_cli
 
     config_path = tmp_path / "run.toml"
     config_path.write_text(
         """
 [agent]
-arm = "vlm"
+navigation_strategy = "vlm"
 context_policy = "a5"
 resolver_backend = "claude-cli"
-completion_guard = "vlm"
+completion_guard = "none"
 leg_retries = 3
 
 [limits]
@@ -147,11 +177,10 @@ summary = "runs/one/result.json"
 
     seen: dict[str, object] = {}
 
-    def fake_orchestrate(task, **kwargs):
-        seen["task"] = task
-        seen.update(kwargs)
+    def fake_orchestrate(config):
+        seen.update(vars(config))
 
-    with patch.object(subtask_agents, "orchestrate", fake_orchestrate):
+    with patch.object(orchestrator_cli, "orchestrate", fake_orchestrate):
         subtask_agents.main(
             [
                 "--config",
@@ -171,7 +200,7 @@ summary = "runs/one/result.json"
     assert seen["context_policy"] == "a6-4"
     assert seen["caps"] == (42, 6.5)
     assert seen["resolver_backend"] == "claude-cli"
-    assert seen["completion_guard"] == "vlm"
+    assert seen["completion_guard"] == "none"
     assert seen["leg_retries"] == 3
     assert seen["output_dir"] == str(tmp_path / "map")
     assert seen["run_dir"] == str(tmp_path / "runs" / "one")

@@ -4,10 +4,10 @@ The point of the dashboard is not to show you eight tiles - it is to tell you wh
 A 2-hour attempt that has entered a hallucination loop looks, from the outside, exactly like one
 that is working: the process is alive, steps keep arriving, the log keeps growing. What separates
 them is *repetition*, and every signal needed to measure it is already in the `step` records
-`run_leg` writes (subtask_agents.py) - no new agent-side instrumentation.
+`run_leg` writes (`orchestrator/leg_runner.py`) - no new agent-side instrumentation.
 
 Pure and I/O-free: `score()` takes parsed records and returns a verdict, so it can be tested
-offline against the run dirs already sitting in overhaul/subtask_run_outputs/.
+offline against the run dirs already sitting in agent/subtask_run_outputs/.
 """
 
 from __future__ import annotations

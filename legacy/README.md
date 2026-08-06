@@ -1,7 +1,7 @@
 # legacy/ — the v1 root stack (deprecated)
 
 The original two-process agent, moved here from the repo root 2026-07-24. **Not the current
-agent** — that lives in `overhaul/` (entry: `subtask_agents.py`). Kept for reference and
+agent** — that lives in `agent/` (entry: `run_agent.py`). Kept for reference and
 comparison; do not build on it.
 
 How it worked: `run.py` polls the sim and POSTs screenshots to `server.py` (LitServe on `:8005`),
@@ -14,8 +14,8 @@ uv run python legacy/server.py inf_base   # LitServe on :8005 (or inf_super)
 uv run python legacy/run.py "your task"   # polls the sim, posts to /predict
 ```
 
-The stack is self-contained: its own `env.py`, `actions.py`, `chime.py`, `functions.py`,
-`comprehension.py`, `reference.py`, `ClientGUI.py`, `client.py`, `base_semantic_memory.txt`,
-`fixed_reqs.txt`, and the May-2025 root `subagent_run.py`. These deliberately shadow nothing in
-`overhaul/` — both stacks define their own `env.py`/`actions.py`, which is why the code was never
-shared via `sys.path`.
+The snapshot carries its own `env.py`, `actions.py`, `chime.py`, `functions.py`,
+`comprehension.py`, `reference.py`, `ClientGUI.py`, `fixed_reqs.txt`, and the May-2025 root
+`subagent_run.py`. `openrouter.py` creates `base_semantic_memory.txt` at runtime. These deliberately
+shadow nothing in `agent/` — both stacks define their own `env.py`/`actions.py`, which is why the
+code was never shared via `sys.path`.
