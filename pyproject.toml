@@ -81,7 +81,7 @@ dbench-status = { cmd = "python -m sari_bench status --coordinator ws://127.0.0.
 context-budget = { cmd = "python tools/context_budget_report.py", cwd = "agent", help = "Where the context window goes, measured off bench_runs (add --deep for the full retention sweep)" }
 dbench-run = { cmd = "python -m sari_bench run --config runconfig.toml", help = "Run the configured prompt battery across the fleet (needs a coordinator running)" }
 debug-run = { cmd = """
-    python orchestrator/subtask_agents.py
+    python run_agent.py
     --config ../runconfig.toml
     --task "${prompt}"
 """, cwd = "agent", help = "Repro a single subtask standalone (default prompt: Get this item)", args = [

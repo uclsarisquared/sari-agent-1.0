@@ -33,7 +33,7 @@ usage at all, so there is nothing to add up; its qwen ERROR-fallback path does g
 and is counted. Streamed responses carry no ``usage`` either and land in ``untracked_calls`` rather
 than being guessed at - the repo streams nowhere today, so that counter should stay 0.
 
-Usage (see orchestrator/subtask_agents.py):
+Usage (see run_agent.py):
 
     from agent_core import token_meter
     token_meter.install(run_dir)      # once, before any LLM traffic

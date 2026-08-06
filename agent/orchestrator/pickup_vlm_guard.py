@@ -36,7 +36,7 @@ GUARD_SYSTEM = load_prompt("orchestrator/pickup_guard")
 # hypothesis this edit was written to fix - that the guard could not tell absence from inability, and
 # so sealed the last exit from an inspect leg whose target is not here - was WRONG; the model drew
 # that line on its own. What actually sealed that leg was the scope gate blocking all body motion
-# (see subtask_agents._INSPECT_MOVE_BUDGET_STEPS, the real fix). Kept because the distinction was
+# (see action_dispatch._INSPECT_MOVE_BUDGET_STEPS, the real fix). Kept because the distinction was
 # emergent rather than specified, and pinning it costs nothing. Do NOT loosen the inability clause on
 # the theory that it blocks completion: it is what forces the rotate-until-front-facing behaviour,
 # and an inspect leg that may answer "I could not see it" is trivially completable.

@@ -1,9 +1,9 @@
 # agent/ — layout
 
-Reorganized 2026-07-24: the runtime was split into component packages and everything nothing
-imports lives in a named folder. All imports are package-qualified (`from sim.env import ...`);
-the flat-module era (`from env import ...`) is gone. Run everything from `agent/` — entry
-points carry a `sys.path` shim so `python orchestrator/subtask_agents.py "task"` works directly.
+Reorganized 2026-07-24: the runtime was split into component packages, and everything imported by
+the live agent lives in a named folder. All imports are package-qualified
+(`from sim.env import ...`); the flat-module era (`from env import ...`) is gone. Run everything
+from `agent/`; `run_agent.py` is the stable, human-facing command-line entry point.
 
 ## Component packages (the agent runtime)
 
@@ -16,12 +16,12 @@ points carry a `sys.path` shim so `python orchestrator/subtask_agents.py "task"`
 | `vision/` | `perception.py`, `md_tools.py`, `annotation_tools.py` | Detection/centring/OCR/scan, moondream pointing, bbox annotation |
 | `manip/` | `manipulation.py` | Reach/place envelopes, hand poses, grab primitive |
 | `nav/` | `store_map.py`, `locate_task.py` | Checkpoint-graph navigation, checkout macros, item resolver |
-| `orchestrator/` | `subtask_agents.py` (**CURRENT entry**), `subtask_planning.py`, `subtask_completion.py` | Long-horizon typed-subtask orchestrator: decompose → run legs → judge → retry |
+| `orchestrator/` | `cli.py`, `orchestration.py`, `leg_runner.py`, `subtask_planning.py`, `subtask_completion.py` | Long-horizon typed-subtask orchestrator: decompose → run legs → judge → retry. `subtask_agents.py` remains as a compatibility import façade |
 
 Run the agent:
 
 ```bash
-python orchestrator/subtask_agents.py "find and pick up Pepero"
+python run_agent.py "find and pick up Pepero"
 ```
 
 Cross-package facts worth knowing: mapping keeps FLAT imports (`from capture_walk import ...`) with its
@@ -37,10 +37,11 @@ Root-level runtime state stays at the root because the code writes it CWD-relati
   supervised acceptance checks. Generated evidence goes to its gitignored `artifacts/` directory.
 - **`tools/`** — human-driven utilities: `keyboard_control.py` (WASD driving).
 - **`deprecated/`** — superseded code kept for reference; see its README. Currently
-  `subagent_run.py` (OpenRouter-era orchestrator, replaced by `orchestrator/subtask_agents.py`).
+  `subagent_run.py` (OpenRouter-era orchestrator, replaced by the current typed-subtask
+  orchestrator).
 - **`mapping/`** — the mapping + annotation pipeline (own README, `plans/`, frozen `output/`).
-  Files live in category subfolders (`core/`, `graph/`, `drivers/`, `capture/`, `annotate/`,
-  `scoring/`, `app/`) but imports stay flat via `_bootstrap.py`.
+  Files live in category subfolders (`core/`, `graph/`, `drivers/`, `capture/`, `annotate/`, and
+  `scoring/`) but imports stay flat via `_bootstrap.py`; `pipeline_app.py` is the root GUI entry.
 - **`logs/`, `screenshots/`, `subtask_run_outputs/`** — run outputs, written by the runtime with
   these exact paths. Don't relocate without editing the writers.
 

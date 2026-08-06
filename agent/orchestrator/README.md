@@ -1,4 +1,4 @@
-# Running `subtask_agents.py`
+# Running the agent
 
 Long-horizon task orchestrator: decomposes a natural-language store task into typed
 subtask legs (`pickup` / `goto` / `compare` / `checkout` / `inspect`) and runs each leg as its own
@@ -8,18 +8,18 @@ summary carried forward between legs.
 ## Prerequisites
 
 - The Unity sim must be in **Play mode**.
-- The OpenAI API compatible endpoint must be reachable (credentials and `$SARI_MODEL` loaded
-  from `config.env` at the repo root — three parents up from `orchestrator/`).
+- The OpenAI API compatible endpoint must be reachable (credentials and `$SARI_MODEL` are loaded
+  from `config.env` at the repository root).
 - Run from the `agent` directory:
 
 ```bash
-cd C:/Sari/sari-agent-1.0/agent
+cd agent
 ```
 
 ## Basic usage
 
 ```bash
-python orchestrator/subtask_agents.py --config ../runconfig.toml \
+python run_agent.py --config ../runconfig.toml \
   "get the green Piattos and bring it to the checkout counter"
 ```
 
@@ -30,41 +30,46 @@ override configured values. Paths in TOML are resolved relative to that file.
 
 ## Arguments
 
-All arguments are optional except the task itself.
+All flags are optional. Supply the task positionally or with `--task`; if omitted, the agent
+prompts for it interactively.
 
 | Argument | Default | Meaning |
 |---|---|---|
 | `--config PATH` | none | TOML run configuration; explicit CLI flags override it |
 | `task` (positional) or `--task "..."` | interactive prompt | The long-horizon task in plain English |
 | `--arm {vlm, graph, graph-advised}` | `graph` | Navigation arm. `graph` is the measured-better graph navigator; `vlm` is the old VLM-navigation control arm; `graph-advised` drives each graph hop through a per-hop advisor VLM |
-| `--max-steps N` | `150` | Step cap **per leg** (not per task) |
-| `--max-minutes M` | `40` | Wall-clock cap per leg, in minutes |
+| `--context-policy NAME` | `baseline` | Named context-retention policy: `baseline`, `a1`, `a2c`, `a3`, `a4`, `a5`, `a6-2`, or `a6-4` |
+| `--max-steps N` | `0` | Step cap **per leg** (not per task); `0` means no limit |
+| `--max-minutes M` | `0` | Wall-clock cap per leg, in minutes; `0` means no limit |
 | `--leg-retries N` | `1` | How many times a failed leg is retried (with the failure reason fed into the retry's context) before the whole task aborts; `0` restores abort-on-first-failure |
 | `--resolver-backend {endpoint, claude-cli}` | `endpoint` | Backend for the plan-time map target resolver. `endpoint` is the configured OpenAI-compatible endpoint on `$SARI_MODEL` — the same model the rest of the run uses; `claude-cli` shells out to `claude -p` instead. `qwen` is a deprecated alias for `endpoint` — accepted, but it warns and will be removed |
 | `--completion-guard {deterministic,vlm,none}` | `deterministic` | Completion verification backend. `none` runs no completion verifier and accepts an explicit STOP; it also disables the completion nudge/backstop |
 | `--output-dir DIR` | `mapping/output` | Which mapping map (topology / annotations / grid) to load — defaults to the frozen baseline map |
 | `--run-dir DIR` | auto | Directory for this run's logs and per-step screenshots |
+| `--runs-dir DIR` | `subtask_run_outputs` | Parent directory for automatically named run directories; ignored when `--run-dir` is set |
 | `--out PATH` | `<run-dir>/summary.json` | Where the summary JSON is written |
 | `--reset-start` | off | Drive to the fixed spawn pose once before starting. Eval-reproducibility machinery only — a plain run starts from wherever the agent currently is |
 | `--restart-env` | off | Hard-reset the **store** in Unity first (`ResetEnvironment`: items back on shelves, prior checkouts undone, agent to spawn). Use it so a fresh task doesn't inherit the last run's grabbed / checked-out items. Unlike `--reset-start`, this resets the environment, not just the agent's pose |
+| `--ws-uri URI` | environment/default | Sandbox command WebSocket; overrides `SARI_WS_URI` for this process |
+| `--ocr-url URL` | environment/default | OCR service base URL; falls back to `SARI_OCR_URL`, then `http://127.0.0.1:9100` |
 
 ## Examples
 
 ```bash
 # Default graph arm, explicit caps
-python orchestrator/subtask_agents.py --task "get the green Piattos and bring it to the checkout counter" --arm graph --max-steps 150 --max-minutes 40
+python run_agent.py --task "get the green Piattos and bring it to the checkout counter" --arm graph --max-steps 150 --max-minutes 40
 
 # Control arm (old VLM navigation)
-python orchestrator/subtask_agents.py --task "..." --arm vlm
+python run_agent.py --task "..." --arm vlm
 
 # Per-hop advisor-VLM drive
-python orchestrator/subtask_agents.py --task "..." --arm graph-advised
+python run_agent.py --task "..." --arm graph-advised
 
 # Fresh store state (recommended between unrelated runs)
-python orchestrator/subtask_agents.py "pick up 2 Jin Ramen" --restart-env
+python run_agent.py "pick up 2 Jin Ramen" --restart-env
 
 # Eval-reproducible start from spawn
-python orchestrator/subtask_agents.py --task "..." --reset-start
+python run_agent.py --task "..." --reset-start
 ```
 
 ## Behaviour notes

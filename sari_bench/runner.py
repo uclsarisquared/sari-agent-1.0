@@ -48,7 +48,7 @@ from agent.agent_core.context_policy import CONTEXT_POLICY_NAMES, resolve_contex
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OVERHAUL_DIR = REPO_ROOT / "agent"
-ORCHESTRATOR_ENTRY = "orchestrator/subtask_agents.py"
+ORCHESTRATOR_ENTRY = "run_agent.py"
 
 # Grace on top of the agent's own --max-minutes before the harness kills it. The agent's cap is
 # per leg, so a multi-leg task legitimately runs longer than one cap; this is the outer bound.

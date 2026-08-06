@@ -97,11 +97,11 @@ A good `grid_final.png` has **no grey holes** in the store interior — if it do
 
 ## One-window alternative
 
-`python mapping/app/pipeline_app.py` runs stages 1→5 from a single Tkinter window (subprocesses of the
+`python mapping/pipeline_app.py` runs stages 1→5 from a single Tkinter window (subprocesses of the
 same CLIs, so no defaults drift). It protects the frozen baseline and shows the map building live.
 
 ## Deeper docs
 
 - Annotator prompt history (measured dead ends) → top of `annotator_sys_inst.py`.
 - Node spacing / reading distance constants → `shelf_coverage.py`.
-- Phase design → `plans/phase*.md`.
+- Surviving phase-design notes → `plans/phase6/plan6_working_folder.md`.

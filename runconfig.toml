@@ -1,7 +1,7 @@
 # SARI RUNTIME CONFIGURATION.
 #
 # Both entrypoints accept this file:
-#   uv run python agent/orchestrator/subtask_agents.py --config runconfig.toml --task "..."
+#   uv run python agent/run_agent.py --config runconfig.toml --task "..."
 #   uv run python -m sari_bench run --config runconfig.toml
 #
 # Explicit command-line flags override this file. Relative paths are resolved from this file,

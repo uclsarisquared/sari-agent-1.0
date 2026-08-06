@@ -1,6 +1,6 @@
 """Runner tests: the full lease -> spawn -> release cycle against a stub agent.
 
-The stub stands in for orchestrator/subtask_agents.py (importing the real one pulls the whole model
+The stub stands in for run_agent.py (importing the real one pulls the whole model
 stack). It writes the same summary.json the orchestrator does, so the result-folding path is
 exercised for real. What is being pinned down:
 
@@ -34,6 +34,7 @@ from sari_bench import capture
 from sari_bench.runner import (
     BenchmarkRunner,
     OcrPreflightError,
+    ORCHESTRATOR_ENTRY,
     Prompt,
     ResumeError,
     load_prompts,
@@ -87,6 +88,10 @@ with open(os.path.join(run_dir, "liveness.json"), "r+") as f:
     data = json.load(f); data["end"] = time.time()
     f.seek(0); json.dump(data, f); f.truncate()
 '''
+
+
+def test_default_agent_entry_uses_the_public_launcher() -> None:
+    assert ORCHESTRATOR_ENTRY == "run_agent.py"
 
 
 async def _start_coordinator() -> tuple[Coordinator, str]:

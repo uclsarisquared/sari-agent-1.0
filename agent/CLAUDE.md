@@ -1,4 +1,4 @@
-# Sari — LiDAR mapping + VLM store annotation
+# Sari Agent — LiDAR mapping + VLM store annotation
 
 ## What this is
 
@@ -28,13 +28,15 @@ resolve up close at pickup time. When a design question comes up, this principle
 
 Run from `agent/`. 🎮 = needs the sim in Play mode; the rest are offline.
 
-| # | Phase | Command | Produces |
-|---|---|---|---|
-| 1 | Map 🎮 | `python mapping/drivers/explore.py` | `grid_final.npy/.png`, `topology_final.json` |
-| 2 | Shelf graph | `python mapping/graph/build_shelf_graph.py mapping/output` | `topology_final_shelf.json` + graph PNG |
-| 3 | Reachability | `python mapping/graph/audit_standability.py mapping/output --topology-tag final_shelf` | prints |
-| 4 | Capture 🎮 | `python mapping/capture/capture_walk.py mapping/output --limit 0 --angles 2` | `output/captures/cp<id>_primary.png`, `_crouch.png` |
-| 5 | Annotate | `python mapping/annotate/annotate_pass.py mapping/output` | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
+Use `uv`! Make sure to `uv sync` first.
+
+| # | Phase | Command                                                                                | Produces |
+|---|---|----------------------------------------------------------------------------------------|---|
+| 1 | Map 🎮 | `uv run python mapping/drivers/explore.py`                                             | `grid_final.npy/.png`, `topology_final.json` |
+| 2 | Shelf graph | `uv run python mapping/graph/build_shelf_graph.py mapping/output`                             | `topology_final_shelf.json` + graph PNG |
+| 3 | Reachability | `uv run python mapping/graph/audit_standability.py mapping/output --topology-tag final_shelf` | prints |
+| 4 | Capture 🎮 | `uv run python mapping/capture/capture_walk.py mapping/output --limit 0 --angles 2`           | `output/captures/cp<id>_primary.png`, `_crouch.png` |
+| 5 | Annotate | `uv run python mapping/annotate/annotate_pass.py mapping/output`                              | `annotations_*.json`, `products_*.json`, `semantic_map_*.txt` |
 
 Step 5 is **offline over saved PNGs** — prompts and models can be iterated freely without re-driving
 the sim. Prefer that over re-capturing.
@@ -45,10 +47,9 @@ The runtime is split into component packages with package-qualified imports: `si
 hand_reset, chime), `agent_core/` (agent, sys_inst, memory, memory_gen), `toolset/` (actions,
 actions_str — everything that defines the agent's action/tool vocabulary),
 `vision/` (perception, md_tools, annotation_tools), `manip/` (manipulation), `nav/` (store_map,
-locate_task), `orchestrator/` (subtask_agents — the CURRENT entry — plus subtask_planning,
-subtask_completion). The agent runs as
-`python orchestrator/subtask_agents.py "<task>"`. mapping keeps FLAT imports
-(`from capture_walk import ...`) even though its files live in category subfolders — importing
+locate_task), `orchestrator/` (the CLI and typed-subtask orchestration implementation). The agent
+runs through the stable public entry point: `python run_agent.py "<task>"`. Mapping keeps FLAT
+imports (`from capture_walk import ...`) even though its files live in category subfolders — importing
 `mapping/_bootstrap.py` puts the category dirs on `sys.path` (agent consumers get it via
 `nav.store_map`); mapping scripts import `sim.env` / `nav.store_map` back. `plan6/` was dissolved
 2026-07-24. Maintained tests, probes, calibrations, evals, and acceptance checks now live under
@@ -109,7 +110,7 @@ worked:
   wording is what it is. Several intuitive "improvements" are documented there as *failures*.
 - **Node spacing / reading distance** → the constants in `mapping/graph/shelf_coverage.py`; each carries
   its measured history and the trap that bites when tuning it.
-- **Phase design** → `mapping/plans/phase*.md`.
+- **Surviving phase-design notes** → `mapping/plans/phase6/plan6_working_folder.md`.
 
 ## Current state (2026-07)
 
