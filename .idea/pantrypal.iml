@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/agent" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/sari_bench" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/agent/orchestrator" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/venv" />
     </content>
